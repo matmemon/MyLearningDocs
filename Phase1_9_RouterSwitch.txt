@@ -1,0 +1,1940 @@
+# Topic 9 — Routing and Switching
+
+
+
+## The practical problem
+
+Topic 7 showed your app connecting from `192.168.1.20:52000` to `10.20.1.15:443`. But **how does the packet actually get from your laptop to that server?**
+
+```
+Laptop 192.168.1.20
+    │
+    │  (What tells the laptop to send to 192.168.1.1, not directly?)
+    ▼
+Home router 192.168.1.1 / public 203.0.113.45
+    │
+    │  (What tells the router where 10.20.1.15 is?)
+    ▼
+ISP router
+    │
+    │  (What tells the ISP router the next hop?)
+    ▼
+... several hops ...
+    │
+    ▼
+Destination network router 10.20.1.1
+    │
+    │  (What tells this router the packet is for a local host?)
+    ▼
+Server 10.20.1.15:443
+```
+
+**Every hop is a decision.** At the laptop: "is this local or remote, and if remote, which gateway?" At every router: "what's the next hop for this destination?" At the destination network: "is this for a local host, and what's its MAC?"
+
+**Routing answers the between-networks question. Switching answers the within-network question. ARP is the glue that connects IP (Layer 3) to MAC (Layer 2) for local delivery.**
+
+**This topic explains all three.**
+
+---
+
+## 1. WHY — Why were routing and switching required?
+
+### The two situations
+
+**Situation A — Two computers on the same local network:**
+
+```
+Computer A                  Computer B
+192.168.1.10                192.168.1.20
+     │                           │
+     +----------- LAN -----------+
+```
+
+Same IP subnet. They communicate through a **local switch**.
+
+**Situation B — Two computers on different networks:**
+
+```
+Computer A                  Server B
+192.168.1.10                10.20.1.15
+     │                           │
+     +------ Router ------------+
+```
+
+Different IP networks. Communication requires a **router** or another Layer-3 forwarding device.
+
+**These are different problems requiring different mechanisms.**
+
+### The two problems
+
+**Problem A — How do hosts on the *same* network talk?**
+
+In the 1980s, computers on one cable shared the medium. The sender needed to know **which device** the frame was for — and only that device should process it.
+
+**Solution: MAC addresses + switches.** Each NIC has a unique 48-bit MAC address. A switch learns **which port each MAC is on** and forwards frames **only to that port**.
+
+**Problem B — How do hosts on *different* networks talk?**
+
+By the late 1980s, LANs were islands. A computer on LAN A couldn't reach a computer on LAN B. A bridge could join two LANs, but it just extended the broadcast domain — no logical separation.
+
+**Solution: routers.** A router sits **between** networks. It has an interface on each network, and **routes packets based on destination IP** — forwarding from one network to another.
+
+### What industry was struggling with (1980s–90s)
+
+| Situation | Pain |
+|---|---|
+| **Flat networks** | Every device on one broadcast domain; broadcast storms collapse the LAN |
+| **No internetworking** | Two LANs couldn't communicate without a proprietary bridge/gateway |
+| **No hierarchy** | No concept of "which network is this address on?" |
+| **No scalability** | Adding sites meant adding cables, not routing |
+| **Vendor-specific protocols** | IBM SNA, DECnet, AppleTalk each had their own routing — no interop |
+
+### What triggered the shift
+
+- **Ethernet switches (1990s)** — replaced hubs; each port became its own collision domain, enabling **full-duplex** and **MAC-based forwarding**.
+- **IP as the universal Layer-3 protocol** — routers could forward packets between any vendors' networks.
+- **OSPF, IS-IS, BGP** — dynamic routing protocols made large networks manageable **without manual static routes at every hop**.
+- **VLANs (802.1Q, 1998)** — one physical switch could emulate many **logical** LANs, each with its own broadcast domain.
+
+**Routing and switching exist because a network must both (1) forward frames within a LAN efficiently and (2) forward packets between LANs globally — and no single device can do both well.**
+
+### The deeper insight
+
+Routing and switching operate at **different layers** because they answer **different questions**:
+
+| Device | Decision |
+|---|---|
+| **Switch (Layer 2)** | "Which port has this MAC address?" — inside one broadcast domain |
+| **Router (Layer 3)** | "Which next-hop router gets me closer to this IP prefix?" — across networks |
+
+**You need both.** A network of only switches doesn't scale (broadcast storms, no hierarchy). A network of only routers doesn't scale (every packet routed, no local efficiency).
+
+---
+
+## 2. BEFORE — What existed previously?
+
+### A. Shared-medium Ethernet — hubs and coax (1980s)
+
+Every device on one cable (or one hub) shared the same **collision domain**:
+
+```
+          Hub
+        ┌─┼─┐
+        │ │ │
+       PC1 PC2 PC3
+       (all share one wire)
+```
+
+**How it worked:**
+- When PC1 sent, **every device received the frame**.
+- Only the device whose MAC matched the destination processed it.
+- Two devices sending simultaneously → **collision** → both back off (CSMA/CD).
+
+**Strengths:**
+- **Simple** — no configuration; no MAC table.
+- **Cheap** — a hub is a repeater.
+- **Broadcast was how devices discovered each other.**
+
+**Weaknesses:**
+- **One collision domain** — more devices, more collisions, less throughput.
+- **No segmentation** — a broken or malicious device disrupted everyone.
+- **Flat** — every device on one broadcast domain; broadcasts flooded everywhere.
+
+### B. Bridges — joining two LANs (1980s)
+
+A **bridge** joined **two** Ethernet segments:
+
+```
+Segment A ── [ Bridge ] ── Segment B
+```
+
+**How it worked:**
+- The bridge **learned** which MACs were on each side.
+- Frames destined for the other side were forwarded.
+- **Reduced collision domain per side** (still one shared broadcast domain across both).
+
+**Strengths:**
+- **Segmentation** — reduced collisions.
+- **Selective forwarding** — not every frame crossed the bridge.
+
+**Weaknesses:**
+- **Two ports only** — didn't scale past a few segments.
+- **Broadcast still flooded** everywhere.
+- **No logical network separation** — same IP subnet on both sides.
+
+### C. Early routers (1980s–90s)
+
+A **router** connected two or more networks and **forwarded packets by destination IP** — a fundamentally different mechanism from bridges.
+
+```
+Network A 10.10.5.0/24 ── [ Router ] ── Network B 10.20.1.0/24
+```
+
+**How it worked:**
+- Interface on each network.
+- Inspects destination IP; consults a **routing table**.
+- Forwards to next hop (or directly to a local host).
+
+**Strengths:**
+- **Logical separation** — different subnets; broadcast **stops at the router**.
+- **Hierarchy** — routing tables scale to many networks.
+- **Interoperability** — IP routed between vendor networks.
+
+**Weaknesses:**
+- **Slower than switching** — per-packet, not per-port.
+- **More expensive.**
+- **Static configuration** — manual routing tables.
+
+### The evolution table
+
+| Earlier approach | Limitation | Modern approach |
+|---|---|---|
+| Shared medium | All devices share bandwidth | Switched Ethernet |
+| Hub | Repeats traffic to all ports | Switch forwards based on MAC |
+| One large LAN | Hard to manage and isolate | VLANs + subnet segmentation |
+| Manual paths between networks | Hard to scale | Routers + routing protocols |
+| Static routes everywhere | Hard to maintain at scale | Dynamic routing |
+
+### Strengths of the pre-routing/switching approach
+- **Hubs: simple, cheap, no configuration.**
+- **Bridges: added segmentation without IP configuration.**
+- **Static routing: deterministic.**
+
+These strengths are why **hubs still exist in niche cases** (industrial, test labs) and **static routes are still used** (simple topologies, edge cases).
+
+---
+
+## 3. PROBLEM — Why weren't hubs and bridges enough?
+
+### Problem 1 — Collision domains didn't scale
+
+Every device on a hub **shared the bandwidth** and **added collision probability**. A 10 Mbps hub with 20 devices yielded ~0.5 Mbps each — unacceptable by the mid-1990s.
+
+**The fix: switches.** Each port is its own collision domain; **full-duplex**; **MAC learning**.
+
+### Problem 2 — Flat broadcast domains collapsed
+
+All devices on one LAN share one **broadcast domain**. Broadcasts go to every device. With hundreds of devices:
+- CPU load from processing broadcasts.
+- Bandwidth consumed.
+- A single misbehaving device could **broadcast storm** and take down the LAN.
+
+**The fix: routers + VLANs.** Routers stop broadcasts; VLANs do the same on one switch.
+
+### Problem 3 — No hierarchy, no scale
+
+Bridges only extended one broadcast domain. For 100 sites, you needed either one giant flat network or manual configuration at every hop.
+
+**The fix: dynamic routing protocols** (OSPF, IS-IS, BGP) — routers share reachability automatically.
+
+### Problem 4 — No isolation
+
+On one flat LAN, a compromised device could reach every other device.
+
+**The fix: subnetting + routing.** Different subnets per group; firewall rules between them (Topics 5, 14).
+
+### Problem 5 — Layer-3 devices didn't know where hosts were
+
+A router forwards to a **next hop** — but eventually, the packet must be delivered to a **specific host's MAC** on the destination network. **How does the router find the MAC?**
+
+**The fix: ARP.** Given an IP on a directly connected network, ARP resolves the MAC.
+
+### The gap
+
+A complete network needs:
+
+1. **Layer-2 switching** — efficient local delivery.
+2. **Layer-3 routing** — packets between networks.
+3. **ARP** — binds Layer-3 IPs to Layer-2 MACs.
+4. **Dynamic routing** — scales across many networks.
+5. **VLANs** — switching efficiency with routing-like isolation.
+
+**All five exist today, working together.**
+
+---
+
+## 4. WHAT — What are switching and routing?
+
+### Part 1 — Switching (Layer 2)
+
+#### Definition
+
+> A **switch** is a Layer-2 device that forwards **Ethernet frames** within a **broadcast domain**, based on **destination MAC address**, using a **CAM table** (MAC-to-port mapping).
+
+#### The switch's data unit — the frame
+
+A Layer-2 **frame** contains:
+
+| Field | Purpose |
+|---|---|
+| **Destination MAC** (6 bytes) | Where the frame should go |
+| **Source MAC** (6 bytes) | Where it came from |
+| **EtherType** (2 bytes) | What's inside (IPv4 = 0x0800) |
+| **Payload** | The IP packet |
+| **FCS** (4 bytes) | Frame check sequence — corruption detection |
+
+#### How it works — MAC learning
+
+The switch maintains a **CAM table** (Content Addressable Memory — a fast MAC lookup table):
+
+| MAC address | Port | Age |
+|---|---|---|
+| `AA-AA-AA-AA-AA-AA` | 1 | 0s |
+| `BB-BB-BB-BB-BB-BB` | 2 | 12s |
+| `CC-CC-CC-CC-CC-CC` | 3 | 5s |
+
+**Learning:** when a frame arrives on port N with source MAC M, the switch records `M → port N` in the table.
+
+**Forwarding:**
+
+- **Known unicast** — destination MAC in table → forward only to that port.
+- **Unknown unicast** — destination MAC not in table → **flood** to all ports except the incoming one.
+- **Broadcast** (dest = `FF:FF:FF:FF:FF:FF`) → flood to all ports.
+- **Multicast** → flood or forward to a multicast group.
+
+**Aging:** entries expire after ~5 minutes (300s default). Quiet MACs are re-learned on the next frame.
+
+#### Broadcast domain vs collision domain
+
+| Concept | What it is | Bounded by |
+|---|---|---|
+| **Collision domain** | Devices competing for the same medium (half-duplex only) | Each switch port |
+| **Broadcast domain** | Devices that receive each other's broadcasts | Router, or VLAN boundary |
+
+**Modern switches are full-duplex** — no collisions per port. Collision domain concerns are mostly legacy. **But broadcast domains still matter.** A switch forwards broadcasts to every port. A router does not. A VLAN splits a switch's ports into multiple broadcast domains.
+
+---
+
+### Part 2 — Routing (Layer 3)
+
+#### Definition
+
+> A **router** is a Layer-3 device that forwards **IP packets** between **networks**, based on **destination IP prefix**, using a **routing table**.
+
+#### The routing table
+
+Each router maintains a routing table — one entry per reachable prefix:
+
+| Destination prefix | Next hop | Interface | Metric |
+|---|---|---|---|
+| `0.0.0.0/0` (default) | `203.0.113.1` | eth0 | 0 |
+| `10.0.0.0/8` | `10.0.0.1` | eth1 | 10 |
+| `10.20.1.0/24` | directly connected | eth2 | 0 |
+| `10.10.5.0/24` | `10.0.0.5` | eth1 | 20 |
+
+#### Longest-prefix match — the core algorithm
+
+For a packet to `10.20.1.15` on a router with routes `0.0.0.0/0`, `10.0.0.0/8`, `10.20.0.0/16`, `10.20.1.0/24`:
+
+- **All four routes match** (they all cover `10.20.1.15`).
+- **The `/24` wins** — it's the most specific (longest prefix).
+- The packet goes to `10.20.1.0/24`, which is **directly connected** — the router delivers locally.
+
+**The algorithm, in pseudocode:**
+
+```
+best_match = null
+for each route in routing_table:
+    if (dst_ip & route.mask) == route.network:
+        if best_match is null or route.prefix_len > best_match.prefix_len:
+            best_match = route
+
+if best_match is null:
+    drop packet (or send ICMP unreachable)
+elif best_match.next_hop is "directly connected":
+    deliver locally (ARP for the destination MAC)
+else:
+    forward to best_match.next_hop
+```
+
+#### The default route
+
+`0.0.0.0/0` matches **everything**. It's the **catch-all** — "when you don't know, send here."
+
+On a home router:
+```
+0.0.0.0/0 via <ISP's gateway>
+```
+
+Every packet whose destination isn't a more specific route goes to the ISP. **This is how home networks reach the internet.**
+
+**Only one default route is used** (unless ECMP — rare in small networks). Specific routes always win.
+
+#### Static vs dynamic routing
+
+| | Static routing | Dynamic routing |
+|---|---|---|
+| **How routes get added** | Manually configured | Learned from routing protocols |
+| **Changes** | Manual | Automatic |
+| **Complexity** | Simple for small networks | Complex, but scales |
+| **Scalability** | Poor | Excellent |
+| **Determinism** | Fully deterministic | Depends on protocol convergence |
+| **Failure recovery** | Manual | Automatic |
+| **Example** | `ip route add 10.20.1.0/24 via 10.0.0.5` | OSPF, BGP, IS-IS |
+
+**Static is right for:** small networks, simple topologies, edge cases, default routes.
+
+**Dynamic is right for:** any network with more than a handful of routers, or any network that changes.
+
+#### Dynamic routing protocols
+
+| Protocol | Type | Where used |
+|---|---|---|
+| **RIP** | Distance-vector, hop-count | Legacy; small networks; rarely used |
+| **OSPF** | Link-state, cost-based | Enterprise interior; common in datacenters |
+| **IS-IS** | Link-state | Large ISPs; less common in enterprise |
+| **EIGRP** | Cisco proprietary | Cisco shops |
+| **BGP** | Path-vector | **The internet** — connects autonomous systems |
+
+**Interior vs exterior:**
+- **IGPs** (OSPF, IS-IS, EIGRP) — used **within one organization**.
+- **EGP** (BGP) — used **between organizations**.
+
+**BGP is how the internet works.** Every ISP, cloud provider, and large enterprise runs BGP. It's the protocol that makes "the internet is a network of networks" real.
+
+---
+
+### Part 3 — ARP — the glue between Layer 3 and Layer 2
+
+#### The problem
+
+When a host or router wants to deliver an IP packet **locally** (destination IP is on the same subnet), it must construct an **Ethernet frame** — which requires the **destination MAC address**.
+
+**But the sender only knows the destination IP.**
+
+#### Solution: ARP (Address Resolution Protocol)
+
+**ARP** — for a given IP on the local subnet, find the corresponding MAC.
+
+**The exchange:**
+
+```
+Sender: "Who has 10.20.1.15? Tell 10.20.1.20"       (broadcast to FF:FF:FF:FF:FF:FF)
+Target: "10.20.1.15 is at AA:BB:CC:DD:EE:FF"        (unicast reply)
+```
+
+**ARP request is broadcast** — every device on the subnet receives it. Only the target responds. **The sender caches the result** in an **ARP table** (typically 5–20 minutes).
+
+#### How ARP is used
+
+**Scenario: laptop (`192.168.1.20`) sends to server (`10.20.1.15`)**
+
+1. **Subnet check** (Topic 5): `10.20.1.15` is not on `192.168.1.0/24` — so send to **default gateway**.
+2. **Get gateway's MAC:** the laptop checks its ARP table for `192.168.1.1`. If not cached, ARP for it.
+3. **Construct frame:** destination MAC = gateway's MAC; destination IP = `10.20.1.15`.
+4. **Send.**
+
+**Scenario: router (`10.20.1.1`) delivers to server (`10.20.1.15`)**
+
+1. **Subnet check:** destination is directly connected.
+2. **ARP for `10.20.1.15`** — get the server's MAC.
+3. **Construct frame:** destination MAC = server's MAC; destination IP = `10.20.1.15`.
+4. **Send.**
+
+**ARP binds "the IP address I want to reach" to "the MAC address I need to frame to." This is the glue between Layer 3 (IP) and Layer 2 (Ethernet).**
+
+#### The critical ARP detail — MACs change, IPs don't
+
+**A packet's IP addresses stay the same end-to-end. Its MAC addresses change at every hop.**
+
+```
+Hop 1: Laptop → Home router
+       Src MAC: laptop's MAC     Src IP: 192.168.1.20
+       Dst MAC: router's MAC     Dst IP: 10.20.1.15
+
+Hop 2: Home router → ISP router
+       Src MAC: router's WAN MAC  Src IP: 192.168.1.20 (or NAT'd)
+       Dst MAC: ISP router's MAC  Dst IP: 10.20.1.15
+
+Hop N: Last router → Server
+       Src MAC: router's MAC      Src IP: 192.168.1.20 (or NAT'd)
+       Dst MAC: server's MAC      Dst IP: 10.20.1.15
+```
+
+**Each hop uses ARP to find the next hop's MAC.** The IP header is untouched (except for TTL decrement and NAT). **This is why IP is "Layer 3 end-to-end" and Ethernet is "Layer 2 hop-by-hop."**
+
+#### ARP edge cases
+
+- **Gratuitous ARP** — a host announces its own IP-to-MAC mapping unprompted. Used after an interface comes up or a failover, to update switches and peers immediately.
+- **ARP spoofing** — a malicious host claims another IP's MAC. Classic LAN attack. Mitigated by **Dynamic ARP Inspection** on switches and by **static ARP entries** for critical hosts.
+- **Proxy ARP** — a router answers ARP on behalf of hosts on the other side. Used in some VPN/mobile scenarios; can be a security risk.
+- **ARP cache poisoning** — same as spoofing.
+
+---
+
+### Part 4 — VLANs
+
+#### Definition
+
+> A **VLAN (Virtual LAN)** is a **logical** broadcast domain that can span multiple switches. Devices on the same VLAN behave as if they're on the same physical LAN, even if they're on different switches.
+
+#### The problem VLANs solve
+
+Before VLANs, to have multiple broadcast domains, you needed **multiple physical switches** (or a router). **VLANs let one physical switch emulate many logical switches:**
+
+```
+Physical switch, configured with VLAN 10, 20, 30
+Port 1-8:   VLAN 10 (engineering)
+Port 9-16:  VLAN 20 (finance)
+Port 17-24: VLAN 30 (management)
+```
+
+- Broadcasts from VLAN 10 don't reach VLAN 20.
+- Hosts in VLAN 10 can't reach VLAN 20 without **inter-VLAN routing**.
+- Traffic to/from the switch is **tagged** with the VLAN ID via **802.1Q**.
+
+#### 802.1Q tagging
+
+The 802.1Q standard adds **4 bytes** to the Ethernet frame header:
+
+```
+[ Dest MAC | Src MAC | 802.1Q tag (4B) | Type | Payload | FCS ]
+                           │
+                           ├─ TPID (0x8100)
+                           ├─ Priority (3 bits — QoS)
+                           ├─ Drop Eligible (1 bit)
+                           └─ VLAN ID (12 bits — 0–4095)
+```
+
+**VLAN IDs:** 1–4094 (0 and 4095 reserved). **VLAN 1** is often the default.
+
+#### Port types
+
+| Port type | Behaviour |
+|---|---|
+| **Access port** | Belongs to one VLAN. Frames leave **untagged** to the connected host. |
+| **Trunk port** | Carries **multiple VLANs**, each frame tagged with its VLAN ID. Typically connects switches or a switch-to-router link. |
+
+**Hosts don't know about VLANs.** They send untagged frames; the access port tags them on the way into the switch, and strips tags on the way out.
+
+#### Inter-VLAN routing
+
+Hosts on different VLANs can't talk without a Layer-3 device. Two common patterns:
+
+**1. Router-on-a-stick** — one router interface, with **sub-interfaces** for each VLAN, connected to a trunk port:
+
+```
+Router
+  ├─ eth0.10 (VLAN 10) IP: 10.10.10.1
+  ├─ eth0.20 (VLAN 20) IP: 10.10.20.1
+  └─ eth0.30 (VLAN 30) IP: 10.10.30.1
+       (all on one physical eth0, trunk to switch)
+```
+
+Traffic from VLAN 10 to VLAN 20 flows: host → switch → trunk → router sub-interface → back through trunk → switch → host. **Every inter-VLAN packet traverses the router.**
+
+**2. L3 switch** — the switch itself routes between VLANs (using **SVIs** — Switch Virtual Interfaces):
+
+```
+L3 Switch
+  ├─ SVI VLAN 10 IP: 10.10.10.1
+  ├─ SVI VLAN 20 IP: 10.10.20.1
+  └─ SVI VLAN 30 IP: 10.10.30.1
+```
+
+**Faster** — routing happens in hardware (ASIC). **Modern datacenter designs use L3 switches** — most traffic is routed as fast as it's switched.
+
+---
+
+### Part 5 — Spanning Tree Protocol (STP)
+
+**Essential to L2 networks and frequently causes production outages.**
+
+**The problem:** Ethernet frames have **no TTL**. If a switch topology has a **loop**, broadcasts flood endlessly — a **broadcast storm** that takes down the entire LAN within seconds.
+
+**The solution:** **STP (802.1D), RSTP (802.1w), MSTP (802.1s)** — switches elect a **root bridge**, build a **spanning tree** (loop-free topology), and **block** redundant links. If the active link fails, STP **reconverges** and unblocks a backup.
+
+**Why it matters operationally:**
+- **STP reconvergence takes seconds to minutes** (RSTP: sub-second; classic STP: 30–50s). A common cause of "the network is down" outages.
+- **STP misconfiguration** (wrong root bridge, inconsistent priority) causes suboptimal paths.
+- **BPDU Guard** — a security feature that disables ports receiving unexpected BPDUs (prevents rogue switches).
+
+**Modern alternatives:** L3-everywhere designs (routing between every switch) avoid STP entirely — no loops by design. **This is increasingly the Principal-level recommendation.**
+
+---
+
+### Part 6 — Important terminology
+
+| Term | Meaning |
+|---|---|
+| **Frame** | Data unit at the Ethernet/link layer |
+| **Packet** | Data unit at the IP/network layer |
+| **MAC address** | Link-layer address |
+| **IP address** | Network-layer address |
+| **Switch** | Forwards frames |
+| **Router** | Forwards packets |
+| **Routing table** | Contains destination network routes |
+| **MAC address table** | Maps learned MAC addresses to switch ports |
+| **Next hop** | The next router/device to which a packet is forwarded |
+| **Broadcast domain** | Portion of a network where a broadcast reaches |
+| **Collision domain** | Portion where simultaneous transmissions could collide (legacy) |
+
+**Remember:** A switch doesn't replace a router, and vice versa. Some enterprise devices combine both.
+
+---
+
+## 5. FEATURES — What do switches and routers provide?
+
+### Switching features
+
+| Feature | What it does | Problem it solves |
+|---|---|---|
+| **MAC learning** | Builds CAM table from source MACs | Efficient forwarding |
+| **Selective forwarding** | Forwards only to the target port | Reduces load on other ports |
+| **Flooding** | Sends unknown/broadcast frames to all ports | Discovery without ARP cache |
+| **Full-duplex** | Simultaneous send/receive | Doubles capacity; no collisions |
+| **VLANs (802.1Q)** | Multiple logical L2 networks on one switch | Segmentation without extra hardware |
+| **Trunking** | Multiple VLANs on one link | Efficient uplinks |
+| **STP / RSTP / MSTP** | Loop prevention | Broadcast storm protection |
+| **Link aggregation (LACP)** | Multiple physical links = one logical | Bandwidth + redundancy |
+| **Port security** | Limit MAC addresses per port | Prevent MAC floods |
+| **802.1X** | Port-based authentication | Prevent unauthorized access |
+| **PoE** | Power over Ethernet | Power IP phones, cameras, APs |
+
+### Routing features
+
+| Feature | What it does | Problem it solves |
+|---|---|---|
+| **Longest-prefix match** | Most specific route wins | Precise forwarding |
+| **Default route** | Catch-all for unmatched | Internet reachability |
+| **Static routes** | Manually configured | Deterministic simple topologies |
+| **Dynamic routing (OSPF, BGP)** | Automatic route distribution | Scale and convergence |
+| **Metric / cost** | Path preference | Choose best path |
+| **Equal-cost multipath (ECMP)** | Multiple equal-cost routes used simultaneously | Bandwidth + redundancy |
+| **Route summarization** | One route covers many subnets | Smaller tables |
+| **Policy routing** | Route by criteria beyond destination | Traffic engineering |
+| **VRF / VRF-lite** | Multiple routing tables on one device | Tenant isolation |
+| **NAT** | Address translation (Topic 5) | IPv4 conservation, topology hiding |
+
+### ARP features
+
+| Feature | What it does |
+|---|---|
+| **IP-to-MAC resolution** | Enables IP over Ethernet |
+| **ARP cache** | Avoids repeated broadcasts |
+| **Gratuitous ARP** | Announce IP-to-MAC changes |
+| **Proxy ARP** | Router answers for remote hosts |
+
+### Layers of operation
+
+| OSI layer | Function | Typical device |
+|---|---|---|
+| Layer 1 — Physical | Signal transmission | Hub, repeater, cable |
+| Layer 2 — Data Link | Frame forwarding using MAC addresses | Layer-2 switch |
+| Layer 3 — Network | Packet forwarding using IP addresses | Router / Layer-3 switch |
+
+A **Layer-3 switch** performs both Layer-2 switching and IP routing — the blur between switch and router.
+
+---
+
+## 6. COMPARISON — Switch vs Router vs Hub (10 dimensions)
+
+### Basic comparison
+
+| Feature | Hub | Layer-2 switch | Router |
+|---|---|---|---|
+| **Main function** | Repeats signals | Forwards frames | Forwards packets |
+| **Address used** | None | MAC | IP |
+| **OSI layer** | 1 | 2 | 3 |
+| **Learns addresses** | No | MAC addresses | IP routes |
+| **Connects separate IP networks** | No | Not normally | Yes |
+| **Collision domains** | Shared | Per port | Per interface |
+| **Broadcast handling** | Repeats signals | Within VLAN | Does not forward L2 broadcasts |
+| **Speed** | Very slow (shared) | Very fast (ASIC) | Fast (ASIC in L3 switch) to slow (software) |
+| **Cost per port** | Cheapest | Cheap | More expensive |
+| **Loop handling** | No mechanism | STP/RSTP required | TTL prevents loops |
+
+### Ten-dimension comparison — switching vs routing
+
+| Dimension | Switching (Layer 2) | Routing (Layer 3) |
+|---|---|---|
+| **Architecture** | Frames within one broadcast domain | Packets across networks |
+| **Working mechanism** | Forward by destination MAC (CAM table) | Forward by destination IP (routing table, longest-prefix match) |
+| **Performance** | Very fast (hardware ASIC) | Fast (ASIC in L3 switches) to slower (software) |
+| **Scalability** | Bounded by broadcast domain size | Scales to internet size (millions of prefixes) |
+| **Reliability** | STP loop prevention; limited redundancy | ECMP, dynamic routing; robust redundancy |
+| **Security** | VLAN isolation, port security, 802.1X | Firewall, ACL, segmentation, VRF |
+| **Complexity** | Simple config; STP is tricky | More complex (routing protocols, prefix management) |
+| **Maintenance** | VLAN changes, STP tuning | Route changes, protocol tuning |
+| **Cost** | Cheap per port | More expensive per port |
+| **Failure handling** | STP reconvergence (seconds to minutes) | Dynamic protocol reconvergence (seconds); BGP (minutes) |
+
+**Why each difference matters:**
+
+- **Scope determines mechanism.** A switch only knows "which port" — it can't help across networks. A router only knows "which next hop" — it relies on ARP for the final delivery. **They're complementary, not competing.**
+- **Layer-3 routing is the foundation of scalability.** A flat L2 network with 10,000 devices would collapse under broadcast.
+- **Switching is faster per-packet** but doesn't provide isolation. **Routing is slower per-packet** but provides logical separation and hierarchy.
+- **L3 switches blur the line** — they route at switch speed. This is why modern datacenters are "L3-everywhere."
+- **ARP is the bridge between the two.** Without ARP, IP couldn't be delivered over Ethernet.
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### Switching advantages
+- **Fast** — hardware forwarding.
+- **Simple** — no routing protocol.
+- **Cheap per port.**
+- **Full-duplex, per-port collision domains.**
+- **VLANs** provide segmentation without extra hardware.
+- **Efficient bandwidth use** — MAC learning reduces unnecessary traffic.
+
+### Switching disadvantages
+- **Broadcast domain limited** — a huge flat LAN collapses.
+- **STP complexity** — famously error-prone.
+- **No hierarchy** — every device on the same subnet sees each other's traffic.
+- **Limited security** — VLANs help, but not isolation like routing + firewalls.
+- **MAC flooding attacks** — CAM table exhaustion causes the switch to flood.
+- **Spanning-tree reconvergence** — a common outage cause.
+
+### Routing advantages
+- **Scales to internet size.**
+- **Logical separation.**
+- **Redundancy** — ECMP, dynamic routing.
+- **Interoperable** — IP routing works across vendors.
+- **Hierarchical** — route summarization.
+
+### Routing disadvantages
+- **Slower than switching** per-packet.
+- **More complex configuration.**
+- **Convergence delay** — OSPF: seconds; BGP: minutes.
+- **Misconfiguration is dangerous** — a bad route can blackhole traffic or cause loops.
+- **BGP complexity** — famously hard to operate.
+- **MTU issues** — different links (Topic 11).
+
+### A critical note — neither device is inherently secure
+
+**A router can route traffic without filtering it. A switch can forward traffic without enforcing the access policy you expect.**
+
+**Security controls must be deliberately designed.** VLANs alone are not security. Routing alone is not security. Firewalls (Topic 14) and authorization (Topic 19) are separate.
+
+### When the pre-routing/switching approach is still correct
+- **Small flat LAN** — 5 devices on a home network. A switch, no VLANs, no routing.
+- **Simple static topology** — two routers, fixed topology — static routes are clearer than OSPF.
+- **Air-gapped isolated networks** — no routing protocols.
+- **Legacy industrial** — flat L2.
+
+---
+
+## 8. WHEN — When to use routing vs switching?
+
+### Switch when
+- **Devices are on the same broadcast domain** — one subnet.
+- **Low-cost, high-port-density forwarding** is needed.
+- **Layer-2 protocols** are appropriate.
+- **VLANs provide enough isolation** (or VLAN + firewall).
+
+### Route when
+- **Traffic crosses subnet boundaries.**
+- **Logical separation is required** (subnets = trust zones).
+- **Scalability demands hierarchy.**
+- **The network must reach the internet** (default route).
+- **You need policy control per subnet.**
+
+### Static routing when
+- **Small, stable topology.**
+- **Deterministic forwarding** is critical.
+- **Default routes.**
+- **Edge case routes.**
+
+### Dynamic routing when
+- **More than a handful of routers.**
+- **Network changes** (add/remove links, failures).
+- **You need automatic failover.**
+- **The network connects to other organizations** (BGP).
+
+### VLANs when
+- **One physical switch must serve multiple logical networks.**
+- **Segmentation without extra hardware.**
+- **Traffic must be tagged across trunk links.**
+- **Inter-VLAN routing is provided** by a router or L3 switch.
+
+### Banking enterprise example
+
+Suppose the network is separated into:
+
+```
+Employee network         192.168.10.0/24
+Application network      10.20.1.0/24
+Database network         10.20.2.0/24
+Management network       10.20.3.0/24
+```
+
+- **Switches** provide connectivity within local network segments.
+- **Routers/L3 gateways** provide connectivity between the subnets.
+- **Firewalls** enforce which communication is permitted.
+
+Policy example:
+
+| Source | Destination | Port | Allow? |
+|---|---|---|---|
+| Employee | Application | 443 (HTTPS) | Allow |
+| Application | Database | 1433 (SQL) | Allow |
+| Employee | Database | — | **Deny** |
+| Management | Servers | Approved admin | Allow |
+| Internet | Database | — | **Deny** |
+
+**This is a more secure architecture than putting everything in one flat network.**
+
+### Scenario decisions
+
+| Scenario | Choice | Why |
+|---|---|---|
+| Home network (5 devices) | **L2 switch, no VLANs, single subnet** | No routing needed |
+| Office with 200 devices, 4 teams | **VLANs per team, L3 switch for inter-VLAN routing** | Segmentation + efficiency |
+| Multi-site enterprise | **OSPF for interior, BGP for WAN/internet** | Scale + automatic convergence |
+| Cloud VPC (Azure) | **Subnets + Azure routing** | Azure handles routing; you manage subnets |
+| Kubernetes cluster | **CNI plugin handles pod routing** | K8s abstracts routing |
+| Hub-and-spoke hybrid | **BGP or OSPF between DC and cloud** | Dynamic routing |
+| Small branch office | **Static routes** | Simple topology |
+
+### Principal Engineer framing
+
+A Principal Engineer doesn't just choose "routing or switching" — they think about:
+
+1. **What's the broadcast domain size?** More than a few hundred devices → route.
+2. **What's the failure domain?** If the switch fails, what fails? If the router fails?
+3. **What's the convergence requirement?** Sub-second → RSTP or L3-everywhere. Seconds → OSPF. Minutes → BGP.
+4. **How do we scale?** Route summarization, hierarchy, prefix planning (Topic 5).
+5. **What's the security boundary?** Subnets are trust zones; firewalls live between them (Topic 14).
+6. **How will we troubleshoot?** Route tracing, ARP inspection, flow logs.
+
+---
+
+## 9. HOW — Practical implementation
+
+### A. How a switch forwards a frame
+
+Suppose:
+```
+Computer A                 Computer B
+IP: 192.168.1.10           IP: 192.168.1.20
+MAC: AA                    MAC: BB
+     |                         |
+     +-------- Switch ---------+
+```
+
+**Step 1 — MAC learning.** Computer A sends a frame. The switch records `AA → Port 1`.
+
+**Step 2 — MAC table lookup.** The switch checks its table for `BB`. If known (`BB → Port 2`), it forwards to Port 2.
+
+**Step 3 — Unknown destination.** If `BB` isn't in the table, the switch **floods** the frame to all ports except the incoming one. The intended device responds, and the switch learns its MAC.
+
+### B. How a router forwards a packet
+
+Suppose:
+```
+Computer A
+IP: 192.168.1.10/24
+Default gateway: 192.168.1.1
+
+Destination server
+IP: 10.20.1.15/24
+```
+
+**Step 1 — Subnet check.** `10.20.1.15` is on `10.20.1.0/24` — different from `192.168.1.0/24`. **Remote.**
+
+**Step 2 — Gateway lookup.** The computer sends the frame to its **default gateway** (`192.168.1.1`).
+
+**Step 3 — ARP for gateway.** The computer gets the gateway's MAC via ARP (Topic 12 covers ARP in detail).
+
+**Step 4 — Frame built.**
+
+```
+Ethernet frame:
+  Source MAC:      Client MAC
+  Destination MAC: Gateway MAC
+
+IP packet:
+  Source IP:       192.168.1.10
+  Destination IP:  10.20.1.15
+
+TCP segment:
+  Source port:      52000
+  Destination port: 443
+```
+
+**Step 5 — Switch forwards the frame.** The switch examines the destination MAC (gateway's MAC) and forwards to the gateway's port.
+
+**Step 6 — Router receives the frame.** It:
+- Strips the incoming Ethernet header.
+- Examines the destination IP.
+- Consults its routing table.
+- Selects the best match (longest prefix).
+- Builds a **new** Ethernet frame for the next hop.
+- Decrements **TTL** (Time To Live).
+- Forwards.
+
+**Step 7 — Next hop.** The next-hop link uses a new L2 frame appropriate to that link.
+
+**Important:** Source and destination IPs normally remain the same as the packet travels through routers (except NAT). **The MAC addresses change at each routed hop.**
+
+### C. Long-distance packet journey — bank trading API example
+
+```
+Laptop
+  │
+  ▼
+Local switch
+  │
+  ▼
+Default gateway/router
+  │
+  ▼
+Corporate firewall
+  │
+  ▼
+WAN / Internet / private network
+  │
+  ▼
+Data-centre router
+  │
+  ▼
+Application network switch
+  │
+  ▼
+Trading API server
+```
+
+Each router makes a forwarding decision using its routing table. Each switch forwards frames within its L2 domain.
+
+### D. Configuration examples
+
+**Windows — routing table:**
+
+```powershell
+route print                                              # view
+route add 10.20.1.0 mask 255.255.255.0 10.0.0.5          # add static route
+route delete 10.20.1.0                                   # remove
+Get-NetRoute -AddressFamily IPv4                         # PowerShell
+```
+
+**Linux — routing table:**
+
+```bash
+ip route show                                            # view
+ip route add 10.20.1.0/24 via 10.0.0.5                   # add static route
+ip route del 10.20.1.0/24                                # remove
+ip route get 10.20.1.15                                  # what route would be used?
+```
+
+**`ip route get`** is the most useful diagnostic — it tells you exactly which interface and next-hop the kernel would use for a given destination.
+
+**Linux — VLAN config:**
+
+```bash
+# Create VLAN interfaces on a trunk
+ip link add link eth0 name eth0.10 type vlan id 10
+ip link add link eth0 name eth0.20 type vlan id 20
+
+# Assign IPs (these become default gateways for the VLANs)
+ip addr add 10.10.10.1/24 dev eth0.10
+ip addr add 10.10.20.1/24 dev eth0.20
+
+# Enable routing
+sysctl -w net.ipv4.ip_forward=1
+```
+
+**Cisco-style VLAN config (illustrative):**
+
+```
+vlan 10
+  name engineering
+vlan 20
+  name finance
+
+interface GigabitEthernet0/1
+  switchport mode access
+  switchport access vlan 10
+
+interface GigabitEthernet0/24
+  switchport mode trunk
+  switchport trunk allowed vlan 10,20
+```
+
+### E. ARP table inspection
+
+**Windows:**
+```powershell
+arp -a                                          # view
+Get-NetNeighbor -AddressFamily IPv4             # PowerShell
+```
+
+**Linux:**
+```bash
+ip neigh show                                   # ARP/neighbor table
+ip neigh show dev eth0                          # specific interface
+ip neigh flush all                              # clear cache
+```
+
+**Interpreting `ip neigh`:**
+
+```
+10.20.1.15 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
+10.20.1.20 dev eth0 lladdr aa:bb:cc:11:22:33 STALE
+10.20.1.25 dev eth0                          FAILED
+```
+
+- **REACHABLE** — recently confirmed; MAC valid.
+- **STALE** — cached, not recently confirmed; will be re-validated on next use.
+- **FAILED** — ARP resolution failed (no response). **The destination is unreachable at Layer 2.**
+
+**`FAILED` in ARP is the diagnostic for "the destination IP is on this subnet but no host has that MAC."**
+
+### F. Diagnostic commands
+
+**Route lookup:**
+```bash
+ip route get 10.20.1.15              # which route would the kernel use?
+```
+
+**Path analysis:**
+```bash
+traceroute 10.20.1.15                # hop-by-hop path
+tracert 10.20.1.15                   # Windows
+mtr 10.20.1.15                       # continuous traceroute + latency
+```
+
+**`traceroute`** sends packets with increasing **TTL** (1, 2, 3...). Each router that receives a packet with TTL=1 drops it and sends back **ICMP Time Exceeded** — revealing its IP. **Each line in the output is one hop.**
+
+**Path MTU (Topic 11 preview):**
+```bash
+ping -M do -s 1472 10.20.1.15        # test 1500-byte MTU (1472 + 28 headers)
+```
+
+**Switching diagnostics:**
+```bash
+brctl show                           # Linux bridges
+bridge fdb show                      # forwarding database (CAM)
+bridge vlan show                     # VLAN config
+```
+
+### G. Azure — route tables and effective routes
+
+Azure abstracts routing, but you still control it:
+
+- **System routes** — Azure creates them automatically for VNet subnets, peering, VPN/ExpressRoute.
+- **User-defined routes (UDRs)** — you add custom routes to force traffic through an NVA or firewall.
+- **Effective routes** — what the VM/subnet actually uses.
+
+```powershell
+# Azure — see effective routes on a NIC
+Get-AzEffectiveRouteTable -NetworkInterfaceName myNIC -ResourceGroupName myRG
+
+# See route table config
+Get-AzRouteTable -ResourceGroupName myRG -Name myRT
+```
+
+**The classic Azure gotcha:** a UDR sends `0.0.0.0/0` to a firewall NVA, but the NVA's NIC doesn't have **IP forwarding** enabled. **Traffic blackholes.** Fix: enable IP forwarding on the NVA NIC.
+
+### H. Kubernetes — how pod-to-pod routing works
+
+Kubernetes abstracts routing, but it's still there:
+
+- **Every pod gets an IP** from the pod CIDR.
+- **CNI plugin** (Calico, Cilium, Azure CNI) installs routes so pods can reach each other.
+- **kube-proxy** installs iptables or IPVS rules so `Service` ClusterIPs route to pod IPs.
+- **Service mesh** (Istio, Linkerd) intercepts via sidecar proxies.
+
+**Pod-to-pod routing is real Layer-3 routing.** **`kubectl exec` into a pod and run `ip route`** — you'll see the routes.
+
+**Why this matters for a Principal .NET Engineer:** in a service mesh, every request traverses a sidecar proxy that makes a routing decision. **You're paying for L7 routing on every call.** Understanding the underlying L3 routing explains the latency budget.
+
+---
+
+## 10. INTERNAL WORKING — The packet's journey, hop by hop
+
+### The scenario
+
+```
+Client IP:       192.168.1.10/24
+Client gateway:  192.168.1.1
+Server IP:       10.20.1.15/24
+Server gateway:  10.20.1.1
+```
+
+The client sends an HTTPS request to the server.
+
+### Step-by-step journey
+
+**Step 1 — Application creates the request.**
+
+```
+GET /api/orders
+```
+
+**Step 2 — Transport layer adds TCP info.**
+
+```
+Source port:      52000
+Destination port: 443
+```
+
+**Step 3 — IP layer adds addressing.**
+
+```
+Source IP:       192.168.1.10
+Destination IP:  10.20.1.15
+```
+
+**Step 4 — Local vs remote check.**
+
+```
+Client subnet:  192.168.1.0/24
+Server subnet:  10.20.1.0/24
+```
+
+Different → needs default gateway.
+
+**Step 5 — ARP for gateway.**
+
+The client needs the gateway's MAC. On IPv4 LANs, ARP resolves this. (Topic 12.)
+
+**Step 6 — Ethernet frame built.**
+
+```
+Ethernet frame:
+  Source MAC:      Client MAC
+  Destination MAC: Gateway MAC
+
+IP packet:
+  Source IP:       192.168.1.10
+  Destination IP:  10.20.1.15
+
+TCP segment:
+  Source port:      52000
+  Destination port: 443
+```
+
+**Step 7 — Switch forwards the frame.**
+
+The switch examines the destination MAC (gateway's MAC) and forwards toward the gateway.
+
+**Step 8 — Router receives and processes.**
+
+Strips the incoming L2 header, examines destination IP, consults routing table, selects next hop, decrements TTL, builds new frame.
+
+**Step 9 — Router forwards to next hop.**
+
+The IP packet's source/destination addresses remain the same (except NAT). The L2 addresses change at each hop.
+
+**Step 10 — Destination network receives.**
+
+The final router delivers locally: **ARP for the server**, then frame to server's MAC.
+
+**Step 11 — Server processes.**
+
+The server's IP stack delivers to the listening socket on port 443 → Kestrel → middleware → endpoint handler.
+
+**Step 12 — Response returns.**
+
+The return path may differ (**asymmetric routing**).
+
+### The key insight — what changes and what stays the same
+
+| Field | Changes per hop? |
+|---|---|
+| **Source IP** | Constant end-to-end (except NAT) |
+| **Destination IP** | Constant end-to-end |
+| **TTL** | Decrements at each router |
+| **Source MAC** | Changes at each hop (next-hop router's MAC) |
+| **Destination MAC** | Changes at each hop |
+| **Port numbers** | Constant end-to-end (except NAT) |
+
+**This is the essence of layered networking.** IP provides **end-to-end** addressing. Ethernet (MAC) provides **hop-by-hop** delivery. **ARP** connects the two at each hop.
+
+### Why TTL exists
+
+TTL (Time To Live, technically **hop limit** in IPv6) prevents **routing loops** from circulating packets forever.
+
+- IPv4 default TTL: 64.
+- Each router decrements by 1.
+- At 0: drop packet, send **ICMP Time Exceeded**.
+- **`traceroute` exploits this.**
+
+**A routing loop without TTL would be catastrophic** — packets would circulate forever.
+
+### Route selection — the OS lookup order
+
+**Linux route lookup order (simplified):**
+
+1. **Policy routing rules** — custom rules, if configured.
+2. **Longest-prefix match** in the main table.
+3. **Local routes** — traffic to the host's own IPs.
+4. **Directly connected routes** — destination on a local interface.
+
+**Windows** is similar but with slightly different table structures.
+
+**The default route is only used when no more specific route matches.**
+
+---
+
+## 11. FAILURE SCENARIOS
+
+Understanding routing and switching is essential for production troubleshooting.
+
+### Scenario 1 — Incorrect default gateway
+
+Your application server has:
+
+```
+IP:             10.20.1.15
+Subnet mask:    255.255.255.0
+Default gateway: 10.20.2.1
+```
+
+But the server belongs to `10.20.1.0/24`. The configured gateway is outside its subnet — invalid for that interface.
+
+**Possible result:** local communication may work; remote fails.
+
+**Troubleshooting:** verify IP, mask, and gateway.
+
+### Scenario 2 — Missing route
+
+```
+Application network: 10.20.1.0/24
+Database network:    10.20.2.0/24
+```
+
+An intermediate router has **no route** to `10.20.2.0/24`.
+
+**Symptoms:** connection timeout, network unreachable, unexpected path.
+
+**Troubleshooting:** inspect routing tables in **both directions**.
+
+### Scenario 3 — Routing loop
+
+```
+Router A → Router B
+Router B → Router A
+```
+
+A packet keeps circulating. **TTL prevents it** from circulating indefinitely. When TTL reaches 0, the packet is dropped and **ICMP Time Exceeded** is sent.
+
+**Troubleshooting:** inspect route advertisements, static routes, protocol convergence.
+
+### Scenario 4 — Switching loop (STP failure)
+
+Two switches connected through redundant links without loop prevention. Broadcast frames circulate endlessly.
+
+**Symptoms:**
+- Broadcast storms.
+- MAC address table instability.
+- High network utilization.
+- **Total network outage.**
+
+**Diagnosis:** interface utilization spikes to 100%; switch CPUs maxed; `show interfaces` shows huge broadcast counts.
+
+**Mitigation:**
+- **STP/RSTP/MSTP on all switches** — mandatory.
+- **BPDU Guard** on access ports — disables ports that receive BPDUs (prevents rogue switches).
+- **Root Guard** — prevents unauthorized root bridge.
+
+**This is a classic "network down" incident** — usually caused by a physical change without protocol safety.
+
+### Scenario 5 — VLAN mismatch
+
+Application server belongs to VLAN 20, but the switch port is configured for VLAN 30.
+
+**Symptoms:** can't reach the intended gateway; unexpected connectivity.
+
+**Troubleshooting:** check access VLAN, trunk configuration, allowed VLANs.
+
+### Scenario 6 — Asymmetric routing
+
+```
+Forward:  Client → Router A → Router B → Server
+Return:   Server → Router C → Router D → Client
+```
+
+**Not always a problem.** But **stateful firewalls, NAT devices, and some load balancers expect both directions** to traverse them. If return traffic bypasses the device holding the state, communication fails.
+
+**Symptoms:**
+- Connections hang after handshake.
+- `traceroute` from each side shows different paths.
+- Firewall logs show "out of state" drops.
+
+**Mitigations:**
+- **Force symmetric routing** — BGP path manipulation, metric tuning, routing policy.
+- **Firewall clustering** — shared state across firewalls.
+- **Design for it** — place firewalls at points where all traffic must traverse them.
+
+**Principal-level rule:** *If you have stateful inspection, you must have symmetric paths.*
+
+### Scenario 7 — Routing works, but firewall blocks traffic
+
+The router knows how to reach the database subnet. **But the firewall blocks TCP 1433.**
+
+```
+Application → Router → Firewall X → Database
+```
+
+**A valid route does not mean the traffic is permitted.**
+
+**Troubleshooting:** separate route investigation from firewall-policy investigation.
+
+### Additional failure modes
+
+**Routing failures:**
+
+| Failure | What happens | Diagnosis |
+|---|---|---|
+| **Missing route** | Packet dropped ("no route to host") | `ip route get`; `traceroute` |
+| **Wrong route** | Blackhole | `ip route get`; check metric/prefix |
+| **Convergence delay** | Traffic blackholes until routes reconverge | OSPF: seconds. BGP: minutes. |
+| **Default route missing** | No internet | `ip route` |
+| **MTU mismatch** | Large packets dropped (Topic 11) | `ping -M do -s 1472` |
+| **BGP prefix leak** | Routes advertised incorrectly | BGP monitoring; prefix filters |
+| **BGP hijack** | Traffic routed through attacker | RPKI; BGP monitoring |
+
+**Switching failures:**
+
+| Failure | What happens | Diagnosis |
+|---|---|---|
+| **CAM table overflow** | Switch floods (hub behaviour) | Check CAM table size; port security |
+| **MAC flooding attack** | Malicious host fills CAM table | Port security; MAC limiting |
+| **STP loop** | Broadcast storm | CPU spike; utilization 100% |
+| **STP root misplaced** | Suboptimal paths | `show spanning-tree` |
+| **Trunk misconfiguration** | VLANs not passing | `show interfaces trunk` |
+| **Native VLAN mismatch** | Traffic on wrong VLAN | `show interfaces trunk` |
+| **Duplex mismatch** | Collisions, slow throughput | `show interfaces` |
+
+**ARP failures:**
+
+| Failure | What happens | Diagnosis |
+|---|---|---|
+| **ARP cache expired** | Next packet triggers broadcast | `ip neigh` |
+| **ARP spoofing** | Attacker claims another IP | Dynamic ARP Inspection; static ARP |
+| **ARP FAILED** | No host responds | `ip neigh` shows FAILED; host down |
+
+### Diagnostic toolkit
+
+**Routing:**
+```bash
+ip route show                                    # routing table
+ip route get <dest>                              # which route would be used?
+traceroute <dest>                                # hop-by-hop
+mtr <dest>                                       # continuous
+```
+
+**ARP:**
+```bash
+ip neigh show                                    # neighbor table
+arp -a                                           # Windows
+ip neigh flush all                               # clear
+```
+
+**Switching (Linux):**
+```bash
+brctl show                                       # bridges
+bridge fdb show                                  # CAM equivalent
+bridge vlan show                                 # VLAN config
+```
+
+**Packet capture:**
+```bash
+tcpdump -i eth0 -n arp                           # ARP traffic
+tcpdump -i eth0 -n 'icmp[icmptype] == 11'        # ICMP Time Exceeded
+```
+
+**Windows:**
+```powershell
+route print
+Get-NetRoute
+Get-NetNeighbor
+Test-NetConnection <dest> -TraceRoute
+```
+
+**Azure:**
+```powershell
+Get-AzEffectiveRouteTable -NetworkInterfaceName myNIC
+Get-AzNetworkSecurityGroup
+Get-AzVirtualNetworkSubnetConfig
+```
+
+**Important:** A failed ping does not necessarily mean the destination is unreachable. ICMP may be blocked while TCP works.
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Banking, Azure, and Kubernetes
+
+### A. Traditional enterprise data-center architecture
+
+A banking organization with employee workstations, application servers, database servers, Kafka, and management systems:
+
+```
+                    INTERNET
+                        │
+                        │ BGP
+                        ▼
+                ┌───────────────────┐
+                │ Edge router       │
+                │ BGP + firewall    │
+                └────────┬──────────┘
+                         │
+                         ▼
+                ┌───────────────────┐
+                │ Core routers      │
+                │ OSPF (interior)   │
+                └────────┬──────────┘
+                         │
+        ┌────────────────┼────────────────┐
+        ▼                ▼                ▼
+  ┌──────────┐    ┌──────────┐    ┌──────────┐
+  │L3 switch │    │L3 switch │    │L3 switch │
+  │ DC-A     │    │ DC-B     │    │ DC-C     │
+  └────┬─────┘    └────┬─────┘    └────┬─────┘
+       │               │               │
+   VLANs: 10,20,30 VLANs: 10,20,30 VLANs: 10,20,30
+   (app, db, mgmt)
+```
+
+**Subnets:**
+
+```
+Employee LAN:          192.168.10.0/24
+Application subnet:    10.20.1.0/24
+Database subnet:       10.20.2.0/24
+Messaging subnet:      10.20.3.0/24
+Management subnet:     10.20.4.0/24
+```
+
+**The architecture uses:**
+- **Switching** within local segments.
+- **Routing** between subnets.
+- **Firewall rules** to restrict access.
+- **VLANs** to separate L2 domains.
+- **Redundant network paths** for resilience.
+
+**Interior vs exterior routing:**
+
+| Scope | Protocol | What it does |
+|---|---|---|
+| Within the bank's network | OSPF | Enterprise interior routing |
+| To the ISP / internet | BGP | Advertise public prefixes; receive routes |
+| Between data centers | OSPF (or BGP for MPLS) | Inter-DC reachability |
+| Within a datacenter | OSPF or static | L3 switch routing |
+
+### B. Azure VNet architecture
+
+The same design in Azure:
+
+```
+VNet: 10.10.0.0/16
+
+Application subnet: 10.10.1.0/24
+Database subnet:    10.10.2.0/24
+Messaging subnet:   10.10.3.0/24
+Management subnet:  10.10.4.0/24
+```
+
+**Azure provides virtual networking. You configure logical constructs:**
+
+| Azure construct | Purpose |
+|---|---|
+| **VNet** | Private IP network |
+| **Subnet** | Logical IP segment |
+| **Route table / UDR** | Custom routing |
+| **Network Security Group (NSG)** | Allow/deny traffic |
+| **Azure Firewall** | Centralized security/filtering |
+| **VNet peering** | Connect VNets privately |
+| **VPN Gateway** | Connect over VPN |
+| **ExpressRoute** | Private connectivity to Azure |
+| **NAT Gateway** | Managed outbound internet |
+
+### C. Routing vs security — the critical distinction
+
+Suppose the app subnet has a valid route to the database subnet. But the database NSG **denies TCP 1433**.
+
+The application cannot connect.
+
+| Question | Azure component |
+|---|---|
+| Where should the packet go? | System route or UDR |
+| Is the traffic allowed? | NSG / Firewall |
+| How do I connect two VNets? | VNet peering |
+| How do I connect on-prem? | VPN Gateway / ExpressRoute |
+
+**A route existing does not mean traffic is permitted.**
+
+### D. Kubernetes networking
+
+Inside Kubernetes:
+
+```
+Browser
+   │
+   ▼
+Ingress / Gateway
+   │
+   ▼
+Kubernetes Service
+   │
+   ▼
+Trading API Pods
+```
+
+**A Kubernetes Service** provides a stable network endpoint for a group of Pods:
+
+```
+Service: trading-api
+Port:    443
+Target:  8080
+
+Pods:
+  10.244.1.15:8080
+  10.244.1.16:8080
+  10.244.1.17:8080
+```
+
+The client connects to the Service endpoint; **Kubernetes networking directs traffic to a suitable backend Pod.**
+
+**A Service is not a physical router or switch.** It's a Kubernetes abstraction implemented through cluster networking mechanisms (iptables, IPVS, CNI).
+
+### E. End-to-end flow — a trader's request
+
+1. **Client sends HTTPS** to `api.bank.com`.
+2. **DNS** resolves to the edge router's public IP.
+3. **Edge router** does DNAT to the load balancer (Topic 16).
+4. **Load balancer** (VLAN 10) sends to an app server (also VLAN 10).
+5. **App server** queries the database — **inter-VLAN routing** from VLAN 10 to VLAN 20 (via L3 switch SVI).
+6. **Firewall** in the path between VLAN 10 and VLAN 20 allows port 5432.
+7. **Response** returns through the same path.
+
+### F. Principal Engineer considerations
+
+| Concern | Design |
+|---|---|
+| **Blast radius** | Subnets bound the broadcast domain; firewalls bound the failure domain |
+| **Convergence** | OSPF: seconds; BGP: minutes; understand the trade |
+| **Redundancy** | ECMP between core routers; dual BGP sessions to different ISPs |
+| **Segmentation** | VLANs per function; inter-VLAN routing via L3 switch; firewall at boundaries |
+| **Observability** | Flow logs, NetFlow, distributed tracing (Topic 62) |
+| **Scalability** | Route summarization; prefix planning |
+| **Security** | Firewall between subnets; BGP prefix filters; RPKI where applicable |
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### A. The network is more than "up or down"
+
+A Principal Engineer doesn't ask "is the network up?" — they ask:
+
+1. **Is there a route from source to destination?**
+2. **Is the route the optimal one?** (Forward and return paths.)
+3. **Is ARP resolution working?** (L2 delivery for the last hop.)
+4. **Is the path MTU correct?** (Topic 11.)
+5. **Is the firewall allowing the traffic?** (Topic 14.)
+6. **Is there a NAT in the path?** (Topic 5.)
+
+**Each layer can fail independently.** "Ping works" says nothing about whether TCP 443 is reachable, whether MTU is correct, or whether a stateful firewall accepts the return path.
+
+### B. Design around network boundaries
+
+For a banking system:
+
+```
+Internet
+   │
+   ▼
+Edge firewall / WAF
+   │
+   ▼
+API gateway
+   │
+   ▼
+Application subnet
+   │
+   ▼
+Database and messaging subnets
+```
+
+Do not expose internal databases and brokers directly to the public internet. Use segmentation and least-privilege rules.
+
+### C. Avoid flat networks
+
+A flat network places too many systems in one large segment.
+
+**Problems:**
+- Larger broadcast domains.
+- Greater lateral movement opportunities.
+- Harder access control.
+- More difficult fault isolation.
+- Increased operational complexity.
+
+Use appropriate subnet and VLAN segmentation.
+
+### D. Design redundant paths — carefully
+
+```
+        Router A
+       /        \
+Client            Server
+       \        /
+        Router B
+```
+
+**Redundancy must be designed carefully:**
+- Avoid routing loops.
+- Ensure route convergence.
+- Account for stateful firewall behaviour.
+- Check return paths.
+- Test failover.
+
+**Two network paths do not automatically guarantee a resilient application.**
+
+### E. Asymmetric routing — the stateful firewall trap
+
+**The scenario:** two paths between networks. Forward traffic goes path 1; return traffic goes path 2. A stateful firewall in path 1 sees the return traffic as unsolicited and drops it.
+
+**This is a common production failure mode** — traffic "works intermittently" or "only from some clients."
+
+**Mitigations:**
+- **Symmetric routing** — force both directions through the same path (BGP path manipulation, metric tuning).
+- **Firewalls with asymmetric routing support** — or **stateful clustering**.
+- **Design for it** — place firewalls where all traffic must traverse.
+
+**Principal-level rule:** *If you have stateful inspection, you must have symmetric paths.*
+
+### F. VLANs are not security
+
+**VLANs provide separation, not security.**
+
+- VLANs can be **hopped** (VLAN hopping attacks via double-tagging, switch spoofing).
+- **Native VLAN misconfigurations** can expose traffic.
+- **Inter-VLAN routing** exposes traffic to the router.
+
+**Security requires:**
+- **Firewalls between VLANs** (not just routing).
+- **Private VLANs** for stronger isolation.
+- **DHCP snooping, Dynamic ARP Inspection**.
+- **802.1X** for port authentication.
+- **BPDU Guard, Root Guard**.
+
+**"We have VLANs" is not a security argument.** It's a starting point.
+
+### G. BGP is not optional for the internet
+
+If your service is **reachable from the public internet**, your route is **advertised via BGP** somewhere.
+
+**What a Principal Engineer needs to know:**
+- **BGP advertises prefixes, not hosts.** The `/24` is advertised, not individual IPs.
+- **BGP is trust-based** — a misconfigured BGP router can **hijack** thousands of prefixes. Real incidents have taken down chunks of the internet.
+- **RPKI** (Resource Public Key Infrastructure) — cryptographic signing of BGP announcements. Increasingly deployed but not universal.
+- **Prefix filters** — filter what BGP peers can advertise. Prevent route leaks.
+
+**You don't need to run BGP day-to-day** — but you need to understand it to reason about internet reachability, DDoS resilience, and multi-cloud.
+
+### H. ECMP — the not-so-obvious redundancy
+
+**Equal-Cost Multipath (ECMP)** — multiple routes with the same metric used simultaneously. Traffic distributes across paths (usually by hash of the 5-tuple, so flows stay consistent).
+
+**Benefits:** bandwidth, redundancy.
+**Gotcha:** stateful devices must **share state across paths**. Otherwise, a flow that arrives on path A and returns on path B is dropped.
+
+### I. Route summarization — the scalability lever
+
+Announcing `10.10.0.0/16` (one route) instead of 256 `/24` routes:
+- **Smaller routing tables.**
+- **Faster convergence.**
+- **Fewer BGP churn events.**
+
+**This is why prefix planning matters** (Topic 5). Address space that summarizes cleanly makes routing manageable.
+
+### J. Network segmentation vs application authorization
+
+Suppose an employee can reach the Trading API over HTTPS. **That does not mean the employee is authorized to place every type of order.**
+
+**Network controls decide whether communication can occur. Application authorization decides whether the user is permitted to perform a business operation.**
+
+These are **complementary** security boundaries — not substitutes for each other.
+
+### K. Troubleshoot layer by layer
+
+For a failed API call, investigate in order:
+
+```
+1. DNS               (does the name resolve?)
+2. Source IP/subnet  (does the client have an IP?)
+3. Default gateway   (is it correct?)
+4. Local switching   (VLAN correct?)
+5. Routing table     (does a route exist? is it optimal?)
+6. Firewall / NSG    (is the traffic allowed?)
+7. Destination IP/port (is something listening?)
+8. TCP connection    (does it establish?)
+9. TLS handshake     (does it succeed?)
+10. HTTP application (what does the app say?)
+```
+
+**This avoids random troubleshooting.** If the TCP connection cannot be established, changing ASP.NET Core controller code is unlikely to fix the underlying routing problem.
+
+### L. Important design distinctions
+
+| Concept | Don't confuse it with |
+|---|---|
+| Switch | Router |
+| Route | Firewall permission |
+| VLAN | IP subnet (although commonly mapped 1:1) |
+| NSG | Route table |
+| VNet peering | Application authorization |
+| Kubernetes Service | A physical switch |
+| Network connectivity | Business-level permission |
+
+### M. Anti-patterns
+
+| Anti-pattern | Problem |
+|---|---|
+| **Flat L2 everywhere** | Broadcast storm risk; no isolation; no scale |
+| **No STP or misconfigured STP** | Loop → network collapse |
+| **VLANs without firewalls** | VLAN ≠ security |
+| **STP as the only redundancy** | Seconds to minutes of downtime |
+| **Asymmetric routing with stateful firewalls** | Connections drop mid-transfer |
+| **BGP without prefix filters** | Route leaks and hijacks |
+| **Overlapping subnets** | VPNs and mergers break |
+| **No route summarization** | Routing tables grow unbounded |
+| **Static routes everywhere** | Manual config drift; no auto failover |
+| **Ignoring ARP** | "Host is up" but nothing listens — ARP failed |
+| **Missing `ip route get`** | Wasting time on the wrong layer |
+| **Trusting ping as a health check** | Ping ≠ HTTP reachability |
+| **Relying on default routes for internal traffic** | Suboptimal paths |
+| **SDN without understanding L3** | Azure route tables, K8s CNI — still L3 |
+
+### N. Trade-offs
+
+| Choose | Get | Pay |
+|---|---|---|
+| **L2 flat** | Simple | No scale; no isolation; STP complexity |
+| **VLANs** | Segmentation without hardware | Trunk complexity; VLAN hopping risk |
+| **L3 everywhere** | Scale, isolation, no STP | More complex config |
+| **Static routing** | Deterministic | Manual; no failover |
+| **Dynamic routing (OSPF)** | Auto-convergence | Protocol complexity |
+| **BGP** | Internet scale | Complexity, trust issues |
+| **ECMP** | Redundancy + bandwidth | Stateful device complexity |
+| **Route summarization** | Scale | Requires careful prefix planning |
+| **Default route only** | Simple | Suboptimal paths; no per-prefix control |
+
+### O. Production best practices
+- **Design subnet boundaries carefully** — foundation of routing and policy.
+- **Enable STP (RSTP/MSTP)** on all switches; **BPDU Guard** on access ports.
+- **Firewall between VLANs** — VLANs alone aren't security.
+- **Enforce symmetric routing** with stateful firewalls.
+- **Monitor routing protocol state** — OSPF adjacencies, BGP peers, route churn.
+- **Prefix filtering on BGP.**
+- **Document the routing design.**
+- **Test failover.**
+- **Use `ip route get` first** when diagnosing.
+- **Check ARP** when the destination is on the same subnet.
+- **MTU awareness** (Topic 11).
+- **Understand the SDN layer** — Azure route tables, K8s CNI, service mesh.
+
+### P. What a Principal Engineer asks during architecture reviews
+
+1. Are application, database and messaging networks separated?
+2. Are all routes explicitly understood?
+3. Is there a default route to an unintended destination?
+4. Are network security policies restrictive?
+5. Is outbound internet access necessary?
+6. Is private connectivity used where appropriate?
+7. Are redundant paths and failover tested?
+8. Are routing and firewall logs monitored?
+9. Is asymmetric routing possible?
+10. Can the team trace a failed request across network boundaries?
+
+### Q. Decision checklist
+
+1. What's the broadcast domain size? (>200 → route.)
+2. Where are the trust boundaries? (Subnets per zone.)
+3. Where are the firewalls? (Between zones; at the edge.)
+4. Is routing static or dynamic?
+5. Is BGP involved? (Internet-facing → yes.)
+6. What's the convergence requirement?
+7. Is the path symmetric? (Required for stateful firewalls.)
+8. Is the MTU consistent? (Or is PMTUD working?)
+9. Is ARP working for the last hop?
+10. Is route summarization planned?
+11. Is the SDN layer understood?
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is the difference between a switch and a router?**  
+A **switch** operates at **Layer 2** — forwards **Ethernet frames within a broadcast domain** based on **destination MAC** (CAM table). A **router** operates at **Layer 3** — forwards **IP packets between networks** based on **destination IP prefix** (routing table, longest-prefix match).
+
+**They're complementary.** A switch can't route between subnets; a router relies on switches (or ARP) for local delivery.
+
+**Q2. What is a MAC address?**  
+A **48-bit link-layer address** burned into a NIC, used for **local delivery** on the same network. It's **flat** (no hierarchy), so it doesn't scale for routing across networks. IP routing works by **prefix**, which a MAC can't provide.
+
+**Q3. What is a default gateway?**  
+The router (or Layer-3 interface) a host sends traffic to when the destination is **outside its local subnet** and no more specific route exists. **Every host that needs to reach the internet must have one configured.**
+
+**Q4. What is a routing table?**  
+A collection of **routes** describing destination networks and how to reach them. Each entry has a **destination prefix**, **next hop** (or interface), and often a **metric**. Routers use it to decide where to forward.
+
+**Q5. What is a default route?**  
+The route that matches **every destination** — `0.0.0.0/0` (IPv4) or `::/0` (IPv6). It's the **catch-all** when no more specific route matches. On a home router, it points to the ISP's gateway.
+
+**Q6. What is longest-prefix match?**  
+The rule that a router **forwards based on the most specific matching route**. Given a destination, the router finds all matching routes and picks the one with the **longest prefix** (most specific). This is why `10.20.1.0/24` beats `10.0.0.0/8` for a packet to `10.20.1.15`.
+
+### Intermediate
+
+**Q7. What is the difference between static and dynamic routing?**  
+- **Static** — manually configured. Simple, deterministic, but doesn't scale or adapt.
+- **Dynamic** — learned via protocols (OSPF, BGP). Scales, adapts, but more complex.
+
+**Static is right for** small/simple topologies, default routes, edge cases.
+**Dynamic is right for** networks with more than a handful of routers, or networks that change.
+
+**Q8. What is a VLAN?**  
+A **Virtual LAN** — a **logical broadcast domain** that can span multiple switches. **VLANs segment one physical switch into multiple logical L2 networks**, each with its own broadcast domain. Traffic between VLANs requires **inter-VLAN routing** (via a router or L3 switch).
+
+**Q9. What is a routing loop, and how does TTL prevent it?**  
+A **routing loop** occurs when routers forward a packet in a circle due to inconsistent routing tables. Without a mechanism to stop it, the packet circulates forever.
+
+**TTL** — every IP packet has a TTL field (default 64). Each router **decrements** it. When TTL reaches 0, the router **drops** the packet and sends **ICMP Time Exceeded**. **`traceroute` exploits this** — sends with TTL=1, 2, 3, etc.
+
+**A routing loop without TTL would be catastrophic.**
+
+**Q10. What is asymmetric routing?**  
+When traffic takes **different paths** forward and back.
+
+**Not always a problem** — but **stateful devices** (firewalls, NAT, some LBs) track connection state. If the return traffic bypasses the state-holding device, **it drops**.
+
+**Mitigations:** force symmetric routing (BGP/OSPF manipulation); firewall clustering; design firewalls where all traffic must traverse them.
+
+**Q11. Does a valid route guarantee that an application can connect?**  
+**No.** A firewall, NSG, destination port, service listener, or other control may still block. **Routes determine where the packet goes; firewalls determine whether it's allowed.**
+
+### Advanced
+
+**Q12. Why does a switch have a MAC (CAM) table, and what happens if it overflows?**  
+The CAM table maps MAC addresses to ports. If it **overflows** (from a **MAC flooding attack** filling the table with fake MACs), the switch **falls back to hub behaviour** — floods all frames to all ports. A malicious host on one port can then see traffic for other ports.
+
+**Mitigation:** port security (limit MACs per port); 802.1X; MAC limiting.
+
+**Q13. What is Spanning Tree Protocol (STP), and why is it necessary?**  
+**STP (802.1D), RSTP (802.1w), MSTP (802.1s)** — builds a **loop-free topology** and **blocks redundant links**.
+
+**Why necessary:** Ethernet frames have **no TTL**. If a loop exists, **broadcast frames flood endlessly** — a **broadcast storm** that takes down the LAN in seconds.
+
+**Risks:**
+- **Reconvergence delay** — classic STP 30–50s; RSTP sub-second. Outages during reconvergence are common.
+- **Misconfiguration** — wrong root bridge → suboptimal paths.
+
+**Modern alternative:** L3-everywhere designs — no loops by design.
+
+**Q14. Explain asymmetric routing and why it's a problem.**  
+Already covered in Q10.
+
+**Q15. How does BGP differ from OSPF?**  
+- **OSPF** — Interior Gateway Protocol (IGP). Within one organization. Link-state, converges in seconds. Cost-based metrics.
+- **BGP** — Exterior Gateway Protocol (EGP). Between organizations (autonomous systems). Path-vector, converges in minutes. Path-based metrics (AS-path length, policy).
+
+**BGP is how the internet works.** Every ISP and cloud provider runs it.
+
+**Q16. What is the difference between routed and routing protocols?**  
+- **Routed protocols** — carry user data (IP, IPv6).
+- **Routing protocols** — exchange routing information (OSPF, BGP).
+
+**Analogy:** IP is the postman; OSPF is the mail between post offices about which addresses exist where.
+
+### Scenario-based
+
+**Q17. `ping 10.20.1.15` works, but `curl https://10.20.1.15` hangs. What's wrong?**  
+Several possibilities:
+1. Nothing listening on 443 → `curl` fails with **connection refused** (not a hang).
+2. Firewall drops TCP 443 → **hangs**. `Test-NetConnection -Port 443` confirms.
+3. TLS handshake failing → hangs during handshake. `curl -v` shows where.
+4. App stuck → connection succeeds, no response. `curl -v` shows TCP connect, then hang.
+5. **Asymmetric routing with stateful firewall** — connection starts, then return path dropped.
+
+**Diagnose in order:** `Test-NetConnection` → `curl -v` → `traceroute` from both ends.
+
+**Key insight:** **ping succeeding ≠ TCP 443 working.** ICMP and TCP may be treated differently.
+
+**Q18. Your app can reach `10.20.1.15` but not `10.20.1.20`. Both on the same subnet. What's wrong?**  
+Several possibilities:
+1. **`10.20.1.20` is down** — `ip neigh show 10.20.1.20` shows FAILED.
+2. **ARP cache stale** — flush or wait for aging.
+3. **Firewall blocking that host**.
+4. **Host misconfigured** — wrong IP.
+5. **Proxy ARP misconfiguration**.
+
+**Diagnose:** `ip neigh show 10.20.1.20` — FAILED means no response.
+
+**Q19. Your Azure VM can reach the internet, but can't reach an on-prem server via VPN. What's wrong?**  
+Several possibilities:
+1. **Azure route table (UDR)** missing or wrong.
+2. **On-prem firewall blocking**.
+3. **VPN tunnel down**.
+4. **On-prem subnet not in VPN allowed routes**.
+5. **Asymmetric routing** — return goes via internet, not VPN.
+
+**Diagnose:** `Get-AzEffectiveRouteTable` on the VM's NIC; `traceroute` to the on-prem IP; VPN gateway logs.
+
+**Q20. After adding a new switch, the entire LAN went down. What happened?**  
+**STP loop.** The new switch created a loop. Without STP on all switches, broadcast frames flooded endlessly — **broadcast storm** — saturating links and CPUs.
+
+**Symptoms:** 100% interface utilization; switch CPUs maxed; complete outage.
+
+**Fix:** enable STP/RSTP/MSTP on all switches; BPDU Guard on access ports; disconnect the loop.
+
+**Q21. Your Kubernetes pods can reach each other but can't reach external services. What could be wrong?**  
+Several possibilities:
+1. **Egress route missing** — pod's default route doesn't point to cluster gateway.
+2. **NAT gateway misconfigured.**
+3. **Egress firewall blocking** — NetworkPolicy or cloud egress rule.
+4. **CNI plugin issue.**
+5. **DNS not resolving external names.**
+
+**Diagnose:** `kubectl exec -it pod -- ip route`; `kubectl exec -it pod -- curl -v https://example.com`.
+
+**Q22. You're designing a new Kubernetes cluster. Overlay or native routing?**  
+**Trade-offs:**
+
+| | Overlay (VXLAN, e.g., Flannel) | Native (BGP, e.g., Calico BGP) |
+|---|---|---|
+| **Encapsulation** | Frames in UDP/IP | Direct routing |
+| **Performance** | Slower (encap/decap) | Faster |
+| **Simplicity** | Works anywhere | Requires BGP infrastructure |
+| **Debugging** | Harder | Standard traceroute |
+
+**The choice:**
+- Small/medium clusters, no BGP infra → **overlay**.
+- Large clusters, BGP infra exists → **native (BGP)**.
+- Managed Kubernetes → check platform default.
+
+**Q23. Your application is on Azure, but a partner requires allow-listing your source IP. Which IP does the partner see?**  
+**Depends on the egress path:**
+- **No NAT gateway:** the partner sees the **VM's public IP** (changes on redeploy).
+- **NAT gateway with reserved IP:** the partner sees the **NAT gateway's reserved public IP** — stable.
+- **Azure Load Balancer outbound rules:** the LB's public IP.
+- **Azure Firewall:** the firewall's public IP.
+
+**The rule:** always use NAT gateway with reserved IPs for partner allow-listing. **Never rely on ephemeral VM public IPs.**
+
+---
+
+## Final knowledge check — before Topic 10
+
+Answer these in your own words. Short answers fine.
+
+1. **In one sentence:** what problem does routing solve that switching cannot, and vice versa?
+2. **Longest-prefix match:** given routes `0.0.0.0/0`, `10.0.0.0/8`, `10.20.1.0/24` and a packet to `10.20.1.15`, which wins and why?
+3. **ARP:** why is ARP needed, and what does "FAILED" in `ip neigh` mean?
+4. **MAC vs IP at each hop:** what changes and what stays the same as a packet travels through routers?
+5. **VLANs:** what problem do VLANs solve, and what is needed to route between them?
+6. **STP:** why is STP necessary, and what happens without it?
+7. **Asymmetric routing:** why does it break stateful firewalls, and how do you prevent it?
+8. **BGP vs OSPF:** what's the difference, and when would you use each?
+9. **TTL:** what is TTL, and how does `traceroute` exploit it?
+10. **Diagnostic:** your app can't reach a service on the same subnet. Name two things to check.
+11. **Azure:** why is a NAT gateway with a reserved IP necessary for partner allow-listing?
+12. **Judgment call:** your team proposes "just use a flat L2 network everywhere to simplify operations." What are your concerns?
+
+Once you confirm (or say *"skip, continue"*), I'll teach **Topic 10 — DHCP** using the same structure. DHCP explains how devices **automatically obtain the IP configuration** (IP, subnet mask, gateway, DNS servers) that Topics 4–5 assumed they already had.
