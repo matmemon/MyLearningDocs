@@ -1,0 +1,1069 @@
+# Topic 3 — Client-Server Architecture
+### (Updated — all review corrections incorporated)
+
+> **Adaptation note:** This topic is **architectural**, not protocol-level. Where the master prompt says "show code examples," I'll show **two implementations of the same requirement** — a legacy **fat-client → direct database** architecture and a modern **client → API → server** architecture — because that is the honest before/after for a .NET engineer, and it maps exactly to the client-server shift. I'll flag this explicitly.
+
+> **Gate rule:** No move to Topic 4 until you confirm Topic 3 is solid. Knowledge check at the end.
+
+---
+
+## The practical problem
+
+Your trading app has three requirements:
+
+1. A trader on a laptop must see **live** account balances.
+2. The **business rules** (margin checks, order validation) must not be replicated on every laptop — they must be **enforced centrally**.
+3. The system must scale from **50 traders** to **5,000** without rewriting the client.
+
+**How do you structure that?** Who runs the rules? Who owns the data? How does the laptop get the answer?
+
+This is the question client-server architecture answers.
+
+---
+
+## 1. WHY — Why was client-server architecture required?
+
+### The two problems it solves
+
+**Problem A — Centralized computing (mainframe/terminal) is too rigid.**
+
+A mainframe does everything; a "dumb terminal" only draws characters on a screen. This works — until you need:
+- Rich local interaction (drag-and-drop trading, live charts).
+- Offline tolerance (the terminal dies if the link dies).
+- **Architectural independence** — mainframes today *do* scale well (parallel sysplex, partitioning, vertical capacity), and they *can* participate in client-server architectures. The issue in the 1990s was not that mainframes couldn't scale; it was that **application logic was bound to specialized infrastructure** with limited vendor and platform flexibility.
+
+**Problem B — Pure peer-to-peer is too unmanaged.**
+
+Every node both serves and consumes. This works for file-sharing and small cooperative systems — but fails when:
+- Business rules must be **enforced** (you cannot trust every peer to validate orders).
+- Data must be **consistent** (there is no single authority).
+- Security must be **audited** (who approved this trade?).
+
+### What industry was struggling with (1990s)
+
+As PCs became powerful, two extremes existed:
+
+| Extreme | Problem |
+|---|---|
+| **Mainframe/terminal** | Cheap client, expensive host, no local compute, application logic bound to specialized infrastructure |
+| **Standalone desktop app** | Cheap, fast, local — but business rules and data were on the desktop, unauditable and insecure |
+
+**Client-server was the middle path:** put rich interaction on the client; keep authoritative data and rules on the server; let a network connect them.
+
+### What triggered it
+
+- **PCs** gave clients real compute.
+- **LANs** made connectivity cheap and fast.
+- **Databases** (SQL Server, Oracle) gave servers a scalable data engine.
+- **Businesses** needed central rule enforcement without giving up the PC.
+
+**Client-server exists because neither extreme — central everything or distributed everything — matches real enterprise needs.**
+
+**Important clarification:** Client-server architecture did **not** make mainframes obsolete. Mainframes can scale vertically to very large capacities, can partition and cluster workloads, and can participate in client-server architectures themselves (as servers, as data stores, as batch processors). The comparison is about **where application logic lives and how it evolves**, not about which platform is "better."
+
+---
+
+## 2. BEFORE — What existed previously?
+
+There were **two distinct "before" states**, and both matter.
+
+### State A — Mainframe / dumb terminal (1960s–1980s)
+
+```
+   [ Dumb terminal ] -- serial / SNA --> [ Mainframe ]
+   (screen + keyboard)                   (all logic + data)
+```
+
+The terminal has **no application logic** — every keystroke goes to the mainframe, which returns screen characters. All business rules, all state, all storage live on the host.
+
+**Strengths:**
+- **Centralized control** — one place to change rules.
+- **Consistency** — single source of truth.
+- **Security** — no data leaves the host.
+- **Scalability for many workloads** — mainframes handle very large transaction volumes well.
+
+**Weaknesses:**
+- **No local compute** — the PC is a screen.
+- **Vendor-bound application logic** — application code deployed to specialized infrastructure.
+- **Poor ergonomics** — character-mode UI limits rich interaction.
+- **Vendor lock-in** — IBM 3270 terminals only spoke IBM.
+
+### State B — Standalone desktop applications (1980s–1990s)
+
+```
+[ Desktop app ]  -- direct file / direct DB -->  [ File server or DB ]
+   (all logic + UI)                              (storage)
+```
+
+The desktop app (Visual Basic, Delphi, early WinForms) contains **all the business rules**, talks **directly to a database** (often via ADO/OLEDB), and reads/writes data directly.
+
+**Strengths:**
+- **Fast local interaction** — no network round-trip per keystroke.
+- **Rich UI** — the PC does real work.
+- **Cheap to build** — one language, one deployment.
+- **Offline tolerance** — can operate without connectivity.
+
+**Weaknesses:**
+- **Rules live on the client** — every client must be updated when rules change; some users **won't update**, so mixed rule versions coexist in production.
+- **Database credentials on every desktop** — the client must connect to SQL Server directly, so **any user can bypass your validation** by querying the DB with their embedded credentials.
+- **Business-level auditing is hard** — SQL Server auditing, stored procedures, session context, and database permissions are all capable mechanisms. The problem is that **business identity and intent are not enforced centrally**. The database may know *which database login* ran the INSERT; it does not necessarily know *which authenticated trader* initiated or approved the business operation, especially if multiple traders share a database login or if the client controls the identity claim.
+- **Scale ceiling** — N clients × N connections to the DB = connection pressure and management complexity.
+
+**This is exactly what modern client-server API architectures fix — not by replacing database auditing, but by centralizing business identity and rule enforcement in front of it.**
+
+---
+
+## 3. PROBLEM — Why were the previous approaches insufficient?
+
+| Problem | Mainframe/terminal | Standalone desktop |
+|---|---|---|
+| **Business rule enforcement** | Centralized, but application logic bound to specialized infrastructure | Fragmented; user can bypass |
+| **Local interaction** | Poor | Excellent |
+| **Application scaling** | Vertical + partitioned; capable but operationally specialized | None — N clients × N DB connections |
+| **Data security** | Strong | Weak — DB credentials on each desktop |
+| **Business-level auditability** | Good | Hard — see clarification above |
+| **Rule versioning** | Single version | Fragmented across clients |
+| **Platform flexibility** | Vendor-locked | One OS per client |
+| **Failure isolation** | Total (host down = everything down) | Partial |
+
+**The gap:** We needed **rich local clients** *and* **centralized, enforceable rules** *and* **application scalability independent of client count** — simultaneously. Neither extreme delivers all three.
+
+**The resolution:** Interpose a **server tier that owns the rules and the data, speaks a contract to clients, and can be scaled independently from clients.**
+
+---
+
+## 4. WHAT — What is client-server architecture?
+
+### Precise definition
+
+> **Client-server architecture** is an architectural model in which a **client initiates a request** to a **server** that provides a service or resource. They typically operate as **separate processes** and communicate through an **agreed protocol**, **often over a network**.
+
+**Three clarifications that matter:**
+
+1. **Roles, not machines.** "Client" and "server" describe **roles in a communication relationship**, not physical topology. They may run:
+   - On separate physical machines.
+   - In separate virtual machines.
+   - In separate containers on one host.
+   - As separate processes on the same laptop (e.g., React, ASP.NET Core, and SQL Server all running locally in development).
+
+   All of these are client-server interactions. The distinguishing feature is **who initiates** and **who responds** per exchange.
+
+2. **"Usually over a network" — not "always."** Same-machine IPC (Unix domain sockets, named pipes) is still client-server.
+
+3. **Roles are per exchange, not per machine.** A single process can be **client and server at the same time**:
+
+```
+React app (client) ─HTTP─► ASP.NET API (server)
+                                 │
+                                 │ HTTP (client)
+                                 ▼
+                           Payment API (server)
+                                 │
+                                 │ SQL (client)
+                                 ▼
+                           SQL Server (server)
+```
+
+The **API is a server** to React and a **client** to Payment API and SQL Server.
+
+### Analogy
+
+A **restaurant**:
+
+| Restaurant | Client-Server |
+|---|---|
+| Customer | Client |
+| Waiter / kitchen | Server |
+| Menu | API contract |
+| Order | Request |
+| Dish | Response |
+| Health inspector | Server-side validation (rule enforcement) |
+
+The customer **does not enter the kitchen** (no direct DB access). They order from a **menu** (a versioned contract), and the kitchen enforces **food safety rules** (business rules) regardless of what the customer asks for.
+
+### Key principles
+
+| Principle | Meaning |
+|---|---|
+| **Role separation** | Clients request; servers respond — roles are **per exchange**, not per machine |
+| **Contract-based communication** | Client and server agree on a protocol (HTTP, gRPC, SQL) and a data shape |
+| **Server owns authority** | Rules and data are enforced on the server; clients are untrusted |
+| **Independent scaling** | Client count and server capacity can grow separately |
+| **Network as the coupling boundary** | Each side can evolve internally without breaking the other |
+
+### Sub-classifications
+
+**Thin client vs thick client**
+
+| | Thin client | Thick client |
+|---|---|---|
+| **Logic location** | Server-side dominant; client renders and validates lightly | Split, often heavily on client |
+| **Examples** | Browser + SPA, dumb terminal | WinForms/WPF desktop, Electron app |
+| **Update cost** | Deploy once on server | Update every client |
+| **Offline tolerance** | Low | Higher (can cache and act) |
+| **Attack surface** | Browser sandbox | Local install, more access |
+| **Rule enforcement** | Server-authoritative | Risk: rules drift on client |
+
+**Important clarification:** **Thin does not mean "no client-side logic."** A React SPA may contain:
+- Validation for user experience.
+- UI state management.
+- Client-side routing.
+- Data formatting.
+- Caching.
+- Presentation calculations.
+
+That does not make it insecure. The principle is:
+
+> **Client-side validation improves user experience. Server-side validation enforces business correctness and security.**
+
+Also: **thick vs thin describes where application functionality is performed, not whether an API exists.** A thick client can call a server API. A thin client can call a server API. The distinction is *where the logic lives*, not *whether a network is involved*.
+
+**Stateless vs stateful**
+
+The "stateless" label is often taught too absolutely. Precise distinctions:
+
+| Concept | Meaning |
+|---|---|
+| **Stateless request handling** | Each request carries the information needed to process it, without depending on **server-instance-specific conversational state** |
+| **Stateful application** | The application maintains state across interactions |
+| **Stateful connection** | The connection itself retains information or context (e.g., WebSocket, gRPC stream) |
+| **Persistent business state** | Business information remains stored between requests (DB rows, cache entries) |
+
+**A stateless HTTP API does not rely on per-instance conversational state between requests.** However, the application can still maintain:
+- Database records.
+- Distributed cache entries.
+- Authentication information.
+- Persistent business state.
+- Shared session state, if designed appropriately.
+
+**A gRPC unary call is not automatically stateless.** It is a single request-response interaction — but the server can still maintain state between calls (cached data, counters, subscriptions). Statelessness is a property of *what a request depends on*, not of *how many messages are in an RPC*.
+
+**Why statelessness matters for scaling:** when request handling is stateless, **any server instance can serve any request**. That's what makes horizontal scaling simple. Stateful *request handling* forces sticky sessions or externalized state.
+
+**Peer-to-peer (P2P) — the alternative**
+
+```
+Computer A  ◄────────►  Computer B
+     ▲                      ▲
+     │                      │
+     └────► Computer C ◄────┘
+```
+
+Every node is both client and server. No central authority. Examples: BitTorrent, blockchains, IPFS.
+
+| | Client-server | Peer-to-peer |
+|---|---|---|
+| **Authority** | Centralized on the server | Distributed across peers |
+| **Trust** | Server is trusted; clients are not | Requires consensus or trust model |
+| **Rule enforcement** | Server-enforced | Protocol-enforced — anyone can deviate |
+| **Bootstrap cost** | Simple (know the server URL) | Complex (peer discovery) |
+| **Scalability** | Server is the bottleneck until scaled | Scales with peers |
+| **Examples** | Web, banking, email | BitTorrent, blockchain, mesh networks |
+
+P2P is the correct choice when **no entity can be trusted as authority** and **peer count is the natural scaling axis** — rare in enterprise software, common in file distribution and decentralized systems.
+
+---
+
+## 5. FEATURES — What does client-server provide?
+
+| Feature | What it does | Problem it solves | Practical example |
+|---|---|---|---|
+| **Role separation** | Client asks; server answers | Clear responsibility | React calls API; API reads DB |
+| **Contract-based communication** | HTTP, gRPC, SQL | Enables independent evolution | OpenAPI contract versioned separately from client |
+| **Server-authoritative rules** | Rules enforced once, centrally | End of fragmented rule versions | Margin checks in the API, not on the trading desk |
+| **Centralized data** | Single source of truth | No reconciliation jobs | One SQL primary; replicas for reads |
+| **Independent scaling** | Add servers without touching clients | Handles growth | 50 → 5,000 traders via load balancing |
+| **Security boundary** | Server is trusted; client is not | Prevents bypass | Only the API has DB credentials |
+| **Business-level auditability** | Every request logged centrally with identity | Compliance | "User X placed order Y at time Z" |
+| **Stateless request handling (optional)** | Each request is self-contained | Trivial scale-out | Any API instance can serve any request |
+| **Thin client (optional)** | Client renders and lightly validates | Deploy once | SPA auto-updates on server rollout |
+
+### Server types and responsibilities
+
+A single product or machine can play multiple roles; separating them conceptually clarifies architecture.
+
+| Server type | Responsibility | Example |
+|---|---|---|
+| **Web server** | Handles HTTP connections | Kestrel, Nginx, IIS |
+| **Application server** | Executes business logic | ASP.NET Core API |
+| **Database server** | Stores and retrieves data | SQL Server, PostgreSQL |
+| **File server** | Provides file storage and access | SMB file server, blob storage |
+| **Cache server** | Stores frequently accessed data | Redis, Memcached |
+| **Message broker** | Provides messaging infrastructure | Kafka, Azure Service Bus, RabbitMQ |
+| **Authentication server** | Issues or validates identity tokens | IdentityServer, Entra ID, Auth0 |
+| **API gateway / reverse proxy** | Routes, authenticates, rate-limits at the edge | Azure API Management, YARP, Nginx |
+
+A modern ASP.NET Core deployment often combines **web + application server** in one process (Kestrel hosting the app) and calls the others over the network.
+
+---
+
+## 6. COMPARISON — Previous approach vs client-server
+
+The master prompt asks for a detailed comparison; I use ten dimensions because they're the ones that matter most for this decision. This is a useful lens, not a formal requirement of the framework.
+
+The correct "before" here is the **fat client + direct DB** model — the dominant enterprise .NET pattern of the 2000s and the actual pattern client-server APIs replaced.
+
+| Dimension | Fat client → direct DB (before) | Client-server API (after) |
+|---|---|---|
+| **Architecture** | Two tiers: desktop app + database | Three tiers: client + API + database (minimum) |
+| **Working mechanism** | Client builds SQL, sends to DB; DB returns rows | Client sends HTTP/gRPC; API applies rules; API builds SQL for DB |
+| **Performance** | **Lower per-request latency** (1 round-trip) | **Higher per-request** (2 round-trips + serialization + TLS) — with throughput advantages that **depend on workload and implementation** (see below) |
+| **Scalability** | Capped by DB connection count and management | API tier can scale horizontally; DB connections pooled and capped by the API |
+| **Reliability** | Any client crash = user loses work; DB is a single failure point | API can be multi-instance; stateless request handling lets clients retry on any node |
+| **Security** | DB credentials on every desktop | Credentials only on the API; clients hold short-lived tokens |
+| **Complexity** | Low (one codebase) | High (two codebases, contract versioning, deployment coordination) |
+| **Maintenance** | Rules deployed to every desktop — update chaos | Deploy once on server — instant rollout to all clients |
+| **Cost** | Cheap initially, expensive operationally | Higher upfront, lower at scale |
+| **Failure handling** | Client failure = user failure; DB failure = total outage | API failure = retry on another node; DB failure = API surfaces clear errors |
+
+**Why each change matters:**
+
+- **Performance:** *per-request latency* is higher in client-server (two hops instead of one). **Aggregate throughput is not automatically higher.** Connection pooling reduces the cost of *opening* connections, but:
+  - The API introduces another processing tier.
+  - The database still performs the actual queries.
+  - More API instances can increase database connection demand.
+  - Poor pool configuration can overload the database.
+  - The API itself can become the bottleneck.
+
+  **Correct framing:** client-server **centralizes and can improve manageability, security, and database access control**. Whether throughput improves depends on workload, pooling configuration, concurrency, database capacity, and implementation quality. A client-server architecture can easily be **slower** than a well-tuned fat client if implemented poorly.
+
+- **Security:** the single biggest reason. **Every desktop connected directly to SQL Server is a security incident waiting to happen.** Removing DB credentials from clients is the entire point.
+
+- **Maintenance:** the second biggest reason. Deploy rule changes once; every user gets them the next page load.
+
+- **Failure handling:** stateless request handling + load balancer means a dead API node is invisible to users. A dead DB is still a single failure point — solved later with replicas and failover.
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### Advantages of client-server
+- **Centralized business rules** — one place to change
+- **Centralized data** — single source of truth
+- **Independent scaling** of client count and server capacity
+- **Security boundary** — clients are untrusted by design
+- **Business-level auditability** — every request is a loggable event with identity
+- **Technology independence** — clients can be web, mobile, desktop, CLI
+- **Fault isolation** — server instances fail independently behind a load balancer
+- **Deploy-once rule changes** — no client update cascade
+
+### Disadvantages and hidden costs
+- **Network is now on the critical path** — latency, partitions, retries
+- **Two (or more) codebases** to maintain and version
+- **Contract versioning** — clients must not break when the API changes
+- **Distributed failure modes** — partial failures, cascading timeouts, retry storms
+- **Serialization cost** — bytes in, objects out, twice
+- **Operational complexity** — deployment, monitoring, tracing, load balancing
+- **Per-request latency** is higher than a fat client's single DB call
+
+### When the old approach is still better
+- **Internal tools with small user counts** and stable rules — a fat client is simpler.
+- **Offline-first desktop apps** — e.g., field service apps that must work disconnected.
+- **Air-gapped systems** — where a network API is impossible.
+- **Latency-critical hot paths** — a trading match engine's core loop is in-process, not a network call.
+- **Single-team, single-codebase ownership** — where the API adds coordination cost with no scale or security benefit.
+
+**Honest take:** client-server is the right default for enterprise systems that have *multiple clients* or *enforceable rules* or *audit requirements*. It's overkill for a single-team internal tool.
+
+---
+
+## 8. WHEN — When should you use it?
+
+### Use client-server when
+- **Multiple client types** must consume the same service (web, mobile, desktop).
+- **Rules must be enforced** — margin checks, authorization, validation.
+- **Data must be centralized** — single source of truth, audit, compliance.
+- **Scale must exceed one machine's capacity** — horizontal scale-out.
+- **Security demands a trusted boundary** — never put DB credentials on the client.
+
+### Avoid client-server when
+- **The user count is small and rules are stable** — a desktop tool is simpler.
+- **Offline operation is required** — a fat or local-first client is better.
+- **Latency is measured in microseconds** — in-process beats a network hop.
+- **There is exactly one consumer** and one team — the API adds cost without benefit.
+
+### Alternatives and when to choose them
+
+| Alternative | When to choose |
+|---|---|
+| **Fat client + direct DB** | Small user base, stable rules, single team, latency-critical |
+| **Peer-to-peer** | No trusted authority; peer count is the scaling axis (file sharing, blockchain) |
+| **Serverless functions (FaaS)** | Stateless event handling; you want ops offloaded; spiky traffic |
+| **Message-driven (queues)** | Work does not need a response now; you need durability and retries |
+| **Client-only (local-first)** | Single-user tools, offline-first apps |
+| **Edge / BFF** | Client latency demands are high; you want to aggregate downstreams close to users |
+
+### Scenario decisions
+
+| Scenario | Choice | Why |
+|---|---|---|
+| Trading app for 50 internal users | **Fat client + DB**, or thin client + internal API | Small user count; simplicity may win |
+| Trading app for 5,000 external users | **Client-server API** | Scale, rule enforcement, audit |
+| Field sales app with offline requirement | **Fat / local-first client + sync to server** | Offline operation |
+| Payment processing service | **API with strong server authority** | Compliance, auditable rules |
+| Trading match engine core loop | **In-process**, not client-server | Microsecond latency |
+| Content distribution | **P2P or CDN** | Peer count is the scaling axis |
+
+### Principal Engineer framing
+
+A Principal Engineer asks:
+
+1. **Where must the trust boundary be?** If there are untrusted clients → API required.
+2. **Where must rules be enforced?** Centralized → API required.
+3. **What is the scale?** Thousands of clients → API required.
+4. **What is the latency budget?** If microseconds, avoid a network hop.
+5. **How many teams own this?** One team, one codebase → API adds coordination cost.
+6. **What happens if the API is down?** Can the client degrade, or must it fail hard?
+
+---
+
+## 9. HOW — Practical implementation
+
+### A. Previous implementation — fat client → direct database
+
+The dominant enterprise .NET pattern of the 2000s. A **WinForms** client connects **directly** to SQL Server.
+
+```csharp
+// WinForms code-behind — direct ADO.NET to SQL Server
+private async void btnPlaceOrder_Click(object sender, EventArgs e)
+{
+    var connectionString =
+        "Server=sql.internal;Database=Trading;User Id=trader_app;" +
+        "Password=Tr@d3r!2024;";          // ← credentials on every desktop
+
+    using var conn = new SqlConnection(connectionString);
+    await conn.OpenAsync();
+
+    // Business rule implemented here — client-side — every client
+    using var cmd = new SqlCommand(
+        "INSERT INTO Orders (TraderId, Symbol, Qty, Price) " +
+        "VALUES (@t, @s, @q, @p)", conn);
+    cmd.Parameters.AddWithValue("@t", currentTraderId);
+    cmd.Parameters.AddWithValue("@s", txtSymbol.Text);
+    cmd.Parameters.AddWithValue("@q", int.Parse(txtQty.Text));
+    cmd.Parameters.AddWithValue("@p", decimal.Parse(txtPrice.Text));
+
+    await cmd.ExecuteNonQueryAsync();
+    MessageBox.Show("Order placed");
+}
+```
+
+**What is wrong here (not a criticism of the developer — this was normal):**
+
+| Issue | Consequence |
+|---|---|
+| DB credentials embedded in the client binary | Anyone can decompile and steal them |
+| No server-side margin check | A user can bypass the rule by editing the binary |
+| Business rules duplicated in every desktop build | Rules drift between users |
+| Business-level identity is not centrally enforced | Audit trail harder to construct at the business level |
+| Every desktop holds a DB connection | Connection pressure grows with client count |
+| Rule change → redeploy every desktop | Users on old versions coexist |
+
+**This architecture works for a small, trusted, single-team deployment.** It fails for anything with external users, enforceable rules, or scale.
+
+### B. Modern implementation — client → API → server (hardened)
+
+The review flagged that the initial modern example was illustrative, not production-ready. Below is a **production-hardened** version that addresses each concern. Not every concern is fully solved here — some are deferred to later topics (Outbox, idempotency, resilience). I mark **where** each is addressed.
+
+**Server — ASP.NET Core Minimal API:**
+
+```csharp
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Trading.Api;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// --- Database (pooled) ---
+builder.Services.AddDbContext<TradingDbContext>(options =>
+    options.UseSqlServer(builder.Configuration.GetConnectionString("Trading")));
+
+// --- Authentication: explicitly configure JWT validation ---
+builder.Services
+    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.Authority = builder.Configuration["Auth:Authority"];  // issuer
+        options.Audience  = builder.Configuration["Auth:Audience"];   // audience
+        options.TokenValidationParameters.ValidateIssuer   = true;
+        options.TokenValidationParameters.ValidateAudience = true;
+        options.TokenValidationParameters.ValidateLifetime = true;
+        options.TokenValidationParameters.ClockSkew = TimeSpan.FromSeconds(30);
+    });
+
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+app.UseAuthentication();
+app.UseAuthorization();
+
+// --- Contract: POST /api/orders { symbol, quantity, price } ---
+app.MapPost("/api/orders", async (
+    PlaceOrderRequest request,
+    TradingDbContext db,
+    ClaimsPrincipal user,
+    ILogger<Program> log,
+    CancellationToken ct) =>
+{
+    // 1. Input validation
+    if (string.IsNullOrWhiteSpace(request.Symbol) || request.Quantity <= 0 || request.Price <= 0)
+        return Results.ValidationProblem(new Dictionary<string, string[]>
+        {
+            ["request"] = ["Symbol, quantity, and price must be valid."]
+        });
+
+    // 2. Establish authenticated trader identity from the token, not the body
+    var traderId = user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                   ?? user.FindFirst("sub")?.Value;
+    if (string.IsNullOrEmpty(traderId))
+        return Results.Unauthorized();
+
+    // 3. Load account; do not assume it exists
+    var account = await db.Accounts
+        .AsNoTracking()
+        .SingleOrDefaultAsync(a => a.TraderId == traderId, ct);
+    if (account is null)
+        return Results.Problem(
+            statusCode: StatusCodes.Status403Forbidden,
+            title: "No trading account",
+            detail: "Authenticated trader has no account.");
+
+    // 4. Business rule (see concurrency note below)
+    var requiredMargin = request.Quantity * request.Price * 0.20m;
+    if (account.AvailableMargin < requiredMargin)
+        return Results.Problem(
+            statusCode: StatusCodes.Status422UnprocessableEntity,
+            title: "Insufficient margin",
+            detail: $"Requires {requiredMargin:C}, available {account.AvailableMargin:C}");
+
+    // 5. Persist. Transaction boundary + concurrency + idempotency are
+    //    discussed below; this example uses an EF transaction with
+    //    row-version concurrency to avoid the overspend race.
+    await using var tx = await db.Database.BeginTransactionAsync(ct);
+
+    // Re-read with row lock / concurrency token — see "Concurrency" below
+    var locked = await db.Accounts
+        .FromSqlInterpolated(
+            $@"SELECT * FROM Accounts WITH (UPDLOCK, ROWLOCK)
+               WHERE TraderId = {traderId}")
+        .SingleAsync(ct);
+
+    if (locked.AvailableMargin < requiredMargin)
+    {
+        await tx.RollbackAsync(ct);
+        return Results.Problem(
+            statusCode: StatusCodes.Status422UnprocessableEntity,
+            title: "Insufficient margin (concurrent)",
+            detail: "Another order may have consumed margin.");
+    }
+
+    locked.AvailableMargin -= requiredMargin;
+    db.Orders.Add(new Order
+    {
+        Id = Guid.NewGuid(),
+        TraderId = traderId,
+        Symbol = request.Symbol,
+        Quantity = request.Quantity,
+        Price = request.Price,
+        Status = OrderStatus.Accepted,       // "Accepted for processing" — NOT "Filled"
+        PlacedUtc = DateTime.UtcNow
+    });
+
+    // NOTE: publishing to Kafka here would be unsafe — see "Outbox" below.
+    await db.SaveChangesAsync(ct);
+    await tx.CommitAsync(ct);
+
+    log.LogInformation(
+        "Order accepted {OrderId} for {TraderId} — resource created, not executed",
+        /* order id */ Guid.Empty, traderId);
+
+    return Results.Created($"/api/orders", new PlaceOrderResponse(
+        Id: Guid.Empty,
+        Status: "Accepted"));
+})
+.RequireAuthorization();   // ← endpoint explicitly protected
+
+app.Run();
+```
+
+**Client — React or any HTTP client:**
+
+```typescript
+async function placeOrder(
+  symbol: string, quantity: number, price: number
+) {
+  const response = await fetch("/api/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${getToken()}`,
+      "Idempotency-Key": crypto.randomUUID(),   // see idempotency note
+    },
+    body: JSON.stringify({ symbol, quantity, price }),
+  });
+
+  if (!response.ok) {
+    const problem = await response.json();
+    throw new Error(problem.title ?? "Order failed");
+  }
+  return await response.json();
+}
+```
+
+**Line-by-line, what changed and why:**
+
+| Concern | Fat client | Hardened client-server |
+|---|---|---|
+| **Credentials** | DB password on disk | Short-lived JWT — no DB password on the client |
+| **Authentication** | None | Explicit JWT bearer with issuer, audience, signing key, lifetime validation |
+| **Authorization** | None | `RequireAuthorization()` on the endpoint |
+| **Rules** | Duplicated in every desktop build | Enforced once, server-side, for all clients |
+| **Validation** | None server-side | `ValidationProblem` on invalid input |
+| **Account lookup** | Assumed present | Explicit null check → 403 |
+| **Concurrency** | Race not addressed | Transaction + `UPDLOCK` re-read |
+| **DB connections** | N clients × N sessions | Pooled on the API |
+| **Versioning** | Client must be rebuilt for every rule change | Server deploys; clients see new rules on next request |
+| **Failure mode** | Client sees raw SQL exception | Client sees structured `ProblemDetails` |
+| **201 semantics** | N/A | `201 Created` = **resource created, not executed** |
+
+**On the `201 Created` status:** `201 Created` means the API created the order **resource**. It does **not** mean the order was matched, filled, or executed. In trading systems, "accepted," "validated," "persisted," "matched," "filled" are **distinct business states**. The event name and the status must reflect exactly what happened.
+
+**Three production concerns flagged by the review — where they live:**
+
+| Concern | Why it matters | Where it's studied |
+|---|---|---|
+| **Concurrency** (two traders overspending the same margin) | Race condition — both pass the check, system overspends | Here (below) and Topic 25 |
+| **Idempotency** (retries create duplicate orders) | Every retry on a network timeout can double-create | Topic 38 |
+| **Outbox pattern** (DB commit succeeds, Kafka publish fails) | Order exists in DB but downstream never learns | Topic 49 |
+
+I'll cover **concurrency** now because it directly affects the client-server example. Idempotency and Outbox are fully addressed in their own topics.
+
+### Concurrency — why client-server doesn't solve it for free
+
+Consider two traders with the same ₹1,00,000 of available margin:
+
+- **Trader A** submits an order requiring ₹70,000.
+- **Trader B** submits an order requiring ₹60,000.
+
+Both requests read "available = ₹1,00,000" from the database **before** either commits. Both pass the margin check in application code. Both insert an order and subtract margin. The system now accepts **₹1,30,000** against **₹1,00,000** available.
+
+**Client-server architecture does not automatically solve concurrency.** The bug can happen in a fat client too. What changes is that **the API is the single point** where a fix can be enforced for all clients.
+
+Mechanisms (choose based on contention and semantics):
+
+| Mechanism | How it works | When to use |
+|---|---|---|
+| **Optimistic concurrency** (row version / `RowVersion`) | Update with `WHERE RowVersion = @expected`; retry on conflict | Low contention, high throughput |
+| **Pessimistic locking** (`UPDLOCK`, `SELECT FOR UPDATE`) | Lock the row for the transaction | High contention, correctness-critical |
+| **Atomic update** (`UPDATE ... SET margin = margin - @x WHERE margin >= @x`) | Let the DB enforce the invariant | Simple invariants |
+| **Constraint** (CHECK constraint, unique index) | Enforce at the DB layer | Rule can be expressed as an invariant |
+| **Serializable isolation** | Prevent concurrent conflicting reads | Last resort — heavy contention |
+
+**The hardened example above uses pessimistic locking for illustration.** In practice, **atomic conditional update** is often cleaner for margin deductions:
+
+```sql
+UPDATE Accounts
+SET AvailableMargin = AvailableMargin - @required
+WHERE TraderId = @t AND AvailableMargin >= @required
+```
+
+If the update affects **0 rows**, the margin was insufficient — no lock management needed. The DB enforces the invariant atomically.
+
+### Idempotency — why timeouts are not proof of failure
+
+A timeout on a state-changing request has **three possible outcomes** from the client's perspective:
+
+1. The request **never reached** the server.
+2. The request **reached** the server but processing **did not commit**.
+3. The request **committed** successfully, but **the response was lost**.
+
+The client sees the same timeout in **all three** cases. **A timeout is not proof of failure.**
+
+For state-changing operations:
+- Use an **idempotency key** (client-generated, sent in the request).
+- The server stores the key and the result; repeated submissions return the same result.
+- Optionally, add a **transaction-status endpoint** the client can poll to determine the outcome.
+
+This is covered in Topic 38. The important lesson here is that **client-server introduces a network that can lose responses without losing the underlying effect.**
+
+### Outbox — why SQL and Kafka need a consistency strategy
+
+```
+Order API
+    |
+    v
+SQL Server   ←── COMMIT succeeds
+    |
+    | Kafka publish attempted
+    v
+Kafka         ←── publish FAILS (broker down, network blip, timeout)
+```
+
+The order exists in SQL, but **no `OrderPlaced` event was published**. Downstream systems (matching engine, notification, risk) **never learn about the order**.
+
+This is the **dual-write problem**: writing to two systems without a shared transaction. The correct solution is the **Transactional Outbox Pattern**:
+
+1. Write the order **and** an `outbox` record in the **same DB transaction**.
+2. A separate publisher polls the outbox and publishes events to Kafka.
+3. The publisher marks records as sent after successful publish.
+4. If publish fails, it retries — no events lost.
+
+Covered in detail at Topic 49. The lesson here: **client-server architectures that span databases and message brokers need explicit consistency design.** "Publish after commit" is not safe.
+
+### Execution flow — the same "place order" from the user's click to the DB row
+
+1. **Client builds HTTP request** — `POST /api/orders` with JSON body, bearer token, and idempotency key.
+2. **DNS resolves** the API hostname → load balancer IP.
+3. **TLS handshake** at the load balancer.
+4. **Load balancer routes** to a healthy API instance.
+5. **JWT authentication** middleware validates the token — no DB credentials were used to authenticate.
+6. **Authorization** — `RequireAuthorization()` checks the user is authenticated; the handler enforces per-account rules.
+7. **Body deserializes** — JSON → `PlaceOrderRequest`.
+8. **Validation** — input shape checked; malformed requests rejected early.
+9. **Handler queries DB** — pooled connection, reads the account.
+10. **Business rules** — margin check under a transaction with concurrency control.
+11. **INSERT + UPDATE** — order written, margin updated.
+12. **Outbox record** — event stored in the same transaction (Topic 49).
+13. **Structured log** — `OrderId`, `TraderId`, `PlacedUtc`.
+14. **Response** — `201 Created` with JSON body — **resource created, not executed**.
+15. **Client receives** — parses JSON, renders confirmation.
+16. **Background publisher** — reads outbox, publishes `OrderPlaced` to Kafka (Topic 49).
+
+**Notice what's absent:** no business rules on the client, no DB credentials in the browser, no DB connections from the desktop. **That is the entire value of client-server.**
+
+---
+
+## 10. INTERNAL WORKING — What happens on one client request
+
+Trace a single `GET /api/accounts/123` end-to-end.
+
+### Sending side — client
+
+1. **Application** builds an HTTP request — method, path, headers, auth token.
+2. **DNS** resolves the hostname to an IP (cached after first call).
+3. **TCP** — a connection is established (or reused from the pool):
+   - `SYN` → server
+   - `SYN-ACK` → client
+   - `ACK` → server
+4. **TLS handshake** (if HTTPS):
+   - `ClientHello` → server
+   - `ServerHello` + certificate → client
+   - Certificate verification (CA trust, hostname, expiry)
+   - Key exchange → shared session key
+5. **HTTP request is sent** — bytes flow through TLS → TCP → IP → Ethernet.
+6. **`SocketsHttpHandler`** (in .NET) manages the socket and pooling.
+
+### Server side
+
+7. **Load balancer** terminates TLS (or passes through), selects a healthy backend by health check.
+8. **Reverse proxy / API gateway** applies rate limits, auth policies, and routing.
+9. **Kestrel** (ASP.NET Core web server) accepts the TCP connection, reads the request.
+10. **Middleware pipeline** runs in order:
+    - **Exception handler** — catches unhandled exceptions.
+    - **HTTPS redirection**.
+    - **Authentication** — decodes and validates JWT.
+    - **Authorization** — checks policy (does this user own account 123?).
+    - **Routing** — maps `/api/accounts/123` to a handler.
+11. **Handler** executes:
+    - Reads `123` from the route.
+    - Queries Redis (cache hit? return).
+    - On miss: opens a **pooled DB connection**, queries SQL.
+    - Applies business rules.
+    - Serializes the response.
+12. **Response flows back** — Kestrel writes bytes → TLS → TCP → IP → Ethernet → load balancer → client.
+
+### Client receives
+
+13. **Response deserializes** — JSON → C# object or TypeScript object.
+14. **Application renders**.
+
+### Background mechanisms
+
+| Mechanism | What it does |
+|---|---|
+| **Connection pooling** | Reuses TCP/TLS connections — no handshake per request |
+| **DNS caching** | Avoids lookup per request |
+| **HTTP keep-alive** | Keeps the socket open for the next request |
+| **TLS session resumption** | Skips full key exchange on reconnect |
+| **JWT validation cache** | JWKS keys cached; signatures not re-fetched per request |
+| **DB connection pooling** | Reuses DB connections across requests |
+| **Response compression** | gzip/brotli on the wire, if negotiated |
+
+**Every one of these is a topic later in the syllabus.** The important thing now is that **client-server** is not one call — it's a **chain of lifecycles**, each of which can be optimized or fail independently.
+
+---
+
+## 11. FAILURE SCENARIOS
+
+Client-server introduces failure modes that a fat client does not have. These are the ones you will meet in production.
+
+| Failure | What happens | Detection | Mitigation |
+|---|---|---|---|
+| **Client network drop** | Request in flight is lost; user sees error | Client-side error; timeout | Retry with idempotency key (Topic 38); show reconnect UI |
+| **Server is down** | Connection refused or timeout | Health check fails; LB removes instance | Multi-instance; auto-restart; circuit breaker (Topic 37) |
+| **Server is slow** | Request takes 30s; client times out | High latency in traces | Timeouts; load shedding; backpressure (Topic 58) |
+| **API gateway down** | All clients affected | 502/504 at LB | Redundant gateways; DNS failover (Topic 20) |
+| **DB down** | API returns 5xx | DB health check fails; alerts fire | Failover replica; read replicas; degraded read-only mode |
+| **Thundering herd** | After an outage, all clients retry at once, re-crashing the server | Spike in request rate; timeouts | Retry backoff + jitter (Topic 37); circuit breaker |
+| **Partial deployment** | Some servers have new code, some old — clients see inconsistent behavior | Error rate mismatch between instances | Blue-green deploy; schema-first versioning |
+| **Contract break** | Server change breaks clients silently | Client errors spike after deploy | Versioned APIs; contract tests in CI |
+| **Retry storm** | Client retries amplify load during outage | Request rate ≠ user rate | Idempotency + circuit breaker + rate limit (Topics 38, 57) |
+| **Sticky-session server dies** | Session lost; user logged out | User complaints | Stateless request handling (Topic 25); externalized session (Topic 53) |
+| **Dual-write inconsistency** | DB commit succeeded; Kafka publish failed | Downstream systems missing events | Transactional Outbox (Topic 49) |
+| **Concurrent margin overspend** | Both requests pass the check | Negative available margin or invariant violation | Transactions, optimistic/pessimistic locking, atomic updates |
+
+### How the system recovers
+
+- **Health checks** — failed instances are removed from the LB pool within seconds.
+- **Auto-restart** — orchestrators (Kubernetes, App Service) restart crashed processes.
+- **Retries** — clients retry transient failures with backoff and jitter.
+- **Circuit breakers** — stop retrying when the downstream is clearly down.
+- **Graceful degradation** — serve cached or read-only data if writes fail.
+- **Idempotency** — retries of `POST` don't create duplicate orders.
+
+### Correlation between failures and layers
+
+| Symptom | Layer | First diagnostic |
+|---|---|---|
+| Connection refused | 3–4 | `Test-NetConnection -Port 443` |
+| TLS handshake failure | 5–7 | `curl -v` |
+| 401 / 403 | 7 | Check token, policy |
+| 404 | 7 | Check route |
+| 500 | 7 | Check server logs |
+| 502 / 504 | 4–7 | Check upstream health |
+| Long latency, no error | 4–7 | Trace a slow request (Topic 62) |
+
+**Do not treat "the API is down" as a single failure.** It's one of at least seven distinct failures, each with a distinct diagnosis.
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Trading platform end to end
+
+```
+        ┌───────────────────────────────────────────────────────┐
+        │                   Client Tier                         │
+        │  React SPA    Mobile App    Desktop (WPF)    CLI      │
+        └───────────────────────┬───────────────────────────────┘
+                                │  HTTPS + Bearer token
+                                ▼
+        ┌───────────────────────────────────────────────────────┐
+        │                    Edge Tier                          │
+        │  WAF → CDN → API Gateway (auth, rate limit)           │
+        │       → TLS termination                               │
+        └───────────────────────┬───────────────────────────────┘
+                                │
+                                ▼
+        ┌───────────────────────────────────────────────────────┐
+        │                  Service Tier                         │
+        │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐ │
+        │  │ Trading API  │  │ Order API    │  │ Reference API│ │
+        │  │  (stateless) │  │ (stateless)  │  │ (stateless)  │ │
+        │  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘ │
+        └─────────┼─────────────────┼─────────────────┼─────────┘
+                  │                 │                 │
+                  ▼                 ▼                 ▼
+        ┌───────────────────────────────────────────────────────┐
+        │                  Data & Messaging Tier                │
+        │  Redis     SQL (primary+replicas)     Kafka           │
+        │                                       (event stream)  │
+        │  + Transactional Outbox for reliable event publication│
+        └───────────────────────────────────────────────────────┘
+```
+
+### End-to-end flow — a trader places an order
+
+1. **Trader clicks "Buy"** — React builds `POST /api/orders` with a JWT.
+2. **WAF** filters bad traffic.
+3. **API gateway** validates the JWT, applies per-user rate limits, routes to Order API.
+4. **Order API** receives request:
+   - Validates request shape.
+   - Loads the account under concurrency control (transaction + lock or atomic update).
+   - Checks margin.
+   - Writes the order to SQL **and** an outbox record in **the same transaction**.
+5. **Response** — `201 Created` with order ID and status `Accepted` — **resource created, not executed.**
+6. **Outbox publisher** reads the outbox record and publishes `OrderPlaced` to Kafka.
+7. **Matching engine** consumes `OrderPlaced`, matches the order, publishes `OrderFilled` — a **different business state**.
+8. **Notification service** consumes `OrderFilled` and updates the trader's UI (SignalR).
+
+**Why the Outbox:** the order and the intent to publish travel in the same transaction. A Kafka outage cannot leave the system with a persisted order and a lost event. The publisher retries until Kafka accepts it.
+
+**Why the event naming matters:** `OrderPlaced` should represent exactly **what has already happened** at the time of publication. If it means "received," say received. If it means "validated," say validated. If it means "accepted for execution," say accepted. Vague event names are a classic source of cross-team bugs. In this example, `OrderPlaced` = **persisted and accepted for processing**, not executed.
+
+### Engineering considerations
+
+| Concern | How it's handled |
+|---|---|
+| **Security** | WAF, TLS at edge, mTLS to internal services, short-lived JWT, no DB creds on clients |
+| **Performance** | Redis cache, SQL replicas for reads, edge CDN, HTTP keep-alive, connection pooling |
+| **Concurrency** | DB transactions, atomic conditional updates or row locks |
+| **Consistency** | Write to SQL primary; **Outbox** for reliable event publication; eventual consistency downstream |
+| **Reliability** | Stateless APIs, multi-AZ, health checks, circuit breakers, idempotent writes |
+| **Observability** | Distributed tracing (OpenTelemetry), correlation IDs, structured logs |
+| **Compliance** | Immutable audit log with business identity, encryption at rest and in transit |
+
+**Every box in this diagram is a topic in the syllabus.** Topic 3 establishes the shape; the rest fills in the guarantees.
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### Design decisions
+- **Where is the trust boundary?** Any untrusted client → API required. This is non-negotiable.
+- **Stateless request handling or stateful?** Default to stateless — unless a specific reason (WebSocket, streaming) demands state. Then externalize it (Redis) rather than pin it to a server.
+- **Thin or thick client?** Thin for consistency and central rollout. Thick when offline or latency forces local compute.
+- **How many hops?** Every hop adds latency and failure modes. Minimize on hot paths.
+- **Versioning strategy** — URL (`/v2/`), header, or media type. Choose and enforce.
+
+### Architectural trade-offs
+- **More tiers = more scale and isolation, but more latency and more failure surfaces.**
+- **Thin client = fast to update, but requires constant connectivity.**
+- **Fat client = offline tolerance, but rule drift and update chaos.**
+- **More services = more decoupling, but chattier (Topic 32).**
+- **Statelessness = trivial scale-out, but state must live somewhere (Redis, DB) — with its own failure modes.**
+
+### Scalability considerations
+- **Scale the API tier horizontally first** — stateless request handling scales with replicas.
+- **The database is the real bottleneck** — add replicas, cache, shard.
+- **Client count scales for free** — that's the point of client-server.
+- **Connection pools are the ceiling** — `MaxPoolSize` matters more than CPU once you have load.
+
+### Production best practices
+- **Always set timeouts** on outgoing calls, DB calls, TLS handshakes — nothing waits forever.
+- **Always use idempotency keys** on writes — retries must not create duplicates.
+- **Always design for concurrency** — a check-then-act pattern is a race condition.
+- **Always design for dual-write consistency** — Outbox for cross-system events.
+- **Always trace** — a client-server call spans multiple services; without traces, debugging is guessing.
+- **Always monitor percentiles** — p50, p95, p99. Averages lie.
+- **Always health-check** — LB should route only to instances that can serve.
+- **Always graceful shutdown** — drain connections before killing a pod (Topic 52).
+
+### Anti-patterns
+- **Chatty client-server** — 40 API calls to render one screen. Fix: aggregation or BFF.
+- **Stateful APIs without externalized state** — forces sticky sessions and breaks scaling.
+- **Fat client + direct DB** — every rule change is a client deploy, every client is a security risk.
+- **Contract-less integration** — no OpenAPI spec; clients break silently on changes.
+- **Ignoring idempotency** — retries create duplicate orders, double charges.
+- **Ignoring concurrency** — check-then-act races overspend resources.
+- **Dual writes to DB + broker** — data can commit while events are lost.
+- **Synchronous fan-out** — one user request triggers 20 sequential service calls; latency compounds.
+
+### What an experienced engineer knows before adopting client-server
+- **The network is now your problem.** Every call can fail, be slow, or be lost.
+- **The contract is a long-lived artifact.** Getting it wrong is expensive — version it from day one.
+- **Statelessness is a discipline, not a checkbox.** One in-memory field and scale-out breaks.
+- **Concurrency does not go away.** The API is where it must be fixed.
+- **Observability is not optional.** A client-server system you cannot see is a system you cannot operate.
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is client-server architecture?**  
+An architectural model in which a **client initiates a request** to a **server** that provides a service or resource, typically as **separate processes** communicating over an **agreed protocol**, often over a network. The key separation is that the server **owns the authoritative data and rules**, and the client is **untrusted**. Roles are **per exchange**, not per machine — the same process can be both. The server does not need to run on a separate physical machine; local dev (React + ASP.NET Core + SQL on one laptop) is client-server.
+
+**Q2. What is the difference between a thin client and a thick client?**  
+A **thin client** performs minimal application logic — the server does the work. Examples: browser + SPA, dumb terminal. **Update once on the server; every client sees the change.** A **thick client** performs significant logic locally. Examples: WinForms, WPF, Electron. **Update every client; version drift is common.** The trade: thin clients are easier to keep consistent, thick clients tolerate offline and give better local latency. **Thin does not mean zero logic** — SPAs validate for UX, route, cache, and format; server-side validation still enforces business correctness. **Thick vs thin describes where functionality is performed, not whether an API exists.**
+
+**Q3. What is the difference between stateless and stateful servers?**  
+**Stateless request handling** means each request carries everything needed to process it, without depending on **server-instance-specific conversational state**. Any instance can serve any request, so scale-out is trivial. **Stateful request handling** means requests depend on something the instance remembers — session, connection, transaction — forcing sticky sessions or externalized state. **Precision matters:** a stateless HTTP API can still maintain **persistent business state** in a database or cache, and a **gRPC unary call is not automatically stateless** — it's a single message exchange, but the server can keep state between calls. **Statelessness is a property of what a request depends on, not of how many messages are in an RPC.**
+
+### Intermediate
+
+**Q4. Why does client-server architecture put a network between the client and the DB instead of connecting the client directly?**  
+Three reasons:
+1. **Security** — direct DB connections require DB credentials on every client, which can be stolen by decompiling the binary. An API holds the credentials; clients hold short-lived tokens.
+2. **Rule enforcement** — business rules applied on the client can be bypassed; on the server they cannot.
+3. **Business-level auditability** — the server logs every structured request with authenticated identity ("user X placed order Y"); a raw SQL insert may know *which DB login* but not *which authenticated trader*, especially if logins are shared or the client controls the identity claim.
+
+The cost is one extra network hop and a contract to version. The gain is centralized enforcement, security, and scale.
+
+**Q5. What is the difference between client-server and peer-to-peer?**  
+In **client-server**, one tier is authoritative — the server owns the rules and data, and clients are untrusted. In **peer-to-peer**, every node is both client and server; there is no central authority. P2P scales with peer count but requires consensus or a trust model to enforce rules. Client-server scales by adding servers and is the right choice whenever a central authority exists or is required. P2P is right for file distribution and decentralized systems where no entity can be trusted as authority.
+
+**Q6. Explain "roles are per exchange, not per machine."**  
+In a single request, one process may act as **server** (to the tier above it) and as **client** (to the tier below it). A typical ASP.NET Core API is a **server** to React and a **client** to SQL Server and Payment API. There is no "server machine" in a strict sense — there are **server roles** at each hop. This is why "is this a server or a client?" is the wrong question; the right question is "in this exchange, which side initiates?"
+
+**Q7. What is the difference between synchronous and asynchronous client-server communication?**  
+- **Synchronous** — the caller waits for the operation's final result before continuing.
+- **Asynchronous** — the caller can continue without waiting for the eventual result.
+- **Non-blocking** — a thread is not unnecessarily blocked while waiting.
+
+These are related but not interchangeable. A client-server **interaction** can be synchronous (client waits for 201) while **subsequent processing** is asynchronous (matching happens later, client is notified via SignalR or polling). Distinguishing these matters because latency, resilience, and UX all depend on which you chose.
+
+### Advanced
+
+**Q8. Why is statelessness the default for horizontal scaling?**  
+Because stateless request handling means **no per-instance state**, so **any instance** can serve **any request** — a load balancer needs no affinity, a failed instance loses nothing, and replicas can be added or removed freely. Stateful request handling pins state to an instance, forcing **sticky sessions** (which break on failure) or **state externalization** (Redis, DB — which adds a hop and its own failure modes). Statelessness isn't free — it pushes state to a datastore — but it's the default because it makes scale-out linear.
+
+**Q9. A trader complains that the API is slow, but the DB is fast. What client-server-specific costs could be responsible?**  
+Several costs that don't exist in a fat client:
+- **TLS handshake** — if not resumed, ~1 RTT per new connection.
+- **Connection establishment** — if pooling is misconfigured, every request pays TCP + TLS.
+- **API gateway / LB** — each hop adds latency; the gateway may serialize auth validation.
+- **Serialization** — JSON serialization of large responses; deserialization on the client.
+- **Middleware pipeline** — logging, auth, CORS, rate-limit checks all run per request.
+- **Retries / circuit breaker** — a failed first attempt plus retry adds visible latency.
+- **Thundering herd on cache expiry** — all clients miss at once and hammer the DB.
+
+Each shows up in **traces** (Topic 62) as a distinct span. "The DB is fast" is not the same as "the request is fast" in a client-server system.
+
+**Q10. Two traders each submit an order that individually fits their margin, but together they overspend. Why does this happen in a client-server system?**  
+**Check-then-act race condition.** Both requests read available margin before either commits, both pass the check in application code, both commit. The margin is overspent. Client-server **centralizes** where the fix must live, but **does not automatically prevent** the race. Fixes:
+- **Atomic conditional update** — `UPDATE ... SET margin = margin - @x WHERE margin >= @x`; 0 rows affected means insufficient.
+- **Optimistic concurrency** — row version check, retry on conflict.
+- **Pessimistic locking** — hold a lock during the check-and-update.
+- **Database constraint** — enforce the invariant at the DB layer.
+
+The lesson: **any "check then act" across concurrent clients must be resolved at the datastore.**
+
+**Q11. A timeout on `POST /orders` returns to the client. What are the possible system states, and how do you handle them?**  
+Three possible outcomes from the client's perspective:
+1. Request never reached the server — **safe to retry.**
+2. Request reached the server but processing did not commit — **safe to retry.**
+3. Request committed, response lost — **retrying without idempotency creates a duplicate.**
+
+**A timeout is not proof of failure.** For state-changing operations:
+- Use an **idempotency key** — repeated submissions return the same result.
+- Optionally, a **transaction-status endpoint** the client can poll.
+- Do not assume retry is safe without one of these.
+
+### Scenario-based
+
+**Q12. After a 30-second outage, the API crashes again the moment it comes back. Why?**  
+Classic **thundering herd**. All clients retrying at once reconnect **simultaneously**, and the API — just coming up — cannot handle the burst. Fixes:
+- **Retry with exponential backoff and jitter** — spread retries across time (Topic 37).
+- **Circuit breakers** — clients stop retrying during known outages.
+- **Rate limiting at the gateway** — cap incoming rate during recovery (Topic 57).
+- **Graceful startup** — the API should accept requests only when warm.
+
+Without these, the system oscillates between "down" and "overloaded."
+
+**Q13. Two API instances are running new and old code. Clients see inconsistent behavior. What's the correct fix?**  
+**Partial deployment.** Correct fixes, in order of preference:
+1. **Backward-compatible schema and contract changes** — new code must be compatible with old data and clients. Then mixed versions can coexist.
+2. **Blue-green deployment** — cut traffic atomically at the LB (Topic 52).
+3. **Feature flags** — turn new behavior on gradually, independent of deployment.
+4. **Sticky sessions during deploy** — avoid if you can; it hides the problem.
+
+The wrong fix is "deploy fast enough that the window is short." That window is exactly when you get incidents.
+
+**Q14. The order API returns 201 Created. Does that mean the order was executed?**  
+**No.** `201 Created` means the **order resource was created** — the request was accepted and persisted. It does not mean validated against margin (that check may have happened before), nor matched, nor filled, nor executed. In trading systems, "accepted," "validated," "persisted," "matched," "filled" are **distinct business states**, each with its own semantics for the client. The response status and the event name must reflect exactly what has happened. Vague "order accepted" is a bug waiting to surprise downstream teams.
+
+**Q15. The order is in SQL, but downstream systems never received the event. What caused this, and how do you fix it?**  
+**Dual-write inconsistency.** The API wrote to SQL, then tried to publish to Kafka. The Kafka publish failed (broker down, network blip, timeout). The order exists; the event does not. Downstream systems (matching, notifications, risk) never learn about the order.
+
+**Fix: the Transactional Outbox Pattern.**
+- Write the order **and** an outbox record in the **same DB transaction**.
+- A separate publisher polls the outbox and publishes events.
+- Mark records as sent after successful publish; retry on failure.
+
+The order and the intent to publish become atomic. Covered at Topic 49. The lesson: **cross-system event consistency requires explicit design.**
+
+---
+
+
+
