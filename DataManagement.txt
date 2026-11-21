@@ -1,0 +1,109 @@
+Track E — Data Management
+30 topics · 7 parts · Frozen
+
+Out of scope: DBA-level administration, big-data engines such as Spark and Hadoop, BI/reporting tools, ML data pipelines, and message-broker internals.
+
+This track covers application data design, relational and NoSQL stores, data access, consistency, performance, recovery and banking data correctness.
+
+Depth: Master = hands-on; Reason = explain trade-offs; Aware = know it exists.
+Part 1: Relational foundations
+#	Topic	Key details	Depth
+E1	Data modeling	Conceptual, logical and physical models, normalization (1NF to BCNF), denormalization trade-offs, natural/surrogate/GUID/sequential/UUIDv7 keys, constraints, data types (decimal, datetime2, datetimeoffset), money and temporal modeling	Master
+E2	SQL mastery	Joins, aggregates, CTEs and recursive CTEs, window functions, NULL semantics, set-based vs row-by-row operations, JSON in SQL, views, stored procedures, triggers and their trade-offs, T-SQL specifics, parameterized queries	Master
+E3	Indexing and storage	Pages, B+ trees, clustered vs nonclustered indexes, covering and included columns, composite index order, filtered indexes, selectivity, columnstore, fragmentation and fill factor, statistics, LSM and hash indexes awareness	Master
+E4	Query execution and optimization	Execution plans, cardinality estimation, seek vs scan, key lookups, join algorithms, parameter sniffing, plan cache, Query Store, SARGability, offset vs keyset pagination, tuning workflow, actual vs estimated plans	Master
+E5	Transactions and isolation	ACID, isolation levels and anomalies, locking vs MVCC, snapshot and RCSI, deadlocks, lock escalation, optimistic vs pessimistic concurrency, rowversion, transaction scope, retry-safe writes, write skew, lost updates and phantom reads	Master
+
+Part 2: Data access in .NET
+#	Topic	Key details	Depth
+E6	ADO.NET and Dapper	Connection pooling, commands and parameters, async and streaming readers, SqlBulkCopy, table-valued parameters, Dapper mapping, transaction handling, cancellation, transient database failures, connection recovery, safe retry boundaries, when Dapper beats EF Core	Master
+E7	EF Core fundamentals	DbContext lifetime, change tracking, fluent configuration, relationships, eager/lazy/explicit loading, LINQ translation, AsNoTracking, split queries, owned types, value converters, global filters, interceptors, ExecuteUpdate and ExecuteDelete	Master
+E8	EF Core in production	N+1 and cartesian explosion, concurrency tokens, execution strategies and retries, DbContext pooling, safe raw SQL, temporal tables, soft delete, auditing, multi-tenancy filters, compiled queries, query tags and generated SQL diagnosis, retrying complete transactional units, idempotency requirements and avoiding duplicate writes	Master
+E9	Data access architecture	Persistence ignorance, projections and DTOs, read vs write models, stored procedures vs ORM, leaky abstractions, choosing EF Core, Dapper or both, transaction boundaries, repository abstractions and when not to create them	Reason
+
+E6/E8 implementation rule: A transient database failure does not automatically mean the operation is safe to retry. Teach how to identify the complete transaction boundary, how EF Core execution strategies interact with explicit transactions, and how idempotency or reconciliation protects against uncertain commit outcomes.
+Part 3: NoSQL and polyglot persistence
+#	Topic	Key details	Depth
+E10	NoSQL taxonomy	Key-value, document, wide-column, graph, time-series, search and vector stores; BASE; modeling for access patterns; relational vs NoSQL decision	Reason
+E11	Document databases	Cosmos DB (NoSQL API) and MongoDB, embed vs reference, partition-key choice, request units and cost, indexing policy, consistency levels, change feed, hot partitions, transaction limits, .NET SDK	Master
+E12	Key-value, wide-column, graph and blob stores	Redis as a data store, DynamoDB and Cassandra awareness, Azure Table and Blob Storage, graph databases, time-series databases, choosing based on access patterns	Aware
+E13	Search and analytical stores	Inverted index, Elasticsearch and Azure AI Search, synchronization strategies, OLTP vs OLAP, columnar stores, warehouse and lakehouse awareness, vector databases and embeddings awareness	Aware
+E14	Polyglot persistence	Choosing a store per workload, decision framework, operating cost, syncing between stores, cross-store consistency, data duplication, anti-patterns and operational complexity	Reason
+
+Part 4: Caching
+#	Topic	Key details	Depth
+E15	Caching fundamentals and patterns	Cache-aside, read-through, write-through, write-behind, refresh-ahead, TTL, eviction (LRU/LFU), cache keys, what to cache, local vs distributed cache, cache ownership	Master
+E16	Caching in .NET and Redis	IMemoryCache, IDistributedCache, StackExchange.Redis, HybridCache, serialization, Redis data structures, persistence (RDB/AOF), clustering, Azure Managed Redis and migration from Azure Cache for Redis	Master
+E17	Cache failure modes and consistency	Stampede, penetration, avalanche, hot keys, invalidation strategies, stale data, negative caching, warming, cache as a single point of failure, sensitive data in caches, hit-ratio monitoring, cache outage fallback	Master
+
+E16 Azure note: Azure Managed Redis is the forward-looking Azure Redis service. Do not teach Azure Cache for Redis as the default choice for a new Azure deployment. Understand its migration path and retirement dates, and check feature maturity, SKU availability, regional availability and migration compatibility before selecting Managed Redis for production.
+Part 5: Architecture patterns for data
+#	Topic	Key details	Depth
+E18	CQRS	Command/query separation, separate models, read-model projections, synchronous vs asynchronous projections, eventual consistency in the UI, mediator libraries and licensing, when not to use CQRS	Master
+E19	Event sourcing	Events as source of truth, aggregates, event stores (EventStoreDB/Kurrent, Marten), snapshots, projections, replay, versioning and upcasting, GDPR vs immutability, temporal queries, pitfalls	Master
+E20	Transactional consistency patterns	Dual-write problem, transactional outbox and inbox, change data capture (CDC), idempotent writes, optimistic concurrency, saga data concerns, replay and reconciliation	Master
+E21	Data ownership in microservices	Database per service, shared-database anti-pattern, data duplication, API composition, cross-service queries, reference and master data, data contracts, ownership of schema and migrations	Reason
+
+Part 6: Scale and availability
+#	Topic	Key details	Depth
+E22	Replication and high availability	Primary and replica, synchronous vs asynchronous replication, replication lag and read-your-writes, failover, Azure SQL high availability and geo-replication, failover groups, multi-region, conflict resolution	Reason
+E23	Partitioning, sharding and tenancy	Table partitioning, range/hash/directory sharding, shard-key choice, rebalancing, cross-shard queries, hot shards, consistent hashing, tenant models (shared schema, schema per tenant, database per tenant, elastic pools)	Reason
+E24	Consistency in data stores	Strong, eventual, causal and session consistency, read-your-writes, Cosmos DB consistency levels, tunable consistency, quorum reads and writes, consistency vs availability trade-offs	Reason
+E25	Backup, restore and retention	Backup types, point-in-time restore, geo-restore, long-term retention, restore testing, RPO and RTO from the data side, archival, data lifecycle, backup immutability, legal hold where supported and recovery validation	Reason
+
+Part 7: Evolution, operations and domain
+#	Topic	Key details	Depth
+E26	Schema migrations and evolution	EF Core migrations, DACPAC, DbUp, Flyway, Liquibase, state-based vs migration-based, backward-compatible changes, expand and contract, large backfills, online index operations, schema versioning in NoSQL and events	Master
+E27	Data migration and integration	ETL and ELT, bulk loading, CDC, data sync, legacy migration, cutover and dual-run, validation and reconciliation, Azure Data Factory awareness, migration rollback and recovery planning	Reason
+E28	Database performance and operations	DMVs, Query Store, wait statistics, connection-pool tuning, tempdb, memory and I/O, capacity planning, index maintenance, DTU vs vCore, serverless, scale up vs out, cost, connection exhaustion diagnosis	Master
+E29	Database security and governance	Row-level security, dynamic data masking, Always Encrypted usage, auditing, least-privilege DB access, Entra authentication to Azure SQL, classification, retention, data quality and lineage awareness, legal hold and immutable-record considerations	Reason
+E30	Banking data patterns	Double-entry ledger design, append-only records, derived vs stored balances, money precision and currency-scale rules, idempotency-key storage, audit trails and temporal tables, bi-temporal data, ledger tables in Azure SQL, hot-account contention, balanced journal entries, immutable postings, reversal entries instead of updating historical transactions, end-of-day and reconciliation tables	Master
+
+E30 banking invariant: Each journal transaction must balance according to the ledger's currency and accounting rules. Historical postings should remain immutable; corrections are represented by appropriate reversal and replacement entries rather than silently rewriting the original posting.
+Coverage check
+Original scope	Covered by
+SQL and NoSQL	E2, E10–E13
+Indexing	E3, E4
+Transactions and isolation	E5, E24
+EF Core and Dapper	E6–E9
+Caching	E15–E17
+CQRS	E18
+Event sourcing	E19
+Polyglot persistence	E14
+Migrations	E26, E27
+Data distribution and availability	E21–E25
+
+Banking scenarios
+Scenario	Topics
+Balance is wrong after concurrent debits	E5, E30
+Query is fast in development and slow in production	E3, E4
+Report on a replica shows stale data	E22
+EF Core endpoint issues hundreds of queries	E7, E8
+Cache stampede after a popular key expires	E17
+Hot partition in Cosmos DB	E11, E23
+Database write succeeds but Kafka publish fails	E20
+Read model must be rebuilt after a bug	E18, E19
+Adding a NOT NULL column to a huge table	E26
+Connection-pool exhaustion under load	E6, E28
+Choosing stores for ledger, search and sessions	E14
+Tenant data leaks because a filter was missed	E8, E23, E29
+Restore drill fails	E25
+Legacy-to-new migration needs reconciliation	E27
+Deadlocks under peak load	E5
+Database commit outcome is uncertain after a timeout	E5, E6, E8, E20
+Historical ledger entry needs correction	E30
+
+Study order
+Group	Topics
+1. Relational core	E1, E2, E3, E4, E5
+2. .NET data access	E6, E7, E8, E9
+3. Caching	E15, E16, E17
+4. Operations	E26, E28, E25
+5. Architecture patterns	E18, E20, E21, E19
+6. Scale and availability	E22, E23, E24
+7. NoSQL and polyglot	E10, E11, E14, E12, E13
+8. Domain, security and migration	E30, E29, E27
+
+Learning rule: For Master topics, build a small .NET data-access application, load realistic data, profile its queries, introduce concurrency and failure, then investigate correctness and performance. For Reason topics, explain consistency, cost, operational and architectural trade-offs. For Aware topics, know the store's purpose and when to evaluate it.
+
+Frozen scope: 30 topics, 7 parts. No E31. Keep DBA administration, big-data platforms and broker internals out of this track.
