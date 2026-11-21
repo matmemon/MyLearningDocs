@@ -1,0 +1,1514 @@
+
+---
+
+# Topic 7 — Ports and Sockets
+
+Phase 1 · Computer Networking Fundamentals
+
+> **Adaptation note:** Ports and sockets are operating-system primitives — the boundary where the network stack meets user processes. The before/after here is technical: the pre-port world (one service per host) vs the socket world (many services per host, distinguished by port). I show real .NET socket code because this is where "network basics" becomes "application code."
+>
+> **Boundary note:** Port-level firewalling is Topic 14. Port mapping on load balancers is Topic 16. NAT port forwarding was Topic 5. Container port publishing is treated here as a socket binding exercise.
+>
+> **Gate rule:** No move to Topic 8 until you confirm Topic 7 is solid. Knowledge check at the end.
+
+---
+
+## The practical problem
+
+Topic 6 resolved `api.company.com` → `10.20.1.15`. But that server may be running simultaneously:
+
+- **Kestrel** on port 443 (the web API)
+- **SSH** on 22 (admin access)
+- **PostgreSQL** on 5432 (database)
+- **Redis** on 6379 (cache)
+- **Kafka** on 9092 (events)
+- **Prometheus exporter** on 9090 (metrics)
+
+If your laptop sends a packet to `10.20.1.15`, **how does the server know which application should receive it?**
+
+The IP address gets the packet to the right **machine**. Something else must tell the OS which **process** gets the packet.
+
+**That something is the port.**
+
+| Networking concept | Real-world analogy |
+|---|---|
+| IP address | Building address |
+| Port number | Office / department number |
+| Application/process | Person receiving the delivery |
+| Socket | The desk at which the person sits |
+
+```
+Server IP: 10.20.1.15
+
+Port 443  → HTTPS application
+Port 5432 → PostgreSQL database
+Port 9092 → Kafka broker
+Port 22   → SSH service
+```
+
+**Without ports, a machine could not easily support multiple network applications simultaneously.**
+
+---
+
+## 1. WHY — Why were ports and sockets required?
+
+### The problem — the IP address is not enough
+
+Topic 4 said: *an IP address identifies a network interface.* That's true — but a single interface can be the endpoint for **many simultaneous conversations with many applications**.
+
+When a packet arrives at `10.20.1.15`:
+
+- Is it for the web API?
+- For SSH?
+- For the database?
+- For a background worker?
+
+**The IP only tells the OS "this machine." It doesn't tell the OS "this process."**
+
+### What industry was struggling with (1970s–80s)
+
+Before port-based multiplexing:
+
+- **One application per host.** A machine that ran an SMTP server could not also run a web server — there was no way to distinguish traffic.
+- **Bespoke demultiplexing.** Early protocols (X.25 LCN, SNA LU, NCP) each had their own way; none provided a universal abstraction.
+- **Wasted hardware.** Each service needed its own machine or physical link.
+
+### The design insight
+
+**RFC 793 (TCP, 1981)** and **RFC 768 (UDP)** proposed a general solution: **every TCP and UDP connection carries source and destination port numbers** in the header, and the OS uses them to demultiplex incoming packets to the correct process.
+
+**Ports exist because one IP address is shared by many processes, and the OS needs a way to deliver packets to the correct one.**
+
+### Three related but distinct concepts
+
+| Concept | What it is | Analogy |
+|---|---|---|
+| **Port** | A 16-bit **number** (0–65535) in the transport header | An apartment number in a building's address |
+| **Socket** | A **kernel data structure** binding a process to an (IP, port, protocol) triple | A mailbox at that apartment |
+| **Connection** | A **tuple** identifying an end-to-end conversation | A specific letter from sender to recipient |
+
+**Ports** are the addressing scheme. **Sockets** are the OS abstraction you program against. **Connections** are the conversations.
+
+---
+
+## 2. BEFORE — What existed previously?
+
+### A. One service per host
+
+In the earliest networks, a machine ran **one server process**, and all incoming traffic went to it:
+
+```
+[ Client ] ──► [ Machine A: mail server ]
+[ Client ] ──► [ Machine B: web server ]
+[ Client ] ──► [ Machine C: file server ]
+```
+
+There was no need for ports because there was no ambiguity — only one process could receive packets.
+
+**How it worked:**
+- Each service had its own dedicated host (or its own physical link).
+- The IP address or the physical port identified the service.
+
+**Strengths:**
+- **Simple** — no demultiplexing decision to make.
+- **Isolated** — a crash in one service couldn't affect another.
+- **No port planning** — nothing to configure.
+
+### B. Protocol-specific demultiplexing
+
+Some early protocols had their own way of separating streams:
+
+- **X.25** — used **logical channel identifiers (LCN)** — but only within X.25, not end-to-end.
+- **SNA** — used **LU (logical unit)** names — vendor-specific.
+- **NCP** — had its own link numbers.
+
+Each worked **within one protocol family** but couldn't provide a universal abstraction.
+
+### Strengths of the pre-port approach
+
+- **No ambiguity** — one process per host.
+- **No port exhaustion** — no ports to run out of.
+- **Hardware isolation** — a compromise of one service didn't expose the others.
+- **Simple firewall model** — permit traffic to host X or not.
+
+These strengths still matter — that's why **air-gapped systems** and **dedicated single-purpose appliances** (hardware HSMs, industrial controllers) still run one service per host.
+
+---
+
+## 3. PROBLEM — Why was the previous approach insufficient?
+
+### Problem 1 — Waste and cost
+
+Every service needs its own machine. A company wanting 20 services needs 20 servers, mostly idle. Cost balloons; utilization collapses.
+
+### Problem 2 — No co-location
+
+You cannot run a web server and a mail server on the same host — incoming traffic has no way to distinguish which service is which.
+
+### Problem 3 — No client-side demultiplexing
+
+Even the **client** needs this. Your browser opens multiple tabs to different servers. The OS receives responses for all of them on the same IP — **how does it know which tab's connection gets which response?**
+
+**Answer:** by the **source port** the browser used for each connection. Without ports, every tab would need its own machine.
+
+### Problem 4 — Firewall granularity
+
+If the only identifier is the IP, you can only say "allow traffic to host X" or "block traffic to host X." You cannot say "**allow SSH to host X but block SQL**" — both are on the same IP.
+
+**Ports are what make per-service firewalling possible.**
+
+### Problem 5 — Load balancing and routing
+
+You cannot direct traffic to different backends based on the service. Load balancers, reverse proxies, and API gateways — all of which **need per-service routing** — become impossible.
+
+### The gap
+
+We needed a **per-host, per-process identifier** that:
+
+- Multiplexes many services over one IP.
+- Distinguishes traffic by service.
+- Works for both servers and clients.
+- Enables firewall, load balancing, and routing policy.
+
+**Ports and sockets are that identifier.**
+
+---
+
+## 4. WHAT — What are ports and sockets?
+
+### Part 1 — Ports
+
+#### Definition
+
+> A **port** is a **16-bit number** (0–65535) used by TCP or UDP to identify a **communication endpoint** on a machine.
+
+Because it is 16 bits:
+
+```
+Port range = 0 to 2^16 − 1 = 0 to 65535
+```
+
+Two services on the same IP are distinguished by port:
+
+```
+10.20.1.15:443   → Kestrel (HTTPS)
+10.20.1.15:5432  → PostgreSQL
+10.20.1.15:9092  → Kafka
+10.20.1.15:22    → sshd
+```
+
+The notation **`IP:Port`** is commonly used to describe a network endpoint.
+
+#### Port number categories (IANA)
+
+| Range | Category | Typical purpose |
+|---|---|---|
+| **0–1023** | Well-known | Standard services (HTTP, HTTPS, SSH, DNS). Require root/administrator on Linux to bind. |
+| **1024–49151** | Registered | IANA-registered services (SQL Server 1433, Redis 6379) |
+| **49152–65535** | Dynamic / ephemeral | OS-assigned for outgoing client connections |
+
+**Important:** OSes can have different ephemeral ranges. Don't assume every OS uses exactly the same temporary range.
+
+```bash
+# Linux — actual ephemeral range
+cat /proc/sys/net/ipv4/ip_local_port_range   # typically "32768 60999"
+```
+
+**Windows** default dynamic range: `49152–65535` (post-Vista).
+
+#### Common well-known ports
+
+| Port | Service |
+|---|---|
+| **20/21** | FTP |
+| **22** | SSH |
+| **25** | SMTP |
+| **53** | DNS (UDP/TCP) |
+| **80** | HTTP |
+| **110** | POP3 |
+| **143** | IMAP |
+| **443** | HTTPS |
+| **587** | SMTP submission |
+| **1433** | SQL Server |
+| **3306** | MySQL |
+| **5432** | PostgreSQL |
+| **5672** | AMQP (RabbitMQ) |
+| **6379** | Redis |
+| **8080** | Common alt HTTP |
+| **9092** | Kafka (common) |
+
+#### Critical caveat
+
+> **A port number does not prove which application is running there.** Port 443 is conventionally HTTPS, but another service can technically listen on it. Port 22 is conventionally SSH, but you can run anything.
+
+The port is a **convention**, not an identity. Application identity must be established by protocol-level negotiation (HTTP headers, TLS certificate, application-level auth), not by port number alone.
+
+#### Port ≠ protocol ≠ service
+
+| | What it is | Example |
+|---|---|---|
+| **Port number** | A transport endpoint identifier | `443` |
+| **Service** | Application functionality accessible through that endpoint | HTTPS server |
+| **Protocol** | Rules governing communication | HTTPS (HTTP over TLS) |
+
+HTTPS is an application protocol commonly carried over TCP port 443. HTTP/3 uses QUIC over UDP, also commonly on port 443.
+
+---
+
+### Part 2 — Sockets
+
+#### Definition
+
+> A **socket** is an **operating-system communication endpoint** that an application uses to send and receive network data. In POSIX and Windows Sockets, it's a file descriptor or handle — a small integer the process uses to read/write.
+
+A socket is created, bound, listened on, accepted, or connected. It's the **programming interface** to the network stack.
+
+```csharp
+Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+```
+
+That `Socket` object wraps a kernel data structure. The OS uses it to track **which process owns which (IP, port, protocol) endpoint**.
+
+```
+.NET application
+      │
+      ▼
+Socket API
+      │
+      ▼
+Operating system networking stack
+      │
+      ▼
+TCP
+      │
+      ▼
+IP
+      │
+      ▼
+Network
+```
+
+#### Socket ≠ port
+
+**A socket is not just another word for a port.**
+
+- **Port** = a number (transport-layer identifier).
+- **Socket** = an OS resource representing an endpoint for communication.
+
+#### The connection identity — four-tuple vs five-tuple
+
+> **"Socket = IP + port" is the introduction only.** A TCP connection is identified by more.
+
+**TCP connection** = **four-tuple**:
+
+```
+(source IP, source port, destination IP, destination port)
+```
+
+For example:
+
+```
+Client:  192.168.1.20:52000
+Server:  10.20.1.15:443
+```
+
+The connection is:
+
+```
+192.168.1.20:52000
+          │
+          │ TCP connection
+          │
+10.20.1.15:443
+```
+
+**Network devices** (firewalls, NAT, load balancers) often use a **five-tuple**:
+
+```
+source IP + source port + destination IP + destination port + protocol
+```
+
+The protocol field disambiguates TCP from UDP (and other transports) that might use the same ports.
+
+**Both framings are correct** depending on context: TCP identity is the 4-tuple; network policy is the 5-tuple.
+
+#### How can one server handle 10,000 clients on port 443?
+
+You might ask: *"If the server has only one port 443, how can thousands of clients connect?"*
+
+Because each TCP connection has its own combination of source and destination addresses and ports:
+
+| Client endpoint | Server endpoint |
+|---|---|
+| `192.168.1.20:52000` | `10.20.1.15:443` |
+| `192.168.1.21:52001` | `10.20.1.15:443` |
+| `192.168.1.22:52002` | `10.20.1.15:443` |
+
+All three connect to server port 443 — but they are **three different TCP connections**. The server accepts and manages many connections through its **one listening socket**.
+
+**This is the essence of how the internet scales per-host.** The four-tuple is what makes it possible.
+
+---
+
+### Part 3 — Listening vs connected sockets
+
+There are two kinds of TCP sockets on a server:
+
+| Socket type | State | Purpose |
+|---|---|---|
+| **Listening socket** | `LISTEN` | Bound to (IP, port); accepts new connections |
+| **Connected socket** | `ESTABLISHED` | One per accepted connection; carries data |
+
+When you call `TcpListener.AcceptTcpClientAsync()` (or `accept()` in C), the kernel:
+
+1. Takes a connection off the accept queue (for the listening socket).
+2. Creates a **new socket** for that connection.
+3. Returns that new socket to you.
+
+The listening socket stays open — it continues to accept more connections.
+
+```
+Before any client:
+  LISTEN socket: 10.20.1.15:443
+
+Client A connects:
+  LISTEN socket: 10.20.1.15:443      (still listening)
+  Connection A:  10.20.1.15:443 ↔ 192.168.1.20:52000   (ESTABLISHED)
+
+Client B connects:
+  LISTEN socket: 10.20.1.15:443
+  Connection A:  10.20.1.15:443 ↔ 192.168.1.20:52000   (ESTABLISHED)
+  Connection B:  10.20.1.15:443 ↔ 192.168.1.21:52001   (ESTABLISHED)
+```
+
+**Each connection has its own socket** — but they all share the listening socket's bound (IP, port). **This is what allows one server to handle thousands of simultaneous connections.**
+
+---
+
+### Part 4 — The bind / listen / accept lifecycle
+
+A server's socket lifecycle:
+
+```
+1. socket()           ← create a socket (kernel object)
+2. bind()             ← assign a local (IP, port)
+3. listen()           ← mark as listening; set accept queue size (backlog)
+4. accept()           ← take a connection off the queue
+5. read() / write()   ← exchange data
+6. close()            ← tear down
+```
+
+In .NET:
+
+```csharp
+var listener = new TcpListener(IPAddress.Any, 9000);    // socket() + bind()
+listener.Start(backlog: 100);                            // listen() with backlog
+
+while (true)
+{
+    using var client = await listener.AcceptTcpClientAsync();   // accept()
+    using var stream = client.GetStream();
+    // read/write
+}                                                        // close() on dispose
+```
+
+**`IPAddress.Any` (0.0.0.0)** = bind to all IPv4 interfaces. **`IPAddress.Parse("10.20.1.15")`** = bind to that interface only. **`IPAddress.Loopback` (127.0.0.1)** = loopback only — unreachable from other machines.
+
+---
+
+## 5. FEATURES — What do ports and sockets provide?
+
+Ports and sockets enable:
+
+| Feature | What it does | Problem it solves |
+|---|---|---|
+| **Multiplexing** | Many applications share one IP, distinguished by port | Co-locate services |
+| **Demultiplexing** | OS delivers received data to the correct socket | Correct process delivery |
+| **Service identification** | Applications listen on known ports | Clients know where to connect |
+| **Concurrent communication** | Server handles many client connections | Scale |
+| **Client-side ephemeral ports** | OS-assigned temporary ports for outbound | Client-side multiplexing |
+| **Firewall control** | Rules at port granularity | Per-service access control |
+| **Load balancing** | Route by port or port-mapped backend | Distribute traffic |
+| **Binding control** | Listen on specific IP / all IPs / loopback | Security and network reach |
+| **Backlog** | Queue of pending connections | Handle connection bursts |
+| **Graceful shutdown** | Close listening socket; drain existing | Zero-downtime deploys |
+| **TIME_WAIT** | Linger after close to catch late packets | Correctness of TCP close |
+| **Socket options** | SO_REUSEADDR, SO_REUSEPORT, TCP_NODELAY, etc. | Tuning and correct restart |
+
+### Multiplexing and demultiplexing
+
+**Outgoing — multiplexing:**
+
+```
+Client applications         Network stack
+
+Browser  :443   ──┐
+DB tool  :5432  ──┼──► Multiplexed onto one IP, distinguished by port
+SSH      :22    ──┘
+```
+
+**Incoming — demultiplexing:**
+
+```
+Operating system checks transport protocol + port
+
+Browser socket     ← receives its data
+Database socket    ← receives its data
+SSH socket         ← receives its data
+```
+
+### Notable socket options
+
+| Option | Effect | When to use |
+|---|---|---|
+| **SO_REUSEADDR** | Allow bind even if TIME_WAIT sockets exist | Server restart; avoids "address already in use" |
+| **SO_REUSEPORT** | Multiple processes can bind the same port (Linux) | Multi-worker servers |
+| **SO_KEEPALIVE** | Enable TCP keep-alive probes | Detect dead peers (Topic 36) |
+| **TCP_NODELAY** | Disable Nagle's algorithm | Low-latency protocols (gRPC, chat) |
+| **SO_RCVBUF / SO_SNDBUF** | Tune buffer sizes | High-throughput workloads |
+| **SO_LINGER** | Control close behavior | Graceful shutdown timing |
+
+---
+
+## 6. COMPARISON — Port vs IP vs socket vs connection
+
+These four are related but not interchangeable:
+
+| Concept | What it identifies | Example |
+|---|---|---|
+| **IP address** | Network interface / address | `10.20.1.15` |
+| **Port** | TCP/UDP endpoint number | `443` |
+| **Socket** | OS communication endpoint (descriptor) | TCP socket bound to `10.20.1.15:443` |
+| **TCP connection** | End-to-end conversation (4-tuple) | `192.168.1.20:52000 ↔ 10.20.1.15:443` |
+
+---
+
+## 7. COMPARISON — One-service-per-host vs port-based multiplexing (10 dimensions)
+
+| Dimension | One service per host (before) | Ports and sockets (after) |
+|---|---|---|
+| **Architecture** | One process binds the network | Many processes share the IP; distinguished by port |
+| **Working mechanism** | All traffic goes to the one process | OS demultiplexes by (IP, port, protocol) |
+| **Performance** | No demux cost; not scalable | Small demux cost per packet; scales to thousands of processes |
+| **Scalability** | Linear in hardware | Linear in ports (2^16) and processes |
+| **Reliability** | Isolated; no co-tenancy | Shared host; a bad process can exhaust ports/resources |
+| **Security** | One surface per host | Per-port policy; but more co-tenancy risk |
+| **Complexity** | Simple | Requires port planning, firewall rules, config |
+| **Maintenance** | One service per host; simple patching | Many services per host; coordination needed |
+| **Cost** | High — idle hardware | Low — dense packing |
+| **Failure handling** | One service, one failure | One process fails; others unaffected (mostly) |
+
+**Why the shift happened:**
+
+- **Cost collapse.** Ten services on one server instead of ten servers.
+- **Firewall granularity.** Per-service policy at the port level.
+- **Load balancing becomes possible.**
+- **Operational consolidation.** One kernel to patch, one host to monitor.
+
+**Trade honestly:** co-tenancy introduces new failure modes — port conflicts, port exhaustion, one process starving others for file descriptors.
+
+---
+
+## 8. ADVANTAGES AND DISADVANTAGES
+
+| Advantages | Disadvantages / risks |
+|---|---|
+| Multiple applications share one IP | Port conflicts prevent apps from starting |
+| Enables concurrent client connections | Open ports increase attack surface |
+| Firewalls control access per port | Incorrect firewall rules block legitimate traffic |
+| Standard service conventions | Port numbers alone don't prove application identity |
+| Client-side ephemeral ports | Ephemeral port exhaustion |
+| Manageable application communication | NAT and connection tracking add complexity |
+| Co-tenancy reduces hardware cost | A buggy process can affect others on the host |
+
+**Security clarification:** Opening a port **does not** make an application secure. TLS, authentication, authorization, network segmentation, and application-level protections are still required.
+
+### When the one-service-per-host approach is still correct
+- **Hardware security appliances** — HSMs, single-purpose network gear.
+- **Air-gapped classified systems** — one function per host is policy.
+- **Very high-throughput services** — one process per NUMA node, isolated.
+- **Regulatory segregation** — one workload per host for compliance.
+
+---
+
+## 9. WHEN — When should you use which port?
+
+Ports are not generally selected randomly. Standard conventions make applications easier to deploy and operate.
+
+### Server-side ports
+
+| Context | Suggested port | Why |
+|---|---|---|
+| **Public web API** | 443 (or behind LB) | Standard; clients don't need config |
+| **Internal service-to-service** | 8080 / 8443 (common) | No standard needed; internal DNS resolves |
+| **gRPC service** | 9090 / 50051 (convention) | Common; no client config |
+| **Kubernetes pod** | 8080 (non-privileged) | Easy for non-root containers |
+| **Same-host IPC** | Unix socket | Faster; no port surface |
+
+### Client-side ports
+
+A client normally receives an **automatically allocated ephemeral port** from the OS. You don't hardcode `52000`.
+
+| Listening port | Ephemeral port |
+|---|---|
+| Used by a server | Used by a client connection |
+| Usually stable | Dynamically allocated |
+| Example: 443 | Example: 52000 |
+| Accepts incoming | Identifies the client side |
+
+**Important:** a process can act as both client and server. The role depends on the communication, not the process.
+
+### When to use non-standard ports
+
+- **Internal services** — no benefit to well-known; pick an unprivileged port.
+- **Avoiding reconnaissance** — SSH on 2222 (obscurity, not real security).
+- **Test/staging** — different ports on the same host.
+- **Running without root** — cannot bind <1024 on Linux without `CAP_NET_BIND_SERVICE`.
+
+### When to avoid opening a port at all
+
+- **Unix domain sockets** — same-host IPC; no TCP port; faster (no network stack).
+- **Named pipes** — Windows equivalent; same-host.
+- **Internal-only services** — bind to loopback; reach via proxy.
+
+---
+
+## 10. HOW — Practical implementation
+
+### A. Previous implementation — one service per host
+
+Pre-ports, a mail server ran on its own host. Adding web hosting meant a new machine. You couldn't test multiple services locally — each needed its own OS or hardware.
+
+**Strengths:** isolation, no conflict management.
+**Weakness:** uneconomical, slow to iterate.
+
+### B. Modern — Kestrel binding in ASP.NET Core
+
+```csharp
+var builder = WebApplication.CreateBuilder(args);
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // HTTP on 5000, all IPv4 interfaces
+    options.Listen(IPAddress.Any, 5000);
+
+    // HTTPS on 443, all IPv4 interfaces
+    options.Listen(IPAddress.Any, 443, listen => listen.UseHttps());
+
+    // HTTP on 5001, IPv6 loopback only (local development)
+    options.Listen(IPAddress.IPv6Loopback, 5001);
+
+    // HTTP on 8080 on a specific internal IP only
+    options.Listen(IPAddress.Parse("10.20.1.15"), 8080);
+});
+```
+
+**Or via `appsettings.json`:**
+
+```json
+{
+  "Kestrel": {
+    "Endpoints": {
+      "Http": {
+        "Url": "http://0.0.0.0:5000"
+      }
+    }
+  }
+}
+```
+
+- `0.0.0.0` = listen on all IPv4 interfaces
+- `5000` = the listening port
+- `http` = no TLS on this endpoint
+
+For production HTTPS, configure an HTTPS endpoint with a certificate, or terminate TLS at a reverse proxy / LB.
+
+**The classic production bug** (once more, because it's so common):
+
+```csharp
+// BUG — unreachable from other machines
+options.Listen(IPAddress.Loopback, 5000);   // 127.0.0.1 only
+```
+
+Works via `localhost`, fails everywhere else. **Fix:** `IPAddress.Any` (0.0.0.0) or the specific external IP.
+
+**Linux note:** binding to a port < 1024 requires root or `CAP_NET_BIND_SERVICE`. In containers, map the app's unprivileged port to host 443 with `docker run -p 443:8443` — the mapping is done at the NAT layer (Topic 5), not by the app.
+
+### C. Modern — TcpListener and TcpClient
+
+```csharp
+// ──── Server ────
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+var listener = new TcpListener(IPAddress.Any, 9000);   // bind 0.0.0.0:9000
+listener.Start(backlog: 100);                          // listen with accept-queue 100
+Console.WriteLine("Listening on 0.0.0.0:9000");
+
+while (true)
+{
+    using var client = await listener.AcceptTcpClientAsync();   // accept
+    using var stream = client.GetStream();
+
+    var buffer = new byte[1024];
+    int read = await stream.ReadAsync(buffer);
+    var msg = Encoding.UTF8.GetString(buffer, 0, read);
+    Console.WriteLine($"Received: {msg}");
+
+    await stream.WriteAsync(Encoding.UTF8.GetBytes("ACK"));
+}   // close() on dispose — TCP teardown
+```
+
+```csharp
+// ──── Client ────
+using var tcpClient = new TcpClient();                  // socket() on first connect
+await tcpClient.ConnectAsync("10.20.1.15", 9000);       // kernel picks ephemeral source port
+
+using var stream = tcpClient.GetStream();
+await stream.WriteAsync(Encoding.UTF8.GetBytes("Hello"));
+
+var buffer = new byte[1024];
+int read = await stream.ReadAsync(buffer);
+Console.WriteLine($"Response: {Encoding.UTF8.GetString(buffer, 0, read)}");
+```
+
+**What this proves:**
+
+| Line | Concept |
+|---|---|
+| `IPAddress.Any, 9000` | **Port** identifies the app on the machine |
+| `Start(backlog: 100)` | The **accept queue** size |
+| `AcceptTcpClientAsync()` | Creates a **new socket** per connection |
+| `ConnectAsync(ip, 9000)` | **Destination IP + port** — the target endpoint |
+| No source port specified | OS picks an **ephemeral** port from 49152–65535 |
+
+### D. Modern — HttpClient client
+
+```csharp
+using var client = new HttpClient();
+var response = await client.GetAsync("https://trading-api.company.com:443/api/orders");
+response.EnsureSuccessStatusCode();
+```
+
+The client specifies the hostname and port. The OS allocates an ephemeral port. `HttpClient` manages the underlying socket and connection pool.
+
+**You generally don't create sockets manually with `HttpClient`.** That's the point — the abstraction handles TCP, TLS, pooling, and connection reuse.
+
+### E. Modern — Unix domain sockets (same-host only)
+
+When both endpoints are on the same host, **Unix domain sockets** are faster (no TCP/IP stack) and more secure (filesystem permissions, not port firewalls):
+
+```csharp
+var socketPath = "/var/run/myapp.sock";
+var listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+listener.Bind(new UnixDomainSocketEndPoint(socketPath));
+listener.Listen();
+
+// Client
+using var client = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
+await client.ConnectAsync(new UnixDomainSocketEndPoint(socketPath));
+```
+
+**When to use:** same-host IPC, especially for sidecars (Envoy, linkerd-proxy), database sockets (PostgreSQL `/var/run/postgresql/.s.PGSQL.5432`), Docker daemon.
+
+**Why faster:** no packet parsing, no checksums, no port allocation — just a kernel buffer.
+
+### F. Verifying the bind
+
+```powershell
+# Windows
+netstat -ano | findstr :443              # who owns 443?
+Get-NetTCPConnection -LocalPort 443
+Get-Process -Id <PID>
+```
+
+```bash
+# Linux
+ss -tlnp                       # TCP LISTEN, numeric, with process
+lsof -i :443                   # who has 443 open
+```
+
+**What `ss -tlnp` output looks like:**
+
+```
+State   Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process
+LISTEN  0       128     0.0.0.0:443         0.0.0.0:*          users:(("kestrel",pid=1234,fd=22))
+LISTEN  0       128     127.0.0.1:5000      0.0.0.0:*          users:(("myapp",pid=5678,fd=25))
+LISTEN  0       128     [::]:22             [::]:*             users:(("sshd",pid=901,fd=4))
+```
+
+- `0.0.0.0:443` — listening on **all IPv4 interfaces**
+- `127.0.0.1:5000` — listening on **loopback only** (unreachable externally)
+- `[::]:22` — listening on **all IPv6 interfaces** (including IPv4-mapped on most systems)
+- `Recv-Q` — pending connections in accept queue; **nonzero indicates a backlog**
+
+---
+
+## 11. INTERNAL WORKING — Complete lifecycle
+
+Let's trace one API call from click to response.
+
+**Scenario:**
+
+```
+API hostname: trading-api.company.com
+API IP:       10.20.1.15
+Server port:  443
+```
+
+### Step 1 — DNS resolution (Topic 6)
+
+```
+trading-api.company.com → 10.20.1.15
+```
+
+DNS gives the client the destination IP. It does **not** establish a TCP connection.
+
+### Step 2 — Client requests a socket
+
+The application uses `HttpClient`. The OS and HTTP handler arrange the socket.
+
+### Step 3 — Local ephemeral port allocation
+
+The OS assigns a local port:
+
+```
+Client: 192.168.1.20:52000
+```
+
+The ephemeral port comes from the range configured for outbound connections (Linux ~28K, Windows ~16K).
+
+### Step 4 — TCP three-way handshake
+
+```
+Client (192.168.1.20:52000)              Server (10.20.1.15:443)
+──────────────────────────               ──────────────────────
+                    ──── SYN ─────────────►
+                                              (LISTEN → SYN_RECEIVED)
+                    ◄─── SYN-ACK ──────────
+                    ──── ACK ────────────►
+                                              (SYN_RECEIVED → ESTABLISHED)
+ESTABLISHED                              ESTABLISHED
+```
+
+### Step 5 — Server accepts the connection
+
+The server's **listening socket** (on port 443) accepted the connection. The kernel created a **new socket** for this specific connection — with the **same local port 443** but a **different 4-tuple**.
+
+- **Listening socket:** waits for incoming connections.
+- **Connected socket:** represents this specific accepted connection.
+
+### Step 6 — TLS handshake (for HTTPS)
+
+After TCP is established, TLS negotiates encryption and authenticates the server via its certificate. **TLS is not port 443** — port 443 is just the conventional port; TLS can run on any port.
+
+### Step 7 — HTTP request and response
+
+```
+HTTP request
+    │
+    ▼
+TLS encryption
+    │
+    ▼
+TCP transport
+    │
+    ▼
+IP routing
+    │
+    ▼
+Server TCP socket
+    │
+    ▼
+Kestrel
+    │
+    ▼
+ASP.NET Core middleware
+    │
+    ▼
+API endpoint
+```
+
+### Step 8 — Connection reuse or closure
+
+The connection may be:
+
+- **Reused** for subsequent HTTP requests (keep-alive).
+- **Kept** in a pool.
+- **Closed** by either side.
+- **Closed** due to timeout, failure, or policy.
+
+**One HTTP request does not necessarily mean one new TCP connection.** Connection pooling and HTTP keep-alive reuse connections.
+
+### The TCP state machine
+
+| State | Meaning |
+|---|---|
+| **LISTEN** | Socket bound and accepting connections |
+| **SYN_RECEIVED** | SYN received; SYN-ACK sent; waiting for ACK |
+| **ESTABLISHED** | Connection active; data flows |
+| **FIN_WAIT_1 / FIN_WAIT_2** | Active close |
+| **TIME_WAIT** | After close; linger to catch stray packets |
+| **CLOSE_WAIT** | Passive close; app hasn't closed yet |
+
+### TIME_WAIT — the important one
+
+After a TCP connection closes, the **active closer** stays in **TIME_WAIT for 2 × MSL** (Maximum Segment Lifetime, typically 60s → **~120s total**).
+
+**Why TIME_WAIT exists:**
+
+1. **Catch delayed duplicate segments** from the old connection — if a stray segment arrives after close, the OS can drop it (the connection "exists" in TIME_WAIT).
+2. **Ensure the remote side sees the final ACK** — if the final ACK is lost, the remote side retransmits FIN; the TIME_WAIT socket re-ACKs.
+
+**Why it's operationally awkward:**
+
+- Thousands of TIME_WAIT sockets consume ephemeral ports on clients.
+- Restarting a server that just closed many connections may fail to bind: `Address already in use`.
+- They're **correct behaviour**, not a bug — plan for them.
+
+**The fix for restarts:** `SO_REUSEADDR`:
+
+```csharp
+var listener = new TcpListener(IPAddress.Any, 9000);
+listener.Server.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
+listener.Start();
+```
+
+**The fix for clients:** connection pooling. The single biggest lever.
+
+### Ephemeral port exhaustion
+
+Each outbound connection consumes one ephemeral port from the client's range.
+
+**Linux:** ~28,000 ports. **Windows:** ~16,000.
+
+**When it happens:**
+
+- High-throughput clients without connection pooling.
+- Load generators.
+- NAT gateways multiplexing many clients.
+
+**Symptoms:**
+
+```
+SocketException: Cannot assign requested address
+```
+
+**Fixes:**
+
+1. **Connection pooling** — primary lever.
+2. **Extend the range** — Linux: `sysctl net.ipv4.ip_local_port_range="1024 65535"`.
+3. **`tcp_tw_reuse`** — allow reuse of TIME_WAIT sockets for outbound (RFC 1323 timestamps required).
+
+**The Principal-level fix:** connection pooling + keep-alive. The rest is mitigation.
+
+---
+
+## 12. FAILURE SCENARIOS
+
+Understanding ports is particularly useful during production incidents.
+
+### Scenario 1 — Port already in use
+
+Two applications try to listen on the same IP address + TCP port:
+
+```
+Application A → 0.0.0.0:5000
+Application B → 0.0.0.0:5000
+```
+
+The second fails with `Address already in use` / `EADDRINUSE`.
+
+**Why?** The OS cannot normally bind both listeners to the same (address, port, protocol) combination without special socket options.
+
+**Troubleshooting:**
+
+```
+# Windows
+netstat -ano | findstr :5000
+tasklist /FI "PID eq 1234"
+
+# Linux
+ss -tlnp | grep :5000
+lsof -i :5000
+```
+
+**TIME_WAIT variant:** if the previous process left TIME_WAIT sockets, the port may still be "in use" for ~120s. Fix with `SO_REUSEADDR` (Kestrel does this by default).
+
+### Scenario 2 — Connection refused
+
+```
+Client → Server:5000
+→ connection refused
+```
+
+**Possible reasons:**
+- Nothing listening on that port.
+- Application stopped.
+- Service listening only on `localhost`.
+- A firewall or intermediary actively rejecting the connection.
+
+**Connection refused vs timeout:** refused = host is reachable and responds with RST; timeout = packets are silently dropped somewhere.
+
+```bash
+curl -v telnet://10.20.1.15:5000
+# refused → host reachable, nothing listening
+# timeout → firewall dropping
+```
+
+### Scenario 3 — Connection timeout
+
+Possible reasons:
+
+- Firewall silently drops packets.
+- Routing broken.
+- Server unreachable.
+- Server overloaded, not responding in time.
+
+**Don't diagnose refused and timeout as the same issue.** Refused means a host sent a response. Timeout means no response at all.
+
+### Scenario 4 — Ephemeral port exhaustion
+
+**Symptom:** intermittent `SocketException: Cannot assign requested address` under load.
+
+**Possible causes:**
+- Creating a new `HttpClient` per request.
+- Excessive short-lived connections.
+- High connection churn.
+- Poor connection-pooling strategy.
+- Unusually high concurrent outbound traffic.
+
+**Diagnosis:**
+
+```bash
+ss -tan | awk '{print $1}' | sort | uniq -c
+ss -tan state time-wait | wc -l
+```
+
+**Mitigations:**
+- **`IHttpClientFactory`** or a managed long-lived client.
+- **Reuse connections** — connection pooling.
+- **Timeouts and concurrency limits.**
+- **Extend ephemeral range** if genuine load requires it.
+- **Scale the workload** — more instances, more ports.
+
+### Scenario 5 — Firewall blocks a port
+
+Your app is on port 5000; the client cannot connect.
+
+**Check:**
+
+1. Is the app listening? (`ss -tlnp`)
+2. Is it listening on the correct network interface? (`0.0.0.0` vs `127.0.0.1`)
+3. Does the server firewall allow inbound TCP 5000?
+4. Do cloud network security rules permit it? (NSG / security group)
+5. Are intermediate firewalls / load balancers allowing it?
+
+```powershell
+Test-NetConnection 10.20.1.15 -Port 5000
+```
+
+```bash
+ss -lntup                 # Linux — what's listening
+ss -ant                   # established connections
+```
+
+**Critical caveat:** A successful port test **does not** prove the application-level API is healthy. It proves only that TCP connectivity succeeded. **Climb the layers — Topic 2's diagnostic discipline applies here.**
+
+### Scenario 6 — Container can't reach a service
+
+**Symptom:** container inside Kubernetes can't reach `localhost:5432` or a service.
+
+**Causes:**
+- **Pod binds `127.0.0.1`** — unreachable from outside the container, even other pods on the same host.
+- **Port not exposed** via `-p` (Docker) or Service `port`/`targetPort` (Kubernetes).
+- **Service `targetPort` ≠ container's actual listening port** — routing fails.
+
+**Fix:** bind to `0.0.0.0` in the container; verify Service `targetPort` matches the container's listening port.
+
+### Diagnostic toolkit
+
+```bash
+# Linux
+ss -tlnp                              # what's listening
+ss -tan                               # all TCP (including TIME_WAIT)
+ss -tan state time-wait | wc -l       # count TIME_WAIT
+lsof -i :443                          # who has 443 open
+sudo netstat -planut                  # legacy
+```
+
+```powershell
+# Windows
+netstat -ano                          # all connections + PIDs
+Get-NetTCPConnection -LocalPort 443
+Get-Process -Id <PID>
+Test-NetConnection 10.20.1.15 -Port 5000
+```
+
+---
+
+## 13. REAL-WORLD ARCHITECTURE — Banking and trading platform
+
+```
+                   [ Users / Browsers ]
+                          │
+                    HTTPS · TCP 443
+                          ▼
+              ┌────────────────────────┐
+              │ API Gateway / LB       │
+              │ :443 (public endpoint) │
+              │ → :5001-5004 (internal)│
+              └───────────┬────────────┘
+                          │
+              ┌───────────┼───────────┬────────────┐
+              ▼           ▼           ▼            ▼
+         Trading API  Account API  Notification  Audit
+          :5001        :5002        :5003         :5004
+              │           │           │            │
+              └───────────┴──────┬────┴────────────┘
+                                 ▼
+                       ┌──────────────────┐
+                       │ SQL      Kafka   │
+                       │ :1433    :9092   │
+                       └──────────────────┘
+```
+
+*(Illustrative ports. Not a recommendation to expose all services on all networks.)*
+
+### Network segmentation and least-privilege access
+
+| Source | Destination | Port | Access |
+|---|---|---|---|
+| Browser | API Gateway | 443 | **Allow** |
+| API Gateway | Trading API | 5001 | **Allow** |
+| Trading API | SQL Server | 1433 | **Allow** |
+| Notification | Kafka | 9092 | **Allow** |
+| Public internet | SQL Server | 1433 | **Deny** |
+| Unauthorized subnet | Internal APIs | 5001–5004 | **Deny** |
+
+**Every listening port is a potential attack surface.** Only open what's needed, from where it's needed.
+
+### Container port mapping
+
+```
+docker run -p 443:8443 myapp
+```
+
+The container **binds 8443** (unprivileged). The **host binds 443** (privileged) and DNATs to `127.0.0.1:8443` inside the container. **The app doesn't need root — the mapping layer handles the privileged port.**
+
+### Kubernetes Service port mapping
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: trading-api
+spec:
+  type: ClusterIP
+  selector:
+    app: trading-api
+  ports:
+    - port: 443            # the port on the Service
+      targetPort: 8443     # the port on the pod (must match Kestrel's Listen)
+      protocol: TCP
+```
+
+**Common bug:** `port: 443` on the Service but `targetPort: 443` while the pod actually listens on `8443`. Connections reach the Service's ClusterIP, but routing to pods fails with `connection refused`.
+
+### Ports in the end-to-end flow
+
+| Layer | Port | What |
+|---|---|---|
+| External | 443 | Load balancer (TLS termination) |
+| LB → app | 8443 | Internal HTTPS to Kestrel |
+| Kestrel | 8443 | ASP.NET Core listening |
+| App → SQL | 1433 | SQL Server |
+| App → Kafka | 9092 | Producer |
+| Prometheus scrape | 9090 | Metrics exporter |
+
+---
+
+## 14. PRINCIPAL ENGINEER PERSPECTIVE
+
+### A. Listening on localhost vs all interfaces
+
+| Address | Meaning |
+|---|---|
+| **`127.0.0.1`** | Listen only on IPv4 loopback |
+| **`0.0.0.0`** | Listen on all local IPv4 interfaces |
+| **`::`** | Listen on all IPv6 interfaces (often IPv4-mapped) |
+| **Specific IP** | Listen only on that interface |
+
+If your ASP.NET Core service inside a container listens only on `127.0.0.1`, **other containers and the host may not be able to reach it** through the container's network interface. **This is a common deployment mistake.**
+
+### B. Container port vs host port
+
+```
+Host port:      8080
+Container port: 5000
+
+Host:8080 → Container:5000
+```
+
+The host and container port numbers **don't need to be the same.** The mapping is done at the NAT layer — the app still binds 5000 inside the container.
+
+In Kubernetes, a Service can expose `port` and forward to a Pod's `targetPort`.
+
+### C. Port vs firewall vs NSG vs NetworkPolicy
+
+These are **different concepts**:
+
+- **Port:** identifies a transport endpoint.
+- **Firewall:** controls whether traffic is allowed.
+- **Azure NSG:** applies network rules to Azure interfaces/subnets.
+- **Kubernetes NetworkPolicy:** controls Pod-to-Pod communication, subject to the cluster's CNI implementation.
+
+**A service listening on port 5000 does not mean clients can reach it.**
+
+### D. Port vs socket vs connection vs connection pool
+
+In .NET:
+
+| Concept | What it is |
+|---|---|
+| **Port** | A number (endpoint identifier) |
+| **Socket** | An OS resource (file descriptor / handle) |
+| **TCP connection** | A 4-tuple relationship; established end-to-end |
+| **HTTP connection pool** | Manages reusable HTTP connections |
+| **`HttpClient`** | Manages a connection pool via its handler |
+
+**Different layers of the problem.** Don't conflate them.
+
+### E. The `HttpClient` anti-pattern
+
+The single biggest .NET networking mistake:
+
+```csharp
+// WRONG — new HttpClient per request
+using var client = new HttpClient();
+await client.GetAsync(url);
+```
+
+**Why it's wrong:**
+- Creates a new `SocketsHttpHandler` (new connection pool) per client.
+- New TCP connection per request.
+- **Ephemeral port exhaustion** under load.
+- **TIME_WAIT storms.**
+- Socket leaks — handlers pile up until GC.
+
+**Correct:**
+
+```csharp
+// Program.cs
+builder.Services.AddHttpClient<TradingApiClient>(client =>
+{
+    client.BaseAddress = new Uri(config["TradingApi:BaseUrl"]!);
+});
+
+// Or with handler tuning
+builder.Services.AddHttpClient<TradingApiClient>(...)
+    .ConfigurePrimaryHttpMessageHandler(() =>
+        new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            MaxConnectionsPerServer = 100,
+            KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+        });
+```
+
+**This is a Topic 7 classic for a reason** — it's the difference between a stable service and one that falls over at scale.
+
+### F. Backlog and accept-queue sizing
+
+The `listen()` backlog is the **queue of connections waiting to be accepted**. If the app is slow to accept, the queue fills, and new connections are dropped or refused.
+
+**Symptoms:** intermittent connection timeouts under load, `Recv-Q` nonzero on `ss -tlnp`.
+
+**Fixes:**
+- Increase backlog — `TcpListener.Start(backlog: 512)`.
+- **More importantly**, increase the rate at which the app accepts. Kestrel accepts efficiently; if the app blocks the thread pool, accept lags.
+
+### G. TIME_WAIT is not a bug — plan for it
+
+TIME_WAIT is **correct TCP behaviour**. Every high-throughput server has thousands of them. **Don't try to eliminate TIME_WAIT; design so it's not a bottleneck.**
+
+- Use connection pooling to reduce connection creation rate.
+- Use `SO_REUSEADDR` so restarts work.
+- Size ephemeral ranges for peak load.
+- Monitor TIME_WAIT count as a health signal.
+
+### H. Ports are a security surface — audit them
+
+Every listening port is a potential entry point. **Minimize listening services; firewall each to the correct source; close unused ports.**
+
+Common findings in security reviews:
+- **Debug ports in production** (e.g., .NET diagnostics on 4022, Node.js debugger on 9229).
+- **Admin ports exposed to the internet** (SSH, RDP).
+- **Kubernetes Dashboard, Kubelet, etcd** exposed without auth.
+- **Prometheus scrape endpoints** exposed publicly.
+- **Redis without auth** on `0.0.0.0:6379`.
+
+### I. Port 443 is not encryption
+
+Port 443 is **conventionally** associated with HTTPS. **Encryption is provided by TLS, not by the number 443.**
+
+You can run TLS on a different port. You can run a non-TLS service on 443 (though it violates convention and may break interoperability). Port 443 is a **signal**, not a guarantee.
+
+### J. Anti-patterns
+
+| Anti-pattern | Problem |
+|---|---|
+| **Binding to `127.0.0.1` in production** | Unreachable from other machines |
+| **Binding to `0.0.0.0` without firewall** | Exposed to every network |
+| **`new HttpClient()` per request** | Ephemeral port exhaustion, TIME_WAIT storms |
+| **No `SO_REUSEADDR` on a restartable server** | "Address already in use" after every restart |
+| **Hardcoded ports in code** | Breaks across environments |
+| **Debug ports left open** | Attack surface |
+| **No backlog tuning under load** | Connection drops at peak |
+| **`targetPort` mismatched with container's actual port** | Service routing fails |
+| **Admin ports exposed to `0.0.0.0` / internet** | Brute-force, breach risk |
+| **No connection pool tuning** | Poor throughput under load |
+
+### K. Trade-offs
+
+| Choose | Get | Pay |
+|---|---|---|
+| **`0.0.0.0` bind** | Simple; no per-interface config | Exposed to every network; firewall must be correct |
+| **Specific IP bind** | Tighter exposure | More config; must know interfaces |
+| **Loopback + reverse proxy** | Best isolation; centralized TLS/policy | Additional hop; extra component |
+| **Unix sockets** | Fastest, no network | Same-host only; separate tooling |
+| **Standard ports (80/443)** | Client convenience | Every scanner knows to try them |
+| **Non-standard ports** | Reduces automated noise | No real security; breaks standards |
+| **Long backlog** | Handles bursts | More queued connections consume kernel memory |
+
+### L. Production best practices
+- **Audit listening ports** in production — `ss -tlnp` on every host.
+- **Bind to the narrowest interface** that meets the requirement.
+- **Firewall at port granularity** — allow-list source IPs.
+- **Use `IHttpClientFactory`** — never `new HttpClient()` per request.
+- **Set `SO_REUSEADDR`** on any restartable server (Kestrel default).
+- **Monitor** ephemeral port usage, TIME_WAIT count, per-port connection counts.
+- **Close debug/diagnostic ports** before shipping to production.
+- **Verify container port mappings** — `targetPort` must match the app's listening port.
+- **Use Unix sockets** for same-host IPC when possible.
+- **Graceful shutdown** — drain connections before exit.
+
+### M. Decision checklist before production
+
+1. What port is the service listening on? Is it documented?
+2. Is it bound to `0.0.0.0`, a specific IP, or loopback? Intentional?
+3. Who can reach it? (Firewall rule / NSG / security group per source.)
+4. Is it exposed to the internet? If so, intended and defended?
+5. Does the client use `IHttpClientFactory` (or a managed singleton `HttpClient`)?
+6. Is `PooledConnectionLifetime` set? Is `KeepAlivePingDelay` set?
+7. What's the ephemeral port consumption under peak?
+8. What's the TIME_WAIT rate? Near a limit?
+9. What's the listen backlog? Is `Recv-Q` ever nonzero?
+10. Are any debug ports open? Are any admin ports internet-facing?
+11. In containers, does `targetPort` match the actual listening port?
+12. For same-host IPC, could a Unix socket be used instead of TCP?
+
+---
+
+## 15. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is a port?**  
+A **16-bit number** (0–65535) in the TCP/UDP header that identifies a **transport endpoint** on a host. The OS uses (IP, port, protocol) to demultiplex incoming packets to the correct process. **Ports allow many services to share one IP address.**
+
+**Q2. What is the difference between an IP address and a port?**  
+The IP identifies the **network interface / address** — which machine. The port identifies the **transport endpoint** — which process on that machine. Together, `IP:port` (plus protocol) identifies the destination for a connection.
+
+**Q3. What is a socket?**  
+An **OS-level communication endpoint** — a kernel resource the process uses to read/write data. In .NET, `Socket`, `TcpClient`, `TcpListener` are the API objects. **A socket is not just another word for a port.** The port is a number; the socket is the OS abstraction representing one endpoint bound to (IP, port, protocol).
+
+**Q4. Can multiple clients connect to the same server port?**  
+**Yes.** TCP distinguishes connections using the **4-tuple**: source IP, source port, destination IP, destination port. Ten thousand clients connecting to `10.20.1.15:443` are ten thousand different connections — each with a different (source IP, source port) pair. **This is why one port can serve millions of clients.**
+
+**Q5. What is an ephemeral port?**  
+A **temporary port** the OS allocates from the ephemeral range (Linux ~28K, Windows ~16K) for an outbound client connection. The client doesn't configure it — the OS picks it. When the connection closes, the port enters TIME_WAIT for 2×MSL before being reusable.
+
+**Q6. What is the difference between a listening socket and a connected socket?**  
+- **Listening socket** — bound to (IP, port); in `LISTEN` state; waits for new connections.
+- **Connected socket** — created **per accepted connection**; in `ESTABLISHED`; carries data for that one connection.
+
+**A server has ONE listening socket and ONE connected socket per active client** — all sharing the same (IP, port) on the listening side, but each with a distinct 4-tuple.
+
+### Intermediate
+
+**Q7. What happens if two applications bind to the same port?**  
+The second bind fails with `EADDRINUSE` (`Address already in use`).
+
+**Exceptions:**
+- **`SO_REUSEADDR`** — permits bind if TIME_WAIT sockets hold the port (server restart).
+- **`SO_REUSEPORT`** (Linux) — permits **multiple processes** to bind the same port simultaneously; kernel load-balances.
+
+Without `REUSEPORT`, only one process can bind a given (IP, port, protocol) at a time.
+
+**Q8. What is port exhaustion?**  
+The OS cannot allocate new ephemeral ports for outbound connections because:
+- Too many connections in flight.
+- Too many in TIME_WAIT.
+- Rapid connection churn.
+
+**Symptom:** `SocketException: Cannot assign requested address`.
+
+**Causes:** `new HttpClient()` per request, no connection pooling, high churn.
+
+**Fixes:** connection pooling (primary), extended ephemeral range, `tcp_tw_reuse`.
+
+**Q9. Why is `HttpClient` reuse important?**  
+`HttpClient` manages a connection pool via its handler. Reuse enables:
+- **Connection pooling** — fewer TCP connections, less churn.
+- **HTTP keep-alive** — reuse existing connections.
+- **Ephemeral port conservation** — no port exhaustion under load.
+- **TLS session resumption** — faster handshakes.
+
+**Creating `new HttpClient()` per request** creates a new handler, new pool, new TCP connection per call — the classic anti-pattern that causes exhaustion and TIME_WAIT storms.
+
+**Q10. Does opening port 443 automatically secure an API?**  
+**No.** Port 443 is a convention for HTTPS. **Encryption comes from TLS**, not from the port number. You can run TLS on any port. You can run a non-TLS service on 443 (bad practice, breaks expectations).
+
+**Security requires:** TLS configuration, authentication, authorization, network controls (firewall, NSG), input validation, and application-level protections. The port number is just the address.
+
+### Advanced
+
+**Q11. Explain the 4-tuple and 5-tuple.**  
+- **4-tuple** — TCP connection identity: `(source IP, source port, destination IP, destination port)`. **What the kernel uses to demultiplex.**
+- **5-tuple** — network device identity adds `protocol`: `(src IP, src port, dst IP, dst port, protocol)`. **What firewalls, NAT, and load balancers use** to disambiguate TCP from UDP on the same ports.
+
+**Both are correct** depending on context. TCP is identified by the 4-tuple; network policy uses the 5-tuple.
+
+**Q12. What is TIME_WAIT, and why is it necessary?**  
+After TCP close, the **active closer** stays in TIME_WAIT for **2 × MSL** (~120s). Reasons:
+
+1. **Catch late duplicate segments** — if a stray segment arrives after close, the OS can drop it.
+2. **Ensure the remote side sees the final ACK** — if the ACK is lost, the remote retransmits FIN; the TIME_WAIT socket re-ACKs.
+
+**Operationally awkward because:**
+- Thousands of TIME_WAIT sockets consume ephemeral ports on clients.
+- Restart may fail with `Address already in use`.
+- They are **correct behaviour**, not a bug.
+
+**Fix:** `SO_REUSEADDR` for restart; connection pooling for churn.
+
+**Q13. Explain `SO_REUSEADDR` vs `SO_REUSEPORT`.**  
+- **`SO_REUSEADDR`** — permits binding a port that has TIME_WAIT sockets. **One process** at a time. Purpose: restart without 2×MSL wait.
+- **`SO_REUSEPORT`** (Linux 3.9+) — permits **multiple sockets** to bind the same port simultaneously; kernel distributes connections across them. Purpose: multi-process servers, hot restart.
+
+**Windows note:** `SO_REUSEADDR` on Windows has different semantics — it can let a malicious process hijack a port. Use `SO_EXCLUSIVEADDRUSE` on Windows unless you specifically need `SO_REUSEADDR`'s behaviour.
+
+**Q14. What's the difference between binding to `0.0.0.0` and `127.0.0.1`?**  
+- **`0.0.0.0`** — all IPv4 interfaces. Reachable from any network the host is on.
+- **`127.0.0.1`** — loopback only. Reachable **only from the same host**.
+
+**The classic bug:** production app binds `127.0.0.1`; works via `localhost`; **unreachable from any other machine.** Often a dev default (Kestrel, Node.js) leaked to production.
+
+**Fix:** `IPAddress.Any` (0.0.0.0) or the specific external IP, **with** correct firewall rules.
+
+**Q15. What is a listen backlog, and why does it matter?**  
+The **accept queue** size — how many completed TCP handshakes can wait for `accept()`. When it fills, new SYNs are dropped or refused.
+
+**Symptoms:** intermittent connection timeouts under load; `Recv-Q` nonzero in `ss -tlnp`.
+
+**Fix:** increase backlog **and** (more importantly) increase the app's accept rate. If the app blocks the thread pool, accept lags and the queue fills.
+
+**Linux note:** effective backlog is `min(backlog, /proc/sys/net/core/somaxconn)`. Default `somaxconn` is often 128 or 4096.
+
+### Scenario-based
+
+**Q16. Your ASP.NET Core app logs `Address already in use` on startup after a restart. What happened?**  
+The previous process's TIME_WAIT sockets still hold the port. TIME_WAIT lasts 2×MSL (~120s).
+
+**Fixes:**
+- **`SO_REUSEADDR`** — Kestrel does this by default; verify the bind options.
+- **Wait 2×MSL** — impractical.
+- **Graceful shutdown** — drain connections before exit so they close cleanly.
+
+**Best:** ensure graceful shutdown (Topic 52) so the server isn't the active closer under normal ops.
+
+**Q17. Under load, your API fails with `Cannot assign requested address`. What's happening?**  
+**Ephemeral port exhaustion** — too many short-lived outbound connections from the API.
+
+**Diagnose:**
+
+```bash
+ss -tan | awk '{print $1}' | sort | uniq -c
+ss -tan state time-wait | wc -l
+```
+
+If TIME_WAIT is in the tens of thousands, connection churn is the cause.
+
+**Fix:** `IHttpClientFactory` (or managed client) — pool connections:
+
+```csharp
+builder.Services.AddHttpClient<MyClient>(...)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        MaxConnectionsPerServer = 100,
+    });
+```
+
+Also check whether a background job opens a new connection per message. **Pool it.**
+
+**Q18. In Kubernetes, your Service exists but clients get `connection refused`. What's wrong?**  
+In order of frequency:
+
+1. **`targetPort` mismatch** — the Service routes to a port the pod isn't listening on. E.g., pod listens on 8443, Service says `targetPort: 443`.
+2. **The pod binds `127.0.0.1`** — unreachable from the Service (different network namespace).
+3. **Pod not Ready** — readiness probe hasn't passed; endpoint isn't in the Service's list.
+4. **NetworkPolicy** — traffic from the Service to the pod is blocked.
+5. **App not listening at all** — crash loop.
+
+**Fix:** verify `targetPort` matches the app's actual `Listen`; verify the app binds `0.0.0.0`; verify readiness probes.
+
+**Q19. Your .NET app uses `TcpListener` on 9000, but you can't reach it from another machine. `curl localhost:9000` works. Why?**  
+The listener is bound to **loopback** (`127.0.0.1`). `curl localhost` works because that's loopback. From another machine, the packet arrives on the **external interface** — but the listener isn't bound there.
+
+**Fix:** `IPAddress.Any` (0.0.0.0) or the specific external IP:
+
+```csharp
+var listener = new TcpListener(IPAddress.Any, 9000);
+```
+
+Verify with `ss -tlnp | grep 9000` — you should see `0.0.0.0:9000` (or `*:9000`).
+
+**Q20. You're designing a new service. Which port should it listen on?**  
+Depends on context:
+
+| Context | Suggested port | Why |
+|---|---|---|
+| **Public web API** | 443 (behind LB) | Standard; no client config |
+| **Internal service-to-service** | 8080 / 8443 | No standard needed; internal DNS |
+| **gRPC service** | 9090 / 50051 | Common convention |
+| **Kubernetes pod** | 8080 (non-privileged) | Easy for non-root containers |
+| **Same-host IPC** | Unix socket | Faster; no port surface |
+
+**Avoid** privileged ports (< 1024) unless necessary — they require root or `CAP_NET_BIND_SERVICE`, which complicates container security.
+
+**Q21. Your service binds to `0.0.0.0:443`. Is that safe?**  
+**Depends on network context**, not on the bind address alone:
+
+- **Private subnet with NSG restricting to the LB** — safe (bind covers all interfaces, but only the LB can reach them).
+- **Multi-homed host, no firewall** — risky (every interface exposed).
+- **Container with no NetworkPolicy** — every pod can reach it.
+
+**Safe by default:** bind the narrowest interface that meets the requirement. Use `0.0.0.0` only when **verified** firewall rules apply. **Bind the specific IP or loopback + reverse proxy when in doubt.**
+
+**Q22. Your client uses `IHttpClientFactory` but still sees connection churn. What could cause this?**  
+Several possibilities:
+
+- **`IHttpClientFactory` is misused** — creating a new factory per request instead of injecting `IHttpClientFactory`.
+- **`PooledConnectionLifetime` too short** — connections rotate faster than expected.
+- **The remote server closes connections** — server has `Connection: close` or a short idle timeout.
+- **`PooledConnectionIdleTimeout`** — idle connections are closed before reuse.
+- **Named client vs typed client mixing** — each named client has its own handler chain.
+- **A middlebox (NAT, firewall) drops idle connections** — set `KeepAlivePingDelay` to keep connections warm through NAT.
+
+**Diagnose with `ss -tan | grep ESTABLISHED`** — see how many connections to the target exist at steady state.
+
+---
+
