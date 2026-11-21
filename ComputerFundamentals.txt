@@ -248,3 +248,54 @@ Depth: Deep on anything you would be paged for · Outcome: Design, operate, and 
 60	Network troubleshooting	Diagnosing real failures	ping, traceroute, nslookup/dig, ipconfig/ifconfig, netstat/ss, curl; DNS failure vs routing failure vs port blocked vs TLS failure; dotnet-trace, dotnet-counters, HttpClient diagnostics, Application Insights transaction search
 61	Monitoring, latency, and reliability	Measuring and defending reliability	Three pillars: metrics, logs, traces; latency percentiles (p50/p95/p99) and averages lying; SLOs, SLIs, error budgets; alerting on symptoms not causes; dashboards that matter
 62	Distributed tracing	Following a request across services	OpenTelemetry; Application Insights; correlation IDs; W3C trace context (traceparent/tracestate); span design; sampling; tying traces to logs and metrics
+
+
+----------------------------------------------------------
+ADDITIONAL DETAILS NEED TO LEARN
+----------------------------------------------------------
+New Phase 0: Computer and OS Fundamentals
+
+Depth: Strong basics. Outcome: Understand what happens inside a machine when your code does I/O.
+
+#	Topic	What you should understand	Key details
+0.1	CPU, memory, and storage	How a computer executes your code	CPU caches, RAM vs disk latency, stack vs heap, virtual memory and paging, serialization cost, GC behavior (.NET generations, LOH, GC pauses)
+0.2	Processes and threads	How the OS runs work	Process vs thread, scheduling, context switching and its cost, thread pool (.NET ThreadPool, starvation)
+0.3	Concurrency	How shared state goes wrong	Race conditions, locks, deadlocks, memory model, atomic operations; lock, SemaphoreSlim, Interlocked, ConcurrentDictionary
+0.4	I/O model	Why async scales	File descriptors, blocking vs non-blocking I/O, epoll (Linux), IOCP (Windows), io_uring awareness; how async/await maps to this; why item 28 and item 30 work the way they do
+0.5	Linux and command line	Working on servers and containers	File system, permissions, processes (ps, top), grep, curl, systemctl, environment variables, pipes, shell basics
+0.6	Cryptography fundamentals	The building blocks under TLS and tokens	Hashing, salting, password hashing (bcrypt, Argon2), HMAC, symmetric vs asymmetric, digital signatures, key management and rotation. Take this before item 12
+0.7	Storage and database basics	How data is stored reliably	Indexes (B-tree), ACID, transactions, isolation levels, locking, replication basics, read replicas
+Additions to Phase 1: Networking Fundamentals
+
+
+
+#	Topic	What you should understand	Key details
+8a	TCP internals	Why TCP is slow or stalls in production	Sequence numbers and ACKs, flow control and receive window, congestion control (slow start, Reno/CUBIC/BBR), retransmission timers, SYN backlog and SYN flood, Nagle and delayed ACK, TIME_WAIT. Pairs with items 7 and 35
+9a	Routing protocols (awareness)	How the internet routes at scale	OSPF inside a network, BGP between networks, autonomous systems, why BGP outages take sites down
+11a	IPv6 depth and wireless basics	Beyond IPv4 and wired	IPv6 addressing, SLAAC, dual stack, NAT64 awareness; Wi-Fi standards, SSID, channels, WPA2/WPA3
+Additions to Phase 2: Security and Network Infrastructure
+
+
+#	Topic	What you should understand	Key details
+15a	CDN	How content is served from the edge	Edge caching, origin shield, cache keys, purge/invalidation, Azure Front Door and Azure CDN, tie-in with item 23
+18a	DDoS protection	How volumetric and application attacks are absorbed	L3/L4 vs L7 attacks, SYN/UDP/HTTP floods, scrubbing, Azure DDoS Protection, rate limiting as a defense
+20a	SSH and IPsec	Secure remote access and tunnels	SSH keys, port forwarding and bastion hosts; IPsec as the basis of site-to-site VPN. Awareness depth
+20b	Azure cloud networking	How networking works in Azure	VNets and subnets, NSGs, route tables (UDRs), VNet peering, Private Link and private endpoints, Application Gateway, Front Door, Azure Firewall, VPN Gateway, ExpressRoute, Azure DNS and private DNS zones. Deep for an Azure path
+Additions to Phase 4: Communication Patterns and Resilience
+
+
+#	Topic	What you should understand	Key details
+38a	Distributed systems theory	Why distributed systems behave the way they do	Fallacies of distributed computing, CAP and PACELC, consistency models (strong, eventual, causal), consensus (Raft/Paxos awareness), clocks and ordering (logical clocks, clock skew), quorum, split brain
+Additions to Phase 5: Messaging
+
+
+
+#	Topic	What you should understand	Key details
+50a	WebRTC (awareness)	Peer-to-peer real-time media	Signaling, STUN/TURN/ICE, UDP-based transport, when it is chosen over WebSockets
+Additions to Phase 6: Production Networking and Reliability
+#	Topic	What you should understand	Key details
+54a	Distributed caching	Using Redis for more than a backplane	Cache-aside, write-through, TTL and eviction policies, cache stampede, hot keys, Redis cluster, IDistributedCache, HybridCache in .NET, consistency tradeoffs
+59a	Container and Kubernetes networking	How traffic flows inside a cluster	Docker bridge/host networking, pod networking, CNI, Services (ClusterIP, NodePort, LoadBalancer), Ingress, CoreDNS, network policies, service discovery
+60a	Packet-level troubleshooting	Seeing what is really on the wire	Wireshark and tcpdump, capture filters, reading a TCP handshake, spotting retransmits, resets and zero windows, decrypting TLS with key logs. Extends item 60
+
+
