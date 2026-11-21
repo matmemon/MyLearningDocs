@@ -1,0 +1,62 @@
+Part 1: Foundations and source control
+#	Topic	Key details	Depth
+K1	DevOps principles and delivery metrics	CALMS, value stream and lead time, DevOps vs SRE vs platform engineering, batch size and why small releases are safer; the four DORA metrics: deployment frequency, lead time for changes, change failure rate, failed deployment recovery time (formerly time to restore service); deployment rework rate (awareness)	Reason
+K2	Git internals and workflows	Objects (blob, tree, commit), refs, merge vs rebase vs squash, cherry-pick, reflog and recovery, bisect, hooks, conflict resolution, history rewriting and when it is unsafe	Master
+K3	Branching strategies, repo structure and PR governance	Trunk-based development, GitHub Flow, GitFlow and when it hurts, release and hotfix branches, short-lived branches, monorepo vs polyrepo, branch protection, CODEOWNERS, required reviews and checks, conventional commits	Master
+K4	Versioning, artifacts and package management	SemVer, NuGet feeds and Azure Artifacts, build once and promote the same artifact, artifact immutability, container registries (ACR), retention policy	Master
+Part 2: Continuous integration
+#	Topic	Key details	Depth
+K5	CI fundamentals and pipeline design	Fast feedback, stages and jobs, caching, parallelism, hosted vs self-hosted agents, reproducible and deterministic builds, pipeline as code, handling flaky pipelines	Master
+K6	.NET build and publish pipelines	dotnet restore/build/test/publish, Directory.Build.props, central package management, lock files, multi-targeting, publishing coverage and test results	Master
+K7	Azure DevOps Pipelines and GitHub Actions	YAML syntax, templates and reusable workflows, variable groups, service connections, OIDC workload identity federation instead of stored secrets, environments, approvals and checks, runner security; master one platform (suggested: Azure DevOps), know the equivalents in the other, and be able to read and troubleshoot both	Master
+K8	Pipeline gates and policies	Required checks, quality and scan gates as pipeline stages, coverage thresholds, fail vs warn policy, gate ordering for fast feedback, override and exception handling	Reason
+K9	Pipeline security and software supply chain	Least-privilege pipeline identities, secret handling in pipelines, pipeline injection and untrusted fork PR risks, dependency pinning, Dependabot/Renovate, SBOM generation, image signing, provenance and SLSA awareness	Reason
+Part 3: Images, infrastructure as code and configuration
+#	Topic	Key details	Depth
+K10	Building and publishing images in pipelines	Multi-stage build step, tagging strategy (never rely on latest), immutable tags and digests, pushing to ACR, image scan step, layer caching in CI, promoting the same image digest between environments	Master
+K11	Infrastructure as code fundamentals	Declarative vs imperative, idempotency, state, drift, modules and reuse, immutable vs mutable infrastructure, Bicep, ARM, Terraform/OpenTofu, Pulumi (awareness)	Master
+K12	IaC on Azure in practice	Bicep and Terraform modules, remote state and locking, environment parameterization, what-if/plan review in PRs, naming and tagging, landing zone awareness, validating IaC in pipelines, importing existing resources	Master
+K13	Configuration and secrets in delivery	appsettings layering, environment variables, Azure App Configuration, Key Vault references, managed identities, secret rotation, config drift, twelve-factor config	Master
+K14	Policy as code and guardrails	Azure Policy, OPA/Conftest, admission policies in the delivery path, enforcing tags, regions, private endpoints and approved images, compliance scanning	Reason
+Part 4: Continuous delivery and deployment
+#	Topic	Key details	Depth
+K15	Environments and promotion	Dev/test/staging/prod, environment parity, promotion flow, approvals and gates, ephemeral and preview environments, environment-specific config vs code, per-environment data handling	Master
+K16	Azure deployment targets	App Service (slots), Container Apps (revisions), Functions, AKS, VMs; choosing a target; deployment options and limits of each (check current Azure docs, these change often)	Reason
+K17	Deployment strategies	Recreate, rolling, blue-green, canary, ring-based, A/B, shadow traffic; traffic shifting; capacity and cost trade-offs; connection draining and graceful shutdown; stateful vs stateless services	Master
+K18	Database delivery and migrations	EF Core migrations, DACPAC/DbUp/Flyway, expand/contract (parallel change), backward-compatible schema, zero-downtime migrations, long-running data migrations, roll-forward vs rollback, migration ordering in pipelines; migrate before the new version takes traffic, and keep the schema compatible with the old version still running	Master
+K19	Feature flags and progressive delivery	Flag types (release, kill switch, experiment, permission), Microsoft.FeatureManagement and Azure App Configuration (or an equivalent flag service such as LaunchDarkly or Flagsmith), targeting and percentage rollouts, dark launches, decoupling deploy from release, flag lifecycle and flag debt	Master
+K20	Release management, rollback and roll-forward	Release cadence, versioned releases, release notes, hotfix process, freeze windows, rollback design (what can and cannot be rolled back), roll-forward as default, post-release review	Master
+K21	GitOps and Kubernetes delivery	Helm and Kustomize, manifest management, GitOps principles, Argo CD and Flux, desired vs actual state, progressive rollout controllers (awareness), secrets in GitOps	Master
+K22	Delivering microservices	Independent deployability, per-service pipelines, path-based pipeline triggers in monorepos, deployment ordering and compatibility windows, shared library versioning, avoiding lock-step releases	Master
+Part 5: Verification and delivery resilience
+#	Topic	Key details	Depth
+K23	Post-deploy verification and automated rollback	Deployment markers, health and readiness checks as deploy gates, smoke tests in the pipeline, automated canary analysis, automatic rollback on threshold breach, error budgets as a release gate	Reason
+K24	Resilience of the delivery system itself	Pipeline and agent availability, backup of repos and pipeline config, DR for CI/CD, break-glass deployments and their audit, dependency on external registries	Aware
+Part 6: Governance, platform and cost
+#	Topic	Key details	Depth
+K25	Regulated change control and audit evidence	Segregation of duties, four-eyes approval, protected environments, change tickets linked to deployments, immutable audit trail, automated evidence from pipelines, replacing manual CAB with automated controls	Reason
+K26	Platform engineering and developer experience	Golden paths, pipeline templates, internal developer platform and Backstage (awareness), inner loop (dev containers, .NET Aspire, local environments), self-service infrastructure	Reason
+K27	Cost and FinOps for delivery	Pipeline and agent cost, environment cost, shutdown schedules, autoscaling, tagging for cost allocation, ephemeral environment cleanup	Aware
+Banking delivery scenarios
+Scenario	Topics
+A bad release must be reversed within minutes	K17, K19, K20
+Schema change breaks the previous app version during rollout	K18, K22
+Pipeline secret leaked via a pull request from a fork	K7, K9
+Auditor asks who approved a production change	K3, K25
+Production differs from staging	K11, K13, K15
+Infrastructure was changed manually in the portal	K11, K12, K14
+New feature must go live to 5% of customers first	K19, K23
+Deploy succeeds but health degrades afterwards	K23
+Vulnerable base image reaches production	K8, K9, K10
+Build works locally but not in CI	K5, K6
+Developer needs emergency production access	K24, K25
+Study order
+Group	Topics
+1. Foundation	K2, K3, K5, K6
+2. Pipelines and artifacts	K4, K7, K10, K13
+3. Infrastructure	K11, K12, K14
+4. Delivery mechanics	K15, K17, K18, K19, K20
+5. Microservices and platforms	K22, K16, K21
+6. Security and governance	K8, K9, K25
+7. Verification and metrics	K23, K1
+8. Awareness	K24, K26, K27
