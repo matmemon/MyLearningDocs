@@ -1,0 +1,1214 @@
+
+
+---
+
+# Topic 6 — DNS (Domain Name System)
+
+> **Adaptation note:** DNS is a protocol and a distributed database. Where the master prompt asks for code, I show the pre-DNS hosts file, the resolver chain, and .NET/K8s/Azure examples — because that's what an engineer actually touches daily.
+>
+> **Boundary note:** DNS resolution uses IP addresses (Topic 4) and routing (Topic 9). Its interaction with HTTP/TLS (SNI, certificate hostnames) is flagged here; full mechanics are in Topics 12 and 22.
+>
+> **Gate rule:** No move to Topic 7 until you confirm Topic 6 is solid. Knowledge check at the end.
+
+---
+
+## The practical problem
+
+You type `https://trading-api.company.com` — a **name**. Computers route to **IP addresses**. Someone must translate:
+
+```
+trading-api.company.com  →  10.10.5.20
+```
+
+**How does that happen millions of times per second, across billions of names, with no single point of failure, and with updates visible in minutes?**
+
+This is what DNS solves.
+
+### Analogy — the contact list
+
+| Human-friendly | Underlying identifier |
+|---|---|
+| Rahul | +91 9876543210 |
+| Bank API | 10.10.5.20 |
+| Google | An IP returned by DNS |
+
+You remember names, not numbers. DNS does the same job for network resources.
+
+---
+
+## 1. WHY — Why was DNS required?
+
+### The three requirements
+
+1. **Names are for humans; IPs are for machines.** Nobody types `52.168.44.10`.
+2. **The mapping changes.** Servers move; load balancers rotate backends. The names must stay stable while the IPs change.
+3. **The mapping is enormous.** Billions of names. **No single server can hold them all. No single operator can maintain them.**
+
+### What triggered DNS
+
+In the 1970s, ARPANET used a **single hosts file** maintained centrally (SRI International's NIC) and copied to every host. By the early 1980s:
+
+- Hundreds of hosts; growth accelerating.
+- Every addition meant editing every host's copy.
+- Changes took days to propagate.
+- **No delegation** — one authority for the whole namespace.
+
+**RFC 882/883 (1983)** — Paul Mockapetris — introduced DNS: a **distributed, hierarchical, delegated** naming system. **RFC 1034/1035 (1987)** refined it into what we use today.
+
+**DNS exists because a central flat name database cannot scale to the internet.**
+
+---
+
+## 2. BEFORE — What existed previously?
+
+### A. Remembering IP addresses
+
+Users or apps connect directly to IPs:
+
+```
+https://10.10.5.20
+```
+
+**Problems:** humans can't remember many; servers move; apps become tightly coupled to infrastructure; every server move requires client updates.
+
+### B. The hosts file
+
+```
+# C:\Windows\System32\drivers\etc\hosts   (Windows)
+# /etc/hosts                              (Linux, macOS)
+
+10.10.5.20   trading-api.company.com
+10.10.8.30   sql.company.com
+```
+
+The OS resolver checks this file **before** any DNS query. If a match is found, resolution ends there.
+
+**How it was maintained:** a central authority produced the canonical file; every host administrator downloaded it manually (by FTP, roughly weekly).
+
+**Strengths:**
+- **Deterministic** — mapping is a file.
+- **Fast** — no network call; just a file read.
+- **No infrastructure to run.**
+- **No attack surface** — no DNS spoofing.
+
+### Why the hosts file doesn't scale
+
+Imagine an enterprise with 10,000 employees, 500 app servers, 200 microservices, multiple data centres, cloud environments, DR. Every server change would require updating every host file. **Impossible.**
+
+**This is why DNS exists — hierarchical, delegated, cached.**
+
+### Other pre-DNS protocols
+
+- **NCP Host Name Server** — single server queried over the network. **Single point of failure.**
+- **X.500** — formal directory service; too heavy; never adopted for names.
+- **NIS (Sun)** — enterprise directory for Unix; inside one org only.
+
+Each worked within scope, failed at internet scale.
+
+---
+
+## 3. PROBLEM — Why was the previous approach insufficient?
+
+### Structural problems
+
+| Problem | Real impact |
+|---|---|
+| **Centralized authority** | One team edited the file — bottleneck, single point of failure |
+| **Manual distribution** | Changes took days to propagate |
+| **No hierarchy** | Every name flat; no delegation |
+| **Name collisions** | `server1` on one site meant nothing on another |
+| **No caching** | Every lookup read the whole file; no cache concept |
+| **No namespaces** | Companies needed their own domain; the file had none |
+
+### The scale problem — ARPANET growth
+
+| Year | ARPANET hosts (approx.) |
+|---|---|
+| 1971 | 23 |
+| 1980 | 213 |
+| 1987 | ~10,000 |
+| 1990 | ~300,000 |
+| 2000 | ~100 million |
+| 2024 | **billions** |
+
+**The hosts file cannot hold 10,000 entries, let alone billions.** Even if it could, distributing it every change is impossible.
+
+### The gap
+
+We needed a system that:
+
+- **Distributes authority** — each organization owns its names.
+- **Hierarchically structures the namespace** — lookups narrow down.
+- **Delegates** — root doesn't need every name.
+- **Caches** — repeat lookups are fast.
+- **Survives partial failure** — no single point of failure.
+
+**DNS was designed to provide exactly these properties.**
+
+---
+
+## 4. WHAT — What is DNS?
+
+### Definition
+
+> **DNS (Domain Name System)** is a **hierarchical, distributed database and naming system** that maps domain names to **resource records** (A, AAAA, MX, etc.), using a globally delegated namespace and **caching** to scale.
+
+DNS is **not just names → IPs.** It provides:
+
+- Mail server info (MX).
+- Aliases (CNAME).
+- IPv6 addresses (AAAA).
+- Service discovery (SRV).
+- Authoritative nameserver info (NS).
+- Text verification and policy (TXT).
+- Certificate authority authorization (CAA).
+
+### Understand a domain name
+
+`api.trading.company.com`
+
+| Part | Meaning |
+|---|---|
+| `com` | Top-Level Domain (TLD) |
+| `company` | Second-level domain |
+| `trading` | Subdomain |
+| `api` | Host label |
+| `api.trading.company.com.` | **FQDN** — fully qualified, with terminating root dot |
+
+The trailing dot is the root — present in wire format, usually omitted in user input.
+
+**Key terms:**
+
+| Term | Meaning | Example |
+|---|---|---|
+| **Domain** | A named DNS namespace | `company.com` |
+| **TLD** | Top-Level Domain | `.com`, `.org`, `.in` |
+| **Subdomain** | A domain below another domain | `trading.company.com` |
+| **Hostname** | Identifies a host/service in a domain | `api.trading.company.com` |
+| **FQDN** | Complete name from the DNS root | `api.trading.company.com.` |
+| **Zone** | An administratively managed portion of the namespace | `company.com` zone |
+
+### DNS is a tree
+
+```
+                     . (root)
+              ┌───────┼──────┬──────┐
+             com    org    net   in   ...
+              │
+          company
+              │
+      ┌───────┼───────┐
+     api    www    mail
+```
+
+Each level can **delegate** responsibility for lower levels to other DNS servers. That's why DNS scales — the root only knows about TLDs; `.com` only knows about second-level domains; each organization only knows about its own zone.
+
+### Key components
+
+| Component | Responsibility |
+|---|---|
+| **Stub resolver** | Client-side; the OS resolver that forwards queries |
+| **Recursive resolver** | Does the walking; queries hierarchy on behalf of clients (ISP, `1.1.1.1`, `8.8.8.8`) |
+| **Root servers** | 13 identities, anycast to hundreds of instances; return referrals to TLDs |
+| **TLD servers** | Return referrals to authoritative nameservers |
+| **Authoritative servers** | **Own** the zone; return the actual records |
+| **DNS cache** | Multiple layers — browser, OS, resolver, local network |
+
+**The client only talks to the recursive resolver.** The resolver does the walking.
+
+### Query types
+
+| Type | Meaning | Who initiates |
+|---|---|---|
+| **Recursive** | "Do all the work; give me the final answer" | Client → recursive resolver |
+| **Iterative** | "Give me the best answer you have; if you don't know, point me to who might" | Resolver → root / TLD / authoritative |
+
+The client sends **recursive**; the resolver walks **iteratively**.
+
+---
+
+## 5. FEATURES — What does DNS provide?
+
+| Feature | What it does | Problem it solves |
+|---|---|---|
+| **Hierarchical namespace** | Root → TLD → domain → subdomain | Flat names cannot scale |
+| **Delegation** | Each level points to the next | No single authority must know everything |
+| **Recursive resolution** | Client asks one server; that server walks | Client doesn't need to know the hierarchy |
+| **Caching with TTL** | Answers reused until TTL expires | Massive query reduction |
+| **Multiple record types** | A, AAAA, CNAME, MX, TXT, NS, SOA, SRV, PTR, CAA | Different services need different data |
+| **IPv6 support** | AAAA records | Dual-stack |
+| **Aliasing** | CNAME records | Stable name → cloud resource |
+| **Mail routing** | MX records | Email |
+| **Service discovery** | SRV records | Locate services with host + port |
+| **Reverse lookup** | PTR records | IP → name (email reputation, logging) |
+| **DNSSEC** | Cryptographic signing | Integrity, anti-spoofing |
+| **Encrypted transport** | DoH, DoT | Privacy, integrity on-path |
+| **Load distribution** | Multiple A records | Coarse spread |
+| **Geographic routing** | GeoDNS | Route users to nearest region |
+| **Failover** | Health-checked records | Resilient services |
+
+### The distinction most people miss: DNS vs service registry
+
+| DNS | Service registry |
+|---|---|
+| Resolves **names** to records | Tracks **registered service instances** (with health, metadata) |
+| Uses TTLs and caching | Uses registration + health state |
+| Cached aggressively | More dynamic |
+| Infrastructure naming | Application discovery |
+
+**They work together.** Kubernetes is a good example: `account-service` resolves via Kubernetes DNS, but the **control plane** maintains the service/endpoint state — DNS is the projection, not the source of truth.
+
+### Load distribution caveat
+
+One A record → multiple IPs:
+
+```
+api.company.com   300  IN  A   52.168.44.10
+api.company.com   300  IN  A   52.168.44.11
+api.company.com   300  IN  A   52.168.44.12
+```
+
+The resolver returns all three (order varies). Clients typically pick one.
+
+**BUT:** DNS round-robin is **coarse**. It:
+- Ignores actual load.
+- Ignores backend health (without health checks).
+- Is subject to client/resolver caching.
+- Does **not** re-balance active connections.
+- **Is not a load balancer.**
+
+Real load balancing happens at L4/L7 (Topic 16) after DNS picks a region.
+
+**GeoDNS** uses the resolver's location (or EDNS Client Subnet hint) to return a **region-specific** IP. That's how most "global" APIs work in practice.
+
+---
+
+## 6. COMPARISON — Hosts file vs DNS (10 dimensions)
+
+| Dimension | Hosts file (before) | DNS (after) |
+|---|---|---|
+| **Architecture** | Centralized flat file | Distributed hierarchical namespace |
+| **Working mechanism** | OS reads a local file | Resolver walks the hierarchy with caching |
+| **Performance** | Instant (file read) | Milliseconds (cached) to hundreds of ms (uncached) |
+| **Scalability** | Hundreds of names | Billions of names |
+| **Reliability** | Every host is a copy; can go stale | Redundant servers; graceful degradation |
+| **Security** | Local-only; no spoofing | Spoofable without DNSSEC; DoH/DoT mitigate transport |
+| **Complexity** | Trivial | Complex — hierarchy, caching, DNSSEC, delegation |
+| **Maintenance** | Edit every host | Edit one zone; propagation via TTL |
+| **Cost** | Free | Infrastructure for authoritative servers, resolvers |
+| **Failure handling** | One bad edit breaks that host | Zone unavailable = query fails; cache may save you |
+
+**Why each change matters:**
+
+- **Hierarchy + delegation** is the core innovation — an organization can add subdomains without asking anyone.
+- **Caching** makes it scale — without it, every lookup recurses to the root.
+- **TTL** is the operational knob. **Getting TTL wrong is a top cause of DNS incidents.**
+
+### Myth-buster: "DNS is redundant, so it can't fail"
+
+**Architecture** is redundant. **Deployments** frequently fail:
+
+- Domain registration expired → name stops resolving.
+- NS records misconfigured → zone unreachable.
+- DNSSEC signature expired → validating resolvers reject.
+- TTL too long → failover is slow.
+- TTL too short → authoritative servers overwhelmed.
+
+**DNS is a critical system assumed to always work until it doesn't.**
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### Advantages
+- **Scales to billions of names** via hierarchy + caching
+- **Delegated** — organizations own their names without central permission
+- **Cached at multiple layers** — repeat lookups are fast
+- **Multiple record types** — one name, many services
+- **Geo-aware** — route to nearest region
+- **Supports failover** — health-checked records
+- **Encryptable** — DoH/DoT for privacy
+- **Free public resolvers** exist (`1.1.1.1`, `8.8.8.8`)
+
+### Disadvantages and limitations
+- **Propagation delay** — changes take TTL seconds to reach everyone
+- **Cache invalidation is hard** — no universal "flush"; you wait for TTL
+- **TTL trade-off** — long = fast but stale; short = fresh but slow/expensive
+- **Spoofing risk** — plaintext DNS vulnerable without DNSSEC
+- **Cache poisoning** — historically common (Kaminsky attack, 2008)
+- **Troubleshooting is opaque** — caches hide what's happening
+- **Failover takes TTL seconds** — not suitable for sub-second failover
+- **Coarse load balancing** — round-robin ignores real load
+- **Registrar/registry dependency** — domain expiry, NS misconfiguration take you down
+- **Operational complexity** — DNSSEC, split-horizon, private zones, DoH/DoT
+
+### When the old approach (hosts file) is still correct
+- **Local development** — `/etc/hosts` for `api.local → 127.0.0.1`.
+- **Container service discovery** — some runtimes inject `/etc/hosts` entries.
+- **Air-gapped systems** — no attack surface.
+- **Performance-critical single-machine** — no round-trip.
+
+---
+
+## 8. WHEN — When to use DNS?
+
+### Typical use cases
+
+| Situation | DNS use |
+|---|---|
+| Public website | `www.company.com` |
+| Banking API | `api.bank.com` |
+| Internal microservice | `account-service` (K8s) or `account-api.internal` |
+| Database endpoint | `sql-prod.company.internal` |
+| Kubernetes service | `account-service.namespace.svc.cluster.local` |
+| Email routing | MX records |
+| IPv6 service | AAAA records |
+| Cloud private service | Private DNS zone |
+| Domain verification (SPF, DKIM, DMARC, ACME) | TXT records |
+| CA restriction | CAA records |
+
+### Public DNS vs Private DNS
+
+- **Public DNS** — globally resolvable via the public hierarchy. Example: `www.company.com`.
+- **Private DNS** — resolvable only within a controlled network. Example: `sql-prod.company.internal` → `10.10.3.30`.
+
+The public internet cannot resolve private names.
+
+### Split-horizon DNS
+
+The **same hostname** returns **different answers** depending on query origin:
+
+| Query location | Result |
+|---|---|
+| Internal corporate network | `10.10.5.20` (private LB) |
+| External internet | `203.0.113.20` (public LB) |
+
+**Use it for:** shorter internal paths (avoid hairpin NAT — Topic 5); internal-only services; security separation.
+
+**Cost:** you maintain **two parallel zones** — changes must be synchronized or monitored. Design alongside TLS certificates, routing, and security policy.
+
+### When to avoid DNS
+
+- Single-machine local dev — hosts file is simpler.
+- Sub-millisecond latency paths — DNS is at least a cache hit.
+- Air-gapped systems.
+
+### Alternatives
+
+| Alternative | When to choose |
+|---|---|
+| **`/etc/hosts`** | Local dev, single-machine, static |
+| **Kubernetes Services** | Pod-to-pod discovery (DNS under the hood) |
+| **Service mesh (Istio, Linkerd)** | Fine-grained discovery + mTLS + retries |
+| **Consul / Eureka** | Dynamic registry outside K8s |
+| **DNS + GeoDNS** | Global routing for internet-facing |
+
+### Principal Engineer framing
+
+1. **The first hop of every request.** Slow DNS = slow everything.
+2. **A cache with a knob (TTL).** Trades propagation speed against query load.
+3. **A failure mode with a delay.** DNS failover takes TTL seconds — plan failover at the LB.
+4. **An attack surface.** DNSSEC + DoH/DoT.
+5. **A dependency.** Domain expiry, registrar issues, NS misconfiguration.
+
+---
+
+## 9. HOW — DNS records and configuration
+
+### Common record types
+
+| Record | Purpose | Example |
+|---|---|---|
+| **A** | Hostname → IPv4 | `api.company.com → 10.10.5.20` |
+| **AAAA** | Hostname → IPv6 | `api.company.com → 2001:db8::20` |
+| **CNAME** | Alias → another name | `orders.company.com → orders-prod.company.net` |
+| **MX** | Mail servers with priority | `company.com MX 10 mail1.company.com` |
+| **NS** | Authoritative nameservers | `company.com NS ns1.provider.net` |
+| **TXT** | Text (SPF, DKIM, DMARC, verification) | `v=spf1 ...` |
+| **PTR** | Reverse lookup (IP → name) | `10.44.168.52.in-addr.arpa PTR ...` |
+| **SRV** | Service location (host + port) | `_sip._tcp.company.com` |
+| **SOA** | Zone metadata (serial, refresh, TTL, primary NS) | — |
+| **CAA** | Which CAs may issue certs | `0 issue "letsencrypt.org"` |
+
+### A record — anatomy
+
+```
+api.company.com.   300   IN   A   10.10.5.20
+└──────────────┘   └─┬─┘ └┬┘ └┬┘ └────────┘
+   owner name       TTL  class  type   value
+```
+
+### CNAME — the alias rule
+
+A CNAME maps a name → **another name**, not an IP.
+
+**The CNAME rule (RFC 1034):** a CNAME cannot coexist with any other record type at the same owner name. It means "nothing else exists here."
+
+**Consequence:** the **zone apex cannot be a CNAME** — the apex **must** have SOA and NS records.
+
+**Fix for apex aliasing** (e.g., `company.com → myapp.azurewebsites.net`):
+
+| Provider feature | How it works |
+|---|---|
+| **ALIAS record** (Route 53) | Resolved at query time as an A record |
+| **ANAME record** (Azure DNS, DNSimple) | Same — provider flattens at answer time |
+| **CNAME flattening** (Cloudflare) | Provider flattens to A record |
+
+**This is one of the most common DNS gotchas** when moving to cloud resources.
+
+### MX record
+
+```
+company.com MX 10 mail1.company.com
+company.com MX 20 mail2.company.com
+```
+
+**Lower priority = preferred.** Mail senders try the lowest, fail over to the next.
+
+### TXT record — the verification workhorse
+
+- SPF — which servers may send mail for this domain.
+- DKIM — public key for signing.
+- DMARC — policy for SPF/DKIM failures.
+- Domain verification — proving you own the domain for cloud providers, ACME, etc.
+
+### TTL — Time To Live
+
+TTL determines how long a record may be **cached** — at browser, OS, resolver, and local network layers.
+
+**The critical operational principle:**
+
+> **Lower TTL at least one full old-TTL cycle before the change.**
+
+If TTL was 3600s, lower it to 60s and **wait an hour** before flipping. Otherwise, resolvers that cached the old answer keep returning it for up to the old TTL.
+
+| TTL choice | Effect |
+|---|---|
+| **Long (hours)** | Fast, low load, but slow propagation and slow failover |
+| **Short (seconds)** | Fast propagation and feasible failover, but more queries |
+
+**Caching layers — remember all four:**
+
+| Layer | Cache duration |
+|---|---|
+| **Browser** (Chrome, Firefox) | ~1 min default |
+| **OS resolver** | TTL |
+| **Recursive resolver** (ISP, Cloudflare, Google) | TTL |
+| **Local network** (dnsmasq) | TTL or max |
+
+**Why "flush my DNS" rarely helps:** the cache that matters is usually the **ISP's or public resolver's**, which you can't flush.
+
+### Reverse DNS (PTR)
+
+Normal DNS: name → IP. Reverse: IP → name.
+
+- The resolver queries `10.44.168.52.in-addr.arpa` (octets reversed).
+- `in-addr.arpa` is delegated separately.
+- The owner of `52.168.44.0/24` publishes the PTR.
+
+**Used for:** email reputation, logging, security tooling.
+
+**PTR does not prove trust.** It's a hint, not an identity proof.
+
+### Diagnostic commands
+
+```bash
+dig api.company.com                    # standard
+dig +short api.company.com             # answer only
+dig @1.1.1.1 api.company.com           # specific resolver
+dig A api.company.com                  # A only
+dig AAAA api.company.com               # AAAA only
+dig MX company.com                     # MX
+dig TXT company.com                    # TXT
+dig NS company.com                     # authoritative NS
+dig SOA company.com                    # zone metadata
+dig +dnssec api.company.com            # DNSSEC validation
+dig +trace api.company.com             # walk hierarchy manually — best diagnostic
+```
+
+```powershell
+nslookup api.company.com
+nslookup api.company.com 8.8.8.8
+ipconfig /displaydns
+ipconfig /flushdns
+Resolve-DnsName api.company.com -Type A
+Clear-DnsClientCache
+```
+
+**`dig +trace` is the strongest diagnostic** — it shows every step, so you see exactly where delegation breaks.
+
+---
+
+## 10. INTERNAL WORKING — Complete resolution lifecycle
+
+**Scenario:** browser wants `api.company.com` → A record.
+
+### The full path
+
+```
+1. Browser
+   │ Check browser DNS cache
+   │ Check OS resolver cache
+   │ Check /etc/hosts
+   │
+   ├─(miss)─► 2. Stub resolver sends RECURSIVE query to configured DNS server
+   │
+2. Recursive resolver (ISP, 1.1.1.1, 8.8.8.8)
+   │ Check its cache — hit? Return.
+   │
+   ├─(miss)─► 3. ITERATIVE query to root
+   │
+3. Root server
+   │ "I don't know `api.company.com`. `.com` is served by:
+   │  a.gtld-servers.net, b.gtld-servers.net, ..."
+   │
+   ◄─(referral)─┤
+   │
+   ├─► 4. ITERATIVE query to .com TLD
+   │
+4. TLD server (Verisign for .com)
+   │ "I don't know `api.company.com`. `company.com` is served by:
+   │  ns1.company.com, ns2.company.com"
+   │
+   ◄─(referral)─┤
+   │
+   ├─► 5. ITERATIVE query to authoritative NS
+   │
+5. Authoritative server (ns1.company.com)
+   │ Owns the zone.
+   │ Returns: "api.company.com A 52.168.44.10  TTL 300"
+   │
+   ◄─(answer)─┤
+   │
+   ◄─(recursive answer)─► 6. Resolver caches (TTL 300s), returns to client
+   │
+7. Client caches (TTL 300s)
+   │
+8. Browser connects to 52.168.44.10:443
+```
+
+### Time cost
+
+| Hop | Typical latency |
+|---|---|
+| Client → resolver (cache hit) | < 1 ms |
+| Resolver → root (anycast, near) | 5–20 ms |
+| Resolver → TLD | 10–40 ms |
+| Resolver → authoritative | 20–80 ms |
+| **Total (uncached)** | **~50–200 ms** |
+
+**Cached lookups are sub-millisecond** — almost every real lookup you do is a cache hit.
+
+### DNS uses port 53
+
+| Protocol | Usage |
+|---|---|
+| **UDP 53** | Common queries/responses |
+| **TCP 53** | Zone transfers; responses too large for UDP; fallback |
+| **TCP 853** | DNS over TLS (DoT) |
+| **HTTPS / TCP 443** | DNS over HTTPS (DoH) |
+
+Traditional DNS uses UDP for low overhead — but **DNS is not "always UDP."** TCP is part of DNS.
+
+### DoH and DoT
+
+Traditional DNS is **plaintext** on UDP 53 — observable and tamperable on-path.
+
+| | DoT | DoH |
+|---|---|---|
+| Transport | TLS over TCP, port 853 | HTTPS, port 443 |
+| Visible to network? | Port 853 is distinctive; sometimes blocked | Port 443 blends with web traffic |
+| Enterprise inspection | Sometimes possible | Harder |
+
+**Both protect:** privacy (ISP can't see queries) and integrity (answers can't be tampered on-path).
+**Neither protects against:** a malicious **authoritative** server. That's DNSSEC's job.
+
+### DNSSEC
+
+**DNS Security Extensions** — cryptographically signs DNS records so resolvers can **verify** them.
+
+Components:
+
+- **DNSKEY** — public key in the zone.
+- **RRSIG** — signature over a record set.
+- **DS** — hash of child's DNSKEY, stored at parent.
+- **Chain of trust** from root (`.` trust anchor) down.
+
+**What DNSSEC prevents:** cache poisoning, spoofing, on-path tampering.
+**What it does NOT do:** encrypt queries (that's DoH/DoT) or prevent registrar hijacking.
+
+### What happens after DNS — the full connection sequence
+
+```
+1. User enters https://trading-api.company.com
+
+2. DNS: trading-api.company.com → 52.168.44.10
+
+3. Routing: local or remote? (Topic 5)
+
+4. TCP: connect to port 443
+   (HTTP/1.1, HTTP/2 use TCP; HTTP/3 uses QUIC/UDP)
+
+5. TLS: handshake; server presents cert for trading-api.company.com (Topic 12)
+
+6. HTTP: GET /api/orders (Topic 22)
+
+7. Kestrel: receives, middleware pipeline, endpoint handler
+
+8. Response: returns to client
+```
+
+**DNS answers "where." TCP/TLS/HTTP handle "what happens when you get there."**
+
+---
+
+## 11. FAILURE SCENARIOS
+
+### The three DNS error types — do not confuse them
+
+| Error | Meaning | Cause |
+|---|---|---|
+| **NXDOMAIN** | The queried name **does not exist** in the namespace | Typo, deleted record, wrong zone |
+| **SERVFAIL** | Server **could not complete** the query | DNSSEC validation failed, unreachable authoritative, broken delegation |
+| **Timeout** | No response within the client's timeout | Network unreachable, firewall, dead resolver, packet loss |
+
+Each has a **different diagnosis path**. Treating them as "DNS is broken" wastes hours.
+
+### Broader failure table
+
+| Failure | Symptoms | Investigate |
+|---|---|---|
+| **NXDOMAIN** | Domain doesn't exist | `dig`; check hostname, zone |
+| **SERVFAIL** | Resolver cannot complete | Authoritative health; DNSSEC chain |
+| **DNS timeout** | No response | Connectivity; firewall; resolver health |
+| **Stale cache** | Old IP returned | TTL; which cache |
+| **Wrong A record** | Wrong IPv4 | Authoritative record content |
+| **Missing AAAA** | IPv6 lookup no answer | Whether IPv6 is intended |
+| **Split-horizon mismatch** | Internal/external answers differ incorrectly | Both zone views |
+| **Delegation broken** | Cannot reach authoritative | NS records; `dig +trace` |
+| **DNS poisoning** | Client redirected to attacker | DNSSEC; DoH |
+| **Registrar hijack** | Domain points elsewhere | Registrar MFA, registrar lock, DNSSEC |
+
+### Production scenario 1 — "Works on my laptop, fails in Azure"
+
+**Cause:** the laptop and the Azure workload use **different resolvers** and possibly **different DNS views**.
+
+Check:
+
+- Is a Private DNS zone linked to the correct VNet? (**Private Endpoint caveat** — a Private Endpoint for Azure SQL **requires** the Private DNS zone; without it, clients still resolve the **public** IP and bypass the private endpoint.)
+- Is DNS forwarding configured for on-prem → Azure?
+- Are NSGs / firewall rules allowing UDP/TCP 53 to the resolver?
+- Does the workload's `/etc/resolv.conf` point where you expect?
+
+**The rule:** DNS visibility depends on the resolver and the namespace that resolver can see.
+
+### Production scenario 2 — "After failover, some users still hit the dead server"
+
+**Cause:** TTL too long. Clients that resolved the dead IP **cache it for up to TTL seconds.**
+
+**Fix:**
+1. Before the failover, lower TTL to 60s.
+2. Wait one full old-TTL cycle (1 hour if old TTL was 3600s).
+3. Perform the failover.
+4. After stabilization, raise TTL back.
+
+**Better architecture:** don't rely on DNS for fast failover. Use a **load balancer with health checks** (Topic 16) — removes dead backends in seconds, regardless of DNS TTL.
+
+### Production scenario 3 — "DNS-based failover doesn't work"
+
+**Cause:** health check misconfigured; provider plan doesn't support health-checked records; TTL too long; some resolvers cache aggressively.
+
+**Fix:** verify health-check configuration (Azure Traffic Manager, Route 53 health checks, Cloudflare LB); lower TTL first; **consider anycast LB instead** (Front Door, Cloudflare) — failover at the network layer, not DNS.
+
+### Production scenario 4 — DNSSEC cascade failures
+
+**Symptoms:** some users resolve; others don't. The "some" are behind resolvers with **strict DNSSEC validation**.
+
+**Cause:** broken DNSSEC chain — missing DS at parent, expired RRSIG, botched DNSKEY rollover.
+
+**Fix:** use `dnsviz.net` or `verisignlabs.com/dnssec-debugger`; verify chain from root down; check signature expiry.
+
+### Production scenario 5 — DNS succeeds, connection fails
+
+**DNS resolves.** You have an IP. **Connection fails.**
+
+Possible causes:
+
+- Wrong IP (stale, spoofed, misconfigured).
+- Network path blocked (firewall, NSG, route).
+- Port 443 blocked.
+- TLS certificate mismatch (**SNI vs hostname** — Topic 12).
+- Service down (IP reachable, nothing listening).
+- IPv6 mismatch — client tries IPv6, server only IPv4.
+
+**"DNS works" is not the same as "the service works."** Climb the layers.
+
+### Diagnostic order
+
+```
+1. nslookup from client         → does it resolve at all?
+2. nslookup from 8.8.8.8        → does a public resolver agree?
+   (if yes: client cache/resolver is the problem)
+3. dig +trace                   → walk hierarchy; which step fails?
+4. dig NS <zone>                → are authoritative NS correct?
+5. Registrar check              → registered, not expired, NS correct?
+6. Network check                → TCP 443 reachable? TLS valid?
+```
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Banking microservices
+
+```
+                    Users (global)
+                          │
+                          │ resolve api.bank.example
+                          ▼
+                   ┌──────────────┐
+                   │  Public DNS  │
+                   │ (Route 53 /  │
+                   │  Azure DNS)  │
+                   └──────┬───────┘
+                          │ GeoDNS + health checks
+              ┌───────────┼───────────┐
+              ▼           ▼           ▼
+         US region    EU region    APAC region
+         LB: 52.x     LB: 52.y     LB: 52.z
+              │           │           │
+              ▼           ▼           ▼
+         [App tier] [App tier] [App tier]
+
+  Internal DNS (Azure Private DNS / CoreDNS in AKS):
+    trading-api.internal  → AKS service
+    account-api.internal  → AKS service
+    sql.internal          → SQL private endpoint
+    kafka.internal        → Kafka brokers
+
+  Split-horizon:
+    api.bank.example from internal → private LB IP
+    api.bank.example from external → public LB IP (GeoDNS)
+```
+
+### What happens when Trading API calls Account API
+
+```
+Trading API → resolver: account-api.internal → 10.10.5.21
+            → TCP connect to 10.10.5.21:443
+            → TLS handshake
+            → HTTPS GET /accounts/123
+            → response
+```
+
+**The app doesn't need to know the actual IP of any Account API instance** — DNS returns a current one.
+
+### If Account API has three instances
+
+```
+account-api.internal
+       │
+       ├── 10.10.5.20
+       ├── 10.10.5.21
+       └── 10.10.5.22
+```
+
+DNS can return all three — but production systems **usually put a load balancer / service abstraction** in front for health-aware distribution. **DNS round-robin is not a load balancer.**
+
+### Kubernetes DNS
+
+Each Service gets a DNS name:
+
+```
+account-service.trading.svc.cluster.local
+└─────┬─────┘ └──┬──┘ └┬┘ └───┬────┘
+   Service   Namespace  K8s   cluster
+    name                DNS    domain
+                       class
+```
+
+From a pod in the same namespace, the short name `account-service` works.
+
+**The critical point:**
+
+```
+Trading API Pod
+       │
+       │ account-service.trading.svc.cluster.local
+       ▼
+Kubernetes DNS
+       │
+       ▼
+Kubernetes Service (stable ClusterIP)
+       │
+       ├──► Account Pod 1 (10.244.1.5)
+       ├── ►Account Pod 2 (10.244.1.6)
+       └──► Account Pod 3 (10.244.1.7)
+```
+
+**Pods get new IPs on every rescheduling.** The **Service name stays stable**. This is why clients reference services, never pod IPs — the exact lesson from Topic 4.
+
+### Azure Private DNS + Private Endpoint
+
+```
+.NET API
+   │ SQL hostname: myserver.database.windows.net
+   ▼
+Azure DNS resolution
+   │
+   ▼
+Private DNS zone (privatelink.database.windows.net)
+   │
+   ▼
+Private Endpoint IP (10.10.3.10)
+   │
+   ▼
+Azure SQL (private network)
+```
+
+**The critical caveat:** if the **Private DNS zone is not linked to the VNet**, clients resolve the **public** IP and either fail (NSG blocks) or bypass the private endpoint. **One of the most common Azure networking gotchas.**
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### A. Don't hardcode IP addresses
+
+```csharp
+// BAD
+var url = "https://10.10.5.20:443";
+
+// GOOD — config-based, resolved via DNS
+builder.Services.AddHttpClient<AccountApiClient>(client =>
+{
+    client.BaseAddress = new Uri(config["AccountApi:BaseUrl"]!);
+});
+```
+
+The hostname stays stable; infrastructure changes behind it.
+
+### B. Understand DNS caching and HttpClient — the .NET nuance
+
+**This is critical and frequently misunderstood.**
+
+Suppose:
+
+```
+account-api.internal → 10.10.5.20
+```
+
+Your `HttpClient` resolves it and opens a TCP connection. Later:
+
+```
+account-api.internal → 10.10.5.30
+```
+
+**Will every request now use the new IP? No.**
+
+Reasons:
+- An established TCP connection is already connected to `10.10.5.20`.
+- `HttpClient` reuses pooled connections — it doesn't re-resolve for every request.
+
+**TTL and HTTP connection lifetime are different mechanisms.** A low DNS TTL does **not** force a pooled connection to move.
+
+**.NET handler lifetime vs connection lifetime — the distinction:**
+
+```csharp
+// Handler lifetime — how often the underlying handler is recycled
+builder.Services.AddHttpClient<AccountApiClient>()
+    .SetHandlerLifetime(TimeSpan.FromMinutes(5));
+```
+
+**`SetHandlerLifetime`** controls how often the **handler** (and its connection pool) is rebuilt. When it rebuilds, **new connections will re-resolve DNS**.
+
+```csharp
+// Connection lifetime — how long individual connections survive
+builder.Services.AddHttpClient<AccountApiClient>()
+    .ConfigurePrimaryHttpMessageHandler(() =>
+        new SocketsHttpHandler
+        {
+            PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+            KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+            KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+        });
+```
+
+**`SocketsHttpHandler.PooledConnectionLifetime`** controls how long **each individual connection** lives. When it expires, that connection is closed; a new one **re-resolves DNS**.
+
+**`KeepAlivePingDelay`** sends TCP keep-alives — prevents NAT/firewall silent drops (Topics 5, 36).
+
+**The takeaway:** DNS TTL is **not** the knob for connection freshness. **`PooledConnectionLifetime` is.** Active connections, handler lifetime, connection lifetime, and runtime behaviour all interact.
+
+### C. TTL strategy is a design decision
+
+| Record type | Suggested TTL | Reason |
+|---|---|---|
+| **NS, MX** | 3600s+ | Rarely change |
+| **LB A/AAAA** | 60–300s | May fail over |
+| **Blue/green cutover** | **60s (lowered in advance)** | Fast propagation |
+| **DNS-based failover** | 30–60s | With caveat below |
+
+**Rule:** lower TTL **one full old-TTL cycle before the change.** Otherwise some clients cache the old IP for the old TTL.
+
+### D. Don't use DNS as fast failover
+
+DNS failover takes **TTL seconds minimum** — often minutes in practice. For sub-minute failover:
+
+- **LB with health checks** (Topic 16).
+- **Anycast** (Front Door, Cloudflare).
+- **Service mesh** outlier detection (Topic 59).
+
+**DNS is a coarse control plane. It is not a real-time failover mechanism.**
+
+### E. Split-horizon DNS is a tool
+
+Internal clients resolve `api.company.com` → internal LB. External clients → public LB. Avoids hairpin NAT, keeps traffic internal, adds security.
+
+**Cost:** two parallel zones, synchronized changes, clear monitoring.
+
+**Requires:** TLS certificates valid for both sides (SANs or wildcard), routing that supports both views.
+
+### F. DNSSEC and DoH/DoT — table stakes for public services
+
+Without DNSSEC:
+- Spoofing possible.
+- Increasingly, browsers and enterprise resolvers reject unsigned answers.
+
+Without DoH/DoT:
+- Queries observable on-path.
+- Answers tamperable.
+
+**Enable DNSSEC for public zones; enable DoH/DoT for internal resolvers and clients.**
+
+### G. DNS security — the checklist
+
+| Risk | Design control |
+|---|---|
+| **Spoofing** | Trusted resolvers; DNSSEC validation |
+| **Cache poisoning** | DNSSEC; secure resolvers |
+| **Unauthorised zone updates** | Restrict API access to DNS providers; MFA; audit |
+| **Data leakage** | Protect internal namespaces; resolver access control |
+| **DNS tunnelling** | Monitor unusual DNS traffic; block direct outbound UDP 53 to internet |
+| **Misconfigured private zones** | Test from every network segment |
+| **Malicious redirection** | TLS certificate validation — **never disable it "to fix DNS"** |
+| **Registrar hijack** | Registrar MFA; registrar lock; monitor record changes |
+
+### H. DNS vs LB vs API Gateway
+
+| Component | Responsibility |
+|---|---|
+| **DNS** | Resolves name → record |
+| **Load balancer** | Distributes traffic across targets (health-aware) |
+| **API Gateway** | API policies, auth, rate limit, routing |
+| **Service registry** | Tracks live service instances |
+| **Service mesh** | Service-to-service policies, mTLS, retries |
+
+```
+trading-api.company.com
+    │
+    ▼ DNS
+Load balancer
+    │
+    ▼
+API Gateway
+    │
+    ▼
+ASP.NET Core instances
+```
+
+**DNS gets you to an endpoint. It does not replace the others.**
+
+### I. DNS and TLS hostname
+
+The TLS certificate must be valid for the **hostname** used to connect (`api.company.com`), not just the IP.
+
+- DNS resolves the IP.
+- TLS proves the endpoint is the **expected identity**.
+
+If DNS is correct but the cert is for a different name, TLS fails. **This is why "DNS is fine" doesn't mean "the connection works."**
+
+### J. Anti-patterns
+
+| Anti-pattern | Problem |
+|---|---|
+| **Hardcoded IPs in config** | Breaks on DNS change; no failover |
+| **Relying on DNS for fast failover** | TTL delay; unpredictable |
+| **TTL = 86400 on a critical service** | Failover takes 24 hours |
+| **TTL = 5s on everything** | Authoritative server overload; resolver throttling |
+| **No DNSSEC on public zones** | Spoofing; increasingly blocked by browsers |
+| **No DNS monitoring** | "DNS is always fine" until it isn't |
+| **Registrar without MFA** | Account compromise takes down the domain |
+| **`/etc/hosts` in production containers** | Silent divergence from DNS |
+| **No split-horizon for internal traffic** | Hairpin NAT or internal failures |
+| **Not lowering TTL before migration** | Failover takes as long as old TTL |
+| **Missing Private DNS zone link on Azure** | Resolves public IP; bypasses private endpoint |
+
+### K. Trade-offs
+
+| Choose | Get | Pay |
+|---|---|---|
+| **Long TTL** | Fewer queries, cheaper, faster | Slow propagation; hard failover |
+| **Short TTL** | Fast propagation; feasible failover | More queries; load on authoritative |
+| **DNS failover** | Simple; no new infra | Slow (TTL); unreliable across resolvers |
+| **LB health checks** | Fast failover | Requires LB; not free |
+| **GeoDNS** | Lower latency for global users | Complexity; resolver geolocation imperfect |
+| **Split-horizon** | Shorter internal path; security | Maintenance of parallel zones |
+| **DNSSEC** | Integrity, anti-spoofing | Operational complexity; must not expire |
+| **DoH/DoT** | Privacy, integrity on-path | Breaks some enterprise DNS inspection |
+
+### L. Production best practices
+- **Pin the authoritative NS** in your registrar — prevent silent hijack.
+- **Enable DNSSEC** with rotation calendar.
+- **Monitor DNS from outside** — synthetic probes from multiple regions.
+- **Lower TTL before any planned change** — at least one old-TTL cycle ahead.
+- **Use CAA records** — restrict which CAs may issue certs.
+- **Use split-horizon for internal traffic.**
+- **Verify Private DNS zone links** on every Azure VNet that needs private endpoints.
+- **Test failover regularly** — don't assume health checks remove dead records.
+- **Monitor registrar security** — MFA, lock, change alerts.
+
+### M. Decision checklist before production
+
+1. Are service names stable?
+2. Are private and public DNS zones clearly separated?
+3. Are records managed consistently across environments?
+4. Are resolver dependencies redundant?
+5. Are TTLs appropriate for deployment and failover requirements?
+6. Does `HttpClient` connection pooling behave correctly during DNS changes (handler + connection lifetimes)?
+7. Are private endpoints resolvable from every required network?
+8. Are DNS updates protected (MFA, API auth, audit)?
+9. Are DNS failures observable (synthetic probes, latency, validation)?
+10. Is service discovery being confused with load balancing?
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is DNS?**  
+The **Domain Name System** — a **hierarchical, distributed naming system** that translates human-readable domain names into resource records (IPs, mail servers, aliases, etc.). It scales to billions of names via **delegation** (each level points to the next) and **caching with TTL**. It's the first hop of nearly every network request.
+
+**Q2. Why do we need DNS?**  
+Names are for humans; IPs are for machines. Servers move; IPs change. **DNS provides stable names that decouple applications from infrastructure.** Without it, every server change would require updating every client — impossible at enterprise scale, let alone internet scale.
+
+**Q3. What is an A record? AAAA record?**  
+- **A** — maps a hostname to an **IPv4** address.
+- **AAAA** — maps a hostname to an **IPv6** address.
+
+Both are "address records." A dual-stack service usually has both.
+
+**Q4. What is a CNAME?**  
+An **alias** — one hostname points to **another hostname**, which is then resolved. Used for "stable name → cloud resource name." **Cannot coexist with any other record at the same owner name** (RFC 1034). **Cannot be at the zone apex** — the apex must have SOA and NS.
+
+**Q5. What are the main record types beyond A/AAAA/CNAME?**  
+- **MX** — mail servers with priority.
+- **NS** — authoritative nameservers for the zone.
+- **TXT** — arbitrary text (SPF, DKIM, DMARC, domain verification).
+- **PTR** — reverse lookup (IP → name).
+- **SRV** — service location (host + port).
+- **SOA** — zone metadata (serial, TTL, primary NS).
+- **CAA** — which CAs may issue certificates.
+
+### Intermediate
+
+**Q6. What is the difference between recursive and authoritative DNS servers?**  
+- **Authoritative** — **owns** the zone; returns the actual records for its domains.
+- **Recursive resolver** — walks the hierarchy on behalf of clients; caches aggressively; owns no zone.
+
+**Operational implication:** authoritative server changes are **your** changes. Recursive resolver behaviour (cache, timeouts, DNSSEC validation) is **theirs** — you cannot control it.
+
+**Q7. What is TTL?**  
+**Time To Live** — how long a DNS record may be cached. Long TTL = fewer queries but slow propagation. Short TTL = fast propagation but more queries. **Getting TTL wrong is a top cause of DNS incidents** — failover takes up to TTL seconds.
+
+**Q8. Difference between recursive and iterative queries?**  
+- **Recursive** — "Give me the final answer." Client → resolver.
+- **Iterative** — "Give me the best answer you have; if you don't know, point me to who might." Resolver → root / TLD / authoritative.
+
+The client sends **recursive**; the resolver walks **iteratively**. The split is what makes DNS scale.
+
+**Q9. What is the difference between public and private DNS?**  
+- **Public DNS** — globally resolvable via the public hierarchy. `www.company.com`.
+- **Private DNS** — resolvable only inside a controlled network. `sql-prod.company.internal` → `10.10.3.30`.
+
+Private namespaces are invisible to the public internet; they require the client to use a resolver with access to the private zone.
+
+**Q10. What is split-horizon DNS?**  
+Same hostname, different answers based on query origin. Internal clients → private LB; external clients → public LB. **Used for:** shorter internal paths (avoid hairpin NAT), internal-only services, security separation. **Cost:** maintain parallel zones; synchronize changes; verify TLS certs valid for both sides.
+
+### Advanced
+
+**Q11. Walk me through resolving `api.company.com` uncached.**  
+1. **Local caches** (browser, OS, `/etc/hosts`) checked first.
+2. **Stub resolver** sends **recursive** query to configured DNS server.
+3. **Recursive resolver** checks cache — miss → walks hierarchy.
+4. **Root server** — "I don't know; `.com` is served by these TLD servers" (referral).
+5. **`.com` TLD** — "I don't know; `company.com` is served by `ns1.company.com`" (referral).
+6. **Authoritative NS** — returns `api.company.com A 52.168.44.10 TTL 300`.
+7. **Resolver** caches (TTL 300s), returns to client.
+8. **Client** caches, connects.
+
+**Uncached cost:** ~50–200ms. **Cached:** sub-millisecond.
+
+**Q12. Why does DNS use both UDP and TCP?**  
+- **UDP 53** — efficient for common queries (small request/response, low overhead).
+- **TCP 53** — for zone transfers (AXFR/IXFR — must be reliable), responses too large for UDP, and fallback when EDNS/truncation requires it.
+
+**"DNS uses UDP" is incomplete.** Modern DNS uses both, plus DoT (TCP 853) and DoH (TCP 443).
+
+**Q13. What is DNSSEC, and how is it different from DoH?**  
+- **DNSSEC** — cryptographically **signs records** so resolvers can **verify integrity**. Uses DNSKEY, RRSIG, DS, and a chain of trust from root. **Protects against spoofing/cache poisoning.**
+- **DoH** — encrypts **transport** between client and resolver over HTTPS. **Protects privacy and on-path tampering.**
+
+**Not interchangeable:** DNSSEC protects the **data** at any point; DoH protects the **channel** at one hop.
+
+**Q14. What are DNSSEC operational risks, and how do you mitigate them?**  
+- **Signature expiry** — RRSIGs expire; missed rotation = validating resolvers reject.
+- **Key rollover errors** — botched DNSKEY rollover breaks the chain.
+- **Chain break** — missing/wrong DS at parent.
+
+**Mitigations:** use providers that manage signing automatically (Azure DNS, Route 53); use DNSSEC debuggers (`dnsviz.net`); monitor signature expiry; test validation from a validating resolver (`dig +dnssec @8.8.8.8`).
+
+**Q15. Does DNS provide load balancing?**  
+**Only coarse.** DNS round-robin returns multiple IPs; clients pick one; no health awareness, no rebalancing of active connections, subject to caching. **Real load balancing happens at L4/L7** (Topic 16), typically **after** DNS picks a region. GeoDNS adds **region** routing but is still coarse and health-check-dependent. **Never claim "DNS is our load balancer" in a design review.**
+
+### Principal Engineer production scenarios
+
+**Q16. Your .NET API resolves `account-api.internal` correctly, but fails at high load. What could be wrong?**  
+Several client-side failure modes:
+- **Socket exhaustion** — new `HttpClient` per request; fix with `IHttpClientFactory` or a single managed `HttpClient`.
+- **DNS re-resolution storm** — short TTL + many new connections → authoritative server overload; fix by increasing `PooledConnectionLifetime` or using a resolver cache.
+- **Connection pool saturation** — `MaxConnectionsPerServer` too low; requests queue.
+- **NAT port exhaustion** (Topic 5) — many short-lived connections exhaust NAT ports.
+- **IPv6-first delay** — client tries AAAA first, times out, falls back to A; fix IPv6 config or disable AAAA.
+
+**Q17. DNS TTL is 30 seconds, but your .NET API keeps hitting the old IP after a failover. Why?**  
+Because **DNS TTL and TCP connection lifetime are different mechanisms.**
+- The API's `SocketsHttpHandler` maintains **pooled connections** to the old IP.
+- **DNS re-resolution only happens when the connection is closed and a new one opens.**
+- If `PooledConnectionLifetime` is set to (or defaults to) a long time, or if the connection stays healthy, **the client won't re-resolve for the duration of the connection's life.**
+
+**Fix:** set `SocketsHttpHandler.PooledConnectionLifetime` to something reasonable (e.g., 5 minutes). That guarantees connections rotate and DNS re-resolves. **TTL is not the lever for connection freshness** — connection lifetime is.
+
+**Q18. Your Kubernetes pods are frequently recreated. What must clients do?**  
+**Never hardcode pod IPs.** Reference the **Service name** (`account-service.trading.svc.cluster.local` or short `account-service`). The **Service's ClusterIP stays stable**; kube-proxy load-balances to current pods. When a pod dies and is replaced with a new IP, the Service routes to the new pod automatically.
+
+**Q19. Internal hostname resolves on laptop, not in Azure. Diagnose.**  
+1. **Which resolver is Azure using?** — `/etc/resolv.conf` in the container or VM.
+2. **Is a Private DNS zone linked to the VNet?** (Critical for Private Endpoints.)
+3. **Is DNS forwarding configured** from Azure to on-prem (or vice versa)?
+4. **Are NSGs blocking UDP/TCP 53** to the resolver?
+5. **Does the private zone actually contain the record**, and is it authoritative for that name?
+
+**The rule:** DNS visibility depends on the resolver and the namespace it can see.
+
+**Q20. You're migrating `api.company.com` to a new LB. Walk through the plan.**  
+1. **Lower TTL to 60s** at least one full old-TTL cycle in advance (e.g., 1 hour if old TTL was 3600s).
+2. **Deploy the new LB**, verify health and correctness — but **not** in DNS yet.
+3. **Add both old and new IPs to the A record** — clients spread statistically.
+4. **Monitor** — error rate, latency, split by IP.
+5. **Remove the old IP** — clients still caching will briefly hit it; new clients see only the new IP.
+6. **After stabilization:** raise TTL back to normal.
+
+**Better for fast cutover:** use a load balancer that supports **weighted backends** — shift weight in seconds; DNS is not the right tool for fast blue-green.
+
+---
+
