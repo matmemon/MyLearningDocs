@@ -1,0 +1,1525 @@
+# Topic 10 — DHCP (Dynamic Host Configuration Protocol)
+
+
+---
+
+## The practical problem
+
+Imagine a company with 5,000 employees. Every employee has a laptop; the company also has application servers, database servers, printers, Wi-Fi devices, virtual machines, and network appliances.
+
+**Every device needs network configuration to communicate:**
+
+| Configuration | Example | Purpose |
+|---|---|---|
+| **IP address** | `192.168.1.25` | Identifies the device on the network |
+| **Subnet mask** | `255.255.255.0` | Identifies the local network range |
+| **Default gateway** | `192.168.1.1` | Sends traffic to other networks |
+| **DNS server** | `192.168.1.10` | Resolves hostnames (Topic 6) |
+
+Optionally, and often:
+- **NTP server** (time sync)
+- **Domain name** (search suffix)
+- **Boot file / TFTP** (PXE)
+- **WPAD proxy** (auto-proxy)
+- **VoIP config** (SIP, VLAN for voice)
+
+Multiply by 5 devices per home × 1 billion homes, 50,000 devices per enterprise, 10 million ephemeral containers per day. **Manual configuration cannot keep up.**
+
+**DHCP automates all of this.**
+
+### Analogy — hotel check-in
+
+| Real-world | DHCP |
+|---|---|
+| Hotel check-in | Device joins network |
+| Concierge assigns a room | DHCP server assigns an IP from the pool |
+| Room key (valid for your stay) | Lease (valid until it expires) |
+| Check out (room freed) | Lease expires or is released |
+| Welcome packet with hotel info | DHCP options (gateway, DNS, NTP, etc.) |
+
+**Like a hotel, the network doesn't care *who* gets which room — just that everyone has one for the duration of their stay, and no room is double-booked.**
+
+---
+
+## 1. WHY — Why was DHCP required?
+
+### The three requirements
+
+1. **Devices need configuration before they can communicate.** Without IP, mask, gateway, DNS, no packet goes anywhere.
+2. **Networks are dynamic.** Devices join and leave constantly — laptops move, phones roam, containers spawn by the second. **Static configuration per device doesn't scale.**
+3. **IP addresses must be managed.** Only one device can hold an IP at a time (per subnet). When a device leaves, its IP must eventually be reusable. Without a coordinating service, **conflicts** and **exhaustion** are inevitable.
+
+### What industry was struggling with (1980s)
+
+Before DHCP and BOOTP:
+
+- **Manual IP assignment** via a configuration file on each host.
+- **No reclamation.** Decommissioned devices left ghost entries forever.
+- **No mobility.** A laptop configured for one office didn't work in another.
+- **No remote boot.** Diskless workstations needed static config to bootstrap — chicken-and-egg.
+
+### The intermediate solution — BOOTP (RFC 951, 1985)
+
+**BOOTP (Bootstrap Protocol)** was designed for **diskless workstations**:
+
+- The device sends a BOOTP request with its MAC address.
+- A BOOTP server responds with the device's IP, gateway, and boot file location.
+- The device fetches its OS image via TFTP and boots.
+
+**BOOTP worked — but the MAC-to-IP mapping was permanently fixed.** Adding a device still required manual admin work. **No dynamic pool, no lease concept, no options for DNS/NTP.**
+
+### What triggered DHCP (RFC 2131/2132, 1997)
+
+Three forces converged:
+
+1. **Laptops and mobile devices** moved between networks constantly. Static MAC-to-IP mappings broke on every move.
+2. **IP address pressure** made static assignment wasteful — 300 laptops on a `/24` (254 addresses) exhausted the pool even with only 50 active.
+3. **Networks grew** — campus networks, corporate LANs, and ISPs needed thousands of devices joining daily.
+
+**DHCP extended BOOTP** with two critical additions:
+- **Dynamic allocation** — leases from a pool, reclaimed when they expire.
+- **Extensible options** — one protocol delivering DNS, NTP, WPAD, VoIP, and dozens of other parameters.
+
+**DHCP exists because manual configuration cannot scale to dynamic, mobile, modern networks — and BOOTP's static design was too rigid.**
+
+---
+
+## 2. BEFORE — What existed previously?
+
+### A. Static IP configuration (pre-1985)
+
+An administrator configured every device manually:
+
+```
+Laptop 1              Laptop 2              Laptop 3
+IP:     192.168.1.10  IP:     192.168.1.11  IP:     192.168.1.12
+Mask:   255.255.255.0 Mask:   255.255.255.0 Mask:   255.255.255.0
+GW:     192.168.1.1   GW:     192.168.1.1   GW:     192.168.1.1
+DNS:    192.168.1.10  DNS:    192.168.1.10  DNS:    192.168.1.10
+```
+
+**Strengths:** deterministic; no server dependency.
+**Weaknesses:** doesn't scale; conflicts from typos; no mobility; no reclamation.
+
+### B. BOOTP — the first automation (1985)
+
+```
+Client broadcasts:   "I am MAC AA:BB:CC:DD:EE:FF — what's my IP?"
+BOOTP server:        "You are 10.20.1.15/24, gateway 10.20.1.1,
+                      boot file pxelinux.0"
+Client fetches boot file via TFTP and boots.
+```
+
+**Strengths:** automation; PXE boot (still used today for OS deployment); cross-vendor.
+**Weaknesses:** static mapping (admin enters each MAC); no dynamic pool; no lease; limited options.
+
+### C. RARP — Reverse ARP (1984, obsolete)
+
+Hosts broadcast "who am I?" to a RARP server. **Layer-2 only** — no routing. Superseded by BOOTP, then DHCP.
+
+### Strengths of the pre-DHCP approach
+- **Static: deterministic, no server dependency.**
+- **BOOTP: automated, PXE-capable.**
+- **RARP: minimal.**
+
+**These strengths matter — static config is still the right choice for routers, the DHCP server itself, and air-gapped systems.** That's why DHCP has **static reservations** — the best of both.
+
+---
+
+## 3. PROBLEM — Why was BOOTP and static config insufficient?
+
+### Problem 1 — Static doesn't scale to mobility
+
+- Every laptop's MAC had to be entered in the BOOTP server's table.
+- A laptop moving subnets broke its mapping.
+- New laptops required manual admin work.
+- Decommissioned laptops left unused entries forever.
+
+### Problem 2 — Static wastes address space
+
+An IP allocated to an offline device is **unusable by anyone else** in the static model. In a network with 500 devices on a `/24` (254 addresses), where 300 are laptops offline 90% of the time, **the pool runs out even though only 50 devices are active**.
+
+### Problem 3 — BOOTP has no lease
+
+BOOTP held the IP forever. If a device left the network, the IP was unreclaimable until an admin intervened.
+
+### Problem 4 — Configuration was incomplete
+
+BOOTP delivered IP, gateway, boot file. **Modern devices also need DNS, domain name, NTP, WPAD, VoIP options, PXE options.** Each had its own protocol before DHCP **unified them via DHCP options**.
+
+### Problem 5 — Vendor-specific implementations broke interop
+
+Before RFC 2132 standardized options, each vendor implemented config delivery differently. **RFC 2132 standardized the option space** (Option 3 = router, Option 6 = DNS, etc.).
+
+### The gap
+
+We needed:
+
+1. **Dynamic allocation** — pool, leased on demand.
+2. **Automatic reclamation** — leases expire, IPs return.
+3. **Extensible options** — one protocol for all config.
+4. **Interoperability** — standardized across vendors.
+5. **Work across subnets** — clients shouldn't need a server on every subnet.
+
+**DHCP provides all five. Its design (DORA + leases + options + relay agents) is still in use after 25+ years.**
+
+---
+
+## 4. WHAT — What is DHCP?
+
+### Definition
+
+> **DHCP (Dynamic Host Configuration Protocol)** is a **UDP-based network protocol** that automatically assigns **IP addresses** (and other configuration) to devices joining a network, via **leases** from a managed pool.
+
+**Ports:**
+- **DHCPv4:** UDP **67** (server), UDP **68** (client)
+- **DHCPv6:** UDP **547** (server), UDP **546** (client)
+
+**Broadcast-based** discovery; **unicast** for renewals.
+
+### The DHCP packet — what's actually sent
+
+A DHCP message is a **BOOTP-format packet** (fixed 236-byte BOOTP header + options). The critical fields:
+
+| Field | Purpose |
+|---|---|
+| **op** | Message type — request (1) or reply (2) |
+| **htype / hlen** | Hardware type and address length (Ethernet = 1, 6) |
+| **xid** | Transaction ID — matches requests to replies |
+| **ciaddr** | Client IP (if known — used in renewals) |
+| **yiaddr** | "Your IP" — the IP being offered/assigned |
+| **siaddr** | Server IP — next server (for PXE boot) |
+| **giaddr** | Gateway IP — relay agent's address (see §10) |
+| **chaddr** | Client hardware address (MAC) — the client's identity |
+| **sname / file** | Boot file details (PXE) |
+| **Options** | Variable — message type, subnet mask, gateway, DNS, etc. |
+
+**The `chaddr` field is important** — it identifies the client by MAC. **The `giaddr` field is important** — it tells the server which subnet the client is on.
+
+### DHCP options — what makes DHCP extensible
+
+| Option | Code | Meaning |
+|---|---|---|
+| **Subnet mask** | 1 | The client's subnet mask |
+| **Router (default gateway)** | 3 | Gateway IP(s) |
+| **DNS servers** | 6 | DNS server IPs |
+| **Domain name** | 15 | Search domain |
+| **NTP servers** | 42 | Time servers |
+| **Lease time** | 51 | How long the client can use the IP |
+| **DHCP message type** | 53 | Discover / Offer / Request / ACK |
+| **Server identifier** | 54 | Which server is responding |
+| **Renewal time (T1)** | 58 | When to start renewing (default 50% of lease) |
+| **Rebinding time (T2)** | 59 | When to start rebinding (default 87.5% of lease) |
+| **Vendor-specific** | 43 | Vendor config (VoIP, PXE) |
+| **Relay agent information** | 82 | Circuit ID, remote ID |
+| **WPAD** | 252 | Auto-proxy discovery |
+
+**Options are why DHCP replaced every other config-delivery protocol.** One DHCP exchange delivers everything a device needs to join a network.
+
+### The lease — the central concept
+
+A **lease** is a **time-bounded grant** of an IP address to a client.
+
+**Typical lease durations:**
+
+| Network type | Lease time | Why |
+|---|---|---|
+| **Home network** | 24 hours | Stability, low churn |
+| **Enterprise office** | 8–24 hours | Balance |
+| **Public Wi-Fi / café** | 1 hour | Fast reclamation |
+| **Guest network** | 30 min – 2 hrs | Aggressive reclamation |
+| **Server / router** | **Static reservation** | Never expires |
+| **Kubernetes pod** | Tied to pod lifetime | Pod owns it while running |
+| **Cable modem / ISP** | Hours to days | Balance |
+
+**The lease lifecycle — three phases:**
+
+| Phase | When | What happens |
+|---|---|---|
+| **Normal** | 0 – 50% of lease | Client uses the IP normally |
+| **Renewing (T1)** | At 50% (e.g., 4 hours for 8-hour lease) | Client **unicasts** to its original DHCP server asking to extend |
+| **Rebinding (T2)** | At 87.5% (e.g., 7 hours) | Client **broadcasts** asking **any** DHCP server to extend |
+| **Expired** | At 100% (8 hours) | Client must stop using the IP; gets APIPA |
+
+**T1 and T2 are options 58 and 59** — the server can set custom values; defaults are 50% and 87.5%.
+
+**Example — 8-hour lease:**
+
+| Stage | Approximate time |
+|---|---|
+| Lease starts | 0 hours |
+| T1 renewal | 4 hours |
+| T2 rebinding | 7 hours |
+| Lease expiry | 8 hours |
+
+### Three DHCP allocation methods
+
+**1. Dynamic allocation**
+
+The server assigns an IP for a limited time. **The client renews the lease.** This is the standard for user devices.
+
+**2. Automatic allocation**
+
+The server assigns an IP that the client can retain indefinitely, depending on implementation. Rarely used — most implementations treat this as a very long lease.
+
+**3. Manual allocation (reservation)**
+
+The administrator maps a device identifier (usually MAC) to a specific IP. The device still uses DHCP, but always gets the same IP.
+
+| Device | MAC | Reserved IP |
+|---|---|---|
+| Office printer | `AA:BB:CC:11:22:33` | `192.168.1.50` |
+| Monitoring device | `AA:BB:CC:44:55:66` | `192.168.1.51` |
+| Trading API server | `AA:BB:CC:77:88:99` | `10.20.1.20` |
+
+### Important Principal Engineer distinction
+
+> **DHCP does not mean every device must use a changing IP address.**
+
+A laptop can use **dynamic DHCP**; a printer or server can use a **DHCP reservation** for a predictable IP, still managed centrally. **Both are DHCP.** The choice is per-device, not per-network.
+
+### APIPA — the failure mode
+
+**APIPA (Automatic Private IP Addressing)** — when DHCP fails, IPv4 hosts often **self-assign** a link-local address from `169.254.0.0/16` (RFC 3927).
+
+**Windows:** automatic after DHCP times out (~1 minute).
+**Linux:** depends on client (`dhclient`, `dhcpcd`, `NetworkManager`); some don't self-assign automatically.
+
+**"169.254" is the universal "DHCP failed" signature.** Whenever you see it in `ipconfig`, the diagnosis is unambiguous: **the device couldn't get a lease.**
+
+---
+
+## 5. FEATURES — What does DHCP provide?
+
+| Feature | What it does | Problem it solves |
+|---|---|---|
+| **Dynamic allocation** | IPs from a pool, leased | Address reuse |
+| **Automatic configuration** | Delivers gateway, DNS, NTP, etc. | One protocol for all config |
+| **Lease management** | Bounded in time | Reclamation without admin |
+| **Automatic allocation** | Client retains for long duration | Stable IP without static config |
+| **Manual reservation** | MAC → specific IP | Predictable IP with central management |
+| **Exclusions** | Prevent dynamic allocation in a range | Reserve for infrastructure |
+| **Renewal** | Client extends lease before expiry | Stability without re-discovery |
+| **Broadcast + unicast** | Discovery broadcast; renewal unicast | Efficiency |
+| **Relay agents** | Forward DHCP across subnets | One server for many subnets |
+| **Option 82** | Circuit ID / remote ID from relay | Per-port, per-subscriber config |
+| **DHCP snooping** | Layer-2 security | Prevent rogue servers |
+| **DHCP failover / HA** | Multiple servers share leases | Availability |
+| **DHCP+DNS integration** | Register hostname in DNS | DHCP-assigned devices are discoverable |
+
+### DHCP snooping — the security feature
+
+**The problem:** anyone can run a DHCP server on a LAN segment. A rogue DHCP server hands out **its own IP as the gateway**, intercepting all traffic — a **man-in-the-middle attack**.
+
+**The fix: DHCP snooping** — a switch feature that:
+- **Designates trusted ports** — only these can send DHCP server responses (Offer, ACK).
+- **Blocks offers from untrusted ports** — a rogue server can't hand out IPs.
+- **Maintains a binding table** — MAC/IP/port/VLAN — used by **Dynamic ARP Inspection (DAI)** to prevent ARP spoofing (Topic 12).
+- **Rate-limits DHCP per port** — prevents starvation attacks.
+
+**DHCP snooping + DAI + IP Source Guard** — the trio that protects a Layer-2 LAN from DHCP-related attacks. **Every enterprise switch should enable them.**
+
+### DHCP starvation — the attack
+
+A malicious host sends **thousands of DHCP Discover messages**, each with a **different fake MAC**. The DHCP server's pool is exhausted. **Legitimate clients can't get an IP.**
+
+**Mitigation:**
+- **DHCP snooping rate-limiting** — limit DHCP messages per port.
+- **Port security** — limit MACs per port.
+- **802.1X** — authenticate devices before they can DHCP.
+
+---
+
+## 6. COMPARISON — Static vs BOOTP vs DHCP (10 dimensions)
+
+| Dimension | Static config (before) | BOOTP (1985) | DHCP (1997) |
+|---|---|---|---|
+| **Architecture** | Manual per-device | Server + fixed MAC-to-IP table | Server + dynamic pool + leases |
+| **Working mechanism** | Admin configures each device | Client broadcasts; server replies from fixed table | DORA + lease; renewable |
+| **Performance** | Instant (local config) | 1 RTT | 1 RTT for DORA; unicast renewals |
+| **Scalability** | Poor — linear in admin hours | Poor — manual per-MAC | Excellent — auto-reclaim |
+| **Reliability** | High (no server dependency) | Depends on BOOTP server | Depends on DHCP (mitigated by HA) |
+| **Security** | Physical access control | Low | Low by default; DHCP snooping + 802.1X |
+| **Complexity** | Simple per-device | Simple server | Complex server, simple client |
+| **Maintenance** | High per device | High — table maintenance | Low — pool + reservations |
+| **Cost** | Admin-heavy | Admin-heavy | Automated |
+| **Failure handling** | None (config persists) | Manual | Lease expiry, HA failover, APIPA |
+
+### Static IP vs DHCP — the operational comparison
+
+| Dimension | Static IP | DHCP |
+|---|---|---|
+| **Configuration** | Manual | Automatic |
+| **Address assignment** | Administrator | DHCP server |
+| **Address changes** | Manual | Managed by lease |
+| **IP conflicts** | Possible through typos | Reduced through server tracking |
+| **Mobility** | Requires reconfiguration | Easier |
+| **Central management** | Difficult at scale | Easy |
+| **Predictability** | High | Depends on lease/reservation |
+| **Best fit** | Stable infrastructure | User devices and dynamic workloads |
+
+### DHCPv4 vs DHCPv6
+
+| Aspect | DHCPv4 | DHCPv6 |
+|---|---|---|
+| **Ports** | UDP 67 (server), 68 (client) | UDP 547 (server), 546 (client) |
+| **Address assignment** | DHCP only | SLAAC (stateless) or DHCPv6 (stateful) |
+| **Broadcast** | Yes | No — uses **multicast** (`ff02::1:2`) |
+| **Gateway delivery** | Option 3 | **NOT via DHCPv6** — comes via Router Advertisement |
+| **DNS** | Option 6 | Option 23 (also RDNSS in RA) |
+| **When used** | Always | Optional; SLAAC handles basic config |
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### DHCP advantages
+- **Automation** — zero-touch configuration.
+- **IP reclamation** — leases return to pool.
+- **Mobility** — laptops work across networks.
+- **Central management** — one server, all clients.
+- **Extensible options** — one protocol for all config.
+- **Scalability** — millions of clients.
+- **Reduced conflicts** — centralized tracking.
+- **Static reservations** — best of both worlds.
+- **DHCPv6 support** — future-ready.
+- **HA and failover** — multiple servers for availability.
+
+### DHCP disadvantages
+- **Server dependency** — if DHCP is down, new devices can't get IPs.
+- **Broadcast-based discovery** — needs relay agents across subnets.
+- **No authentication** — anyone can run a DHCP server (mitigated by snooping).
+- **IP conflicts still possible** — if pools overlap or static collides with DHCP-assigned.
+- **Rogue DHCP servers** — LAN attack vector.
+- **DHCP starvation** — pool exhaustion.
+- **Lease expiry surprises** — apps holding IPs beyond lease may lose them.
+- **Debugging is harder** — server logs, lease database, relay agents, client DHCP.
+- **APIPA fallback is silent** — a device with `169.254.x.x` "works" but can't reach anything.
+- **Options can be wrong** — misconfigured Option 3 breaks all clients on the subnet.
+- **Cross-subnet needs relay** — adds a failure point.
+
+### When the old approach is still correct
+
+| Scenario | Choice | Why |
+|---|---|---|
+| **The DHCP server itself** | **Static config** | Chicken-and-egg |
+| **Routers / firewalls** | **Static config** | Must be reachable before DHCP works |
+| **Hypervisors' management interfaces** | **Static config** | Before the OS is up |
+| **Air-gapped isolated lab** | **Static config** | No DHCP server to run |
+| **Microcontrollers with no DHCP client** | **Static config** | No DHCP stack |
+| **Vendor-locked appliances** | **Static config** | Sometimes no DHCP client |
+
+**Honest take:** DHCP is the right default for **any dynamic, mobile, or large network**. Static config is right for **a small number of devices that must never depend on a server** — routers, hypervisors, and the DHCP server itself.
+
+---
+
+## 8. WHEN — When to use DHCP or static IP?
+
+| Scenario | Preferred approach | Reason |
+|---|---|---|
+| **Employee laptop** | DHCP dynamic | Mobility |
+| **Office Wi-Fi mobile** | DHCP dynamic | Frequent connections |
+| **Temporary test machine** | DHCP dynamic | Easy provisioning |
+| **Printer** | **DHCP reservation** | Predictable address, central management |
+| **Application server** | **DHCP reservation** | Stable IP, centralized |
+| **Database server** | **DHCP reservation** | Stable, centralized |
+| **Network switch management** | Static (or reservation) | Stable management endpoint |
+| **Cloud VM** | **Cloud-managed addressing** | Platform controls (see Azure) |
+| **Container Pod** | **CNI-managed** | Dynamic workload lifecycle |
+
+### Enterprise example
+
+A banking platform with 500 laptops, 30 app servers, 10 DB servers, 20 network devices:
+
+- **DHCP dynamic** — for the 500 laptops.
+- **DHCP reservations** — for app servers, DB servers, network devices (stable IPs, central management).
+- **Static** — for routers, firewalls, hypervisor management interfaces, DHCP server itself.
+- **DNS names** — applications use hostnames, never embedded IPs (Topic 6).
+
+### Scenario decisions
+
+| Scenario | Choice | Why |
+|---|---|---|
+| Office laptops | **DHCP dynamic** | Mobile, numerous |
+| Office servers | **DHCP reservation** | Stable IPs + central management |
+| Home router | **Static config** | No DHCP server exists before it |
+| Guest Wi-Fi | **DHCP with short lease** | Aggressive reclamation |
+| Kubernetes pods | **CNI-managed** | Every pod gets an IP from the plugin's pool |
+| Azure VMs | **Azure DHCP** | Managed by the platform |
+| IoT sensors | **DHCP with reservation** | Often need stable IPs |
+| Industrial controller | **Static config** | Deterministic |
+| Trading matching engine NIC | **Static config** | Latency-critical; no DHCP round-trip at boot |
+
+### Principal Engineer framing
+
+A Principal Engineer thinks about DHCP as:
+
+1. **A critical infrastructure dependency.** If DHCP fails, nothing new joins the network.
+2. **The source of truth for network config.** Central management beats static.
+3. **A security boundary.** Rogue DHCP is real; snooping is mandatory.
+4. **An observability gap.** "What IP did device X get?" requires querying the lease database.
+5. **An integration point.** DHCP+DNS integration makes hostnames resolve.
+
+**The default is DHCP with reservations for stable devices.** Static for the devices DHCP can't bootstrap.
+
+---
+
+## 9. HOW — Practical implementation
+
+### A. Client-side — how devices use DHCP
+
+**Windows:**
+
+```powershell
+ipconfig /all                    # full config — DHCP Enabled, Lease Obtained/Expires
+ipconfig /release                # release the lease
+ipconfig /renew                  # request a new lease
+Get-NetIPConfiguration           # PowerShell equivalent
+```
+
+**`ipconfig /all` output (relevant):**
+
+```
+DHCP Enabled. . . . . . . . . . . : Yes
+IPv4 Address. . . . . . . . . . . : 192.168.1.20(Preferred)
+Subnet Mask . . . . . . . . . . . : 255.255.255.0
+Lease Obtained. . . . . . . . . . : Monday, November 20, 2026 9:00:00 AM
+Lease Expires . . . . . . . . . . : Tuesday, November 21, 2026 9:00:00 AM
+Default Gateway . . . . . . . . . : 192.168.1.1
+DHCP Server . . . . . . . . . . . : 192.168.1.1
+DNS Servers . . . . . . . . . . . : 192.168.1.1
+                                    8.8.8.8
+```
+
+**Fields to note:** Lease Obtained/Expires (the window); DHCP Server (useful in multi-server environments); DNS Servers (Topic 6).
+
+**Warning — `ipconfig /release` disconnects the interface.** Never run it over a remote connection without out-of-band access (console, KVM, DRAC/iLO).
+
+**Linux (dhclient):**
+
+```bash
+sudo dhclient -v eth0            # request a lease, verbose (shows full DORA)
+sudo dhclient -r eth0            # release
+ip addr show eth0
+ip route
+cat /etc/resolv.conf
+```
+
+**Linux (NetworkManager):**
+
+```bash
+nmcli device show eth0
+sudo journalctl -u NetworkManager --no-pager
+```
+
+**The verbose `dhclient -v` output is the key diagnostic** — it shows exactly where the DORA exchange fails.
+
+### B. Server-side — how to configure DHCP
+
+**Windows Server DHCP (PowerShell):**
+
+```powershell
+Install-WindowsFeature DHCP -IncludeManagementTools
+Add-DhcpServerInDC -DnsName dhcp01.corp.example.com -IPAddress 10.10.1.10
+
+Add-DhcpServerv4Scope -Name "App-Network" `
+    -StartRange 10.10.1.100 -EndRange 10.10.1.200 `
+    -SubnetMask 255.255.255.0 -State Active
+
+Set-DhcpServerv4OptionValue -ScopeId 10.10.1.0 `
+    -Router 10.10.1.1 `
+    -DnsServer 10.10.1.10, 10.10.1.11 `
+    -DnsDomain "corp.example.com"
+
+Set-DhcpServerv4Scope -ScopeId 10.10.1.0 -LeaseDuration (New-TimeSpan -Hours 8)
+
+Add-DhcpServerv4Reservation -ScopeId 10.10.1.0 `
+    -IPAddress 10.10.1.50 `
+    -ClientId "AA-BB-CC-DD-EE-FF" `
+    -Description "Trading API 01"
+```
+
+**Linux ISC dhcpd (`/etc/dhcp/dhcpd.conf`):**
+
+```conf
+subnet 10.10.1.0 netmask 255.255.255.0 {
+  range 10.10.1.100 10.10.1.200;
+  option routers 10.10.1.1;
+  option domain-name-servers 10.10.1.10, 10.10.1.11;
+  option domain-name "corp.example.com";
+  option ntp-servers 10.10.1.20;
+  default-lease-time 28800;      # 8 hours
+  max-lease-time 86400;          # 24 hours
+}
+
+host trading-api-01 {
+  hardware ethernet AA:BB:CC:DD:EE:FF;
+  fixed-address 10.10.1.50;
+}
+```
+
+**Linux Kea** is the modern replacement (ISC has deprecated dhcpd). Uses JSON configuration.
+
+### C. Relay agents — DHCP across subnets
+
+**The problem:** DHCP Discover is **broadcast**. Broadcasts **don't cross routers** (Topic 9). A DHCP server on subnet A can't see Discover from subnet B.
+
+**The solution:** a **DHCP relay agent** — a router or L3 switch on subnet B receives the broadcast, **fills the `giaddr` field** (its interface IP on subnet B), and **unicasts** to the DHCP server.
+
+```
+Client (subnet B)  ──broadcast──►  Relay agent (router)
+                                        │ giaddr = router's IP on subnet B
+                                        │ unicast to DHCP server
+                                        ▼
+                                   DHCP server (subnet A)
+                                        │ selects pool from giaddr
+                                        │ unicast back to relay
+                                        ▼
+                                   Relay agent  ──►  Client
+```
+
+**Cisco-style config:**
+
+```
+interface GigabitEthernet0/1
+  ip helper-address 10.10.1.10     # DHCP server IP
+```
+
+**Linux relay:** `dhcp-helper` or `dhcrelay`, configured with the server IP and interface.
+
+### D. DHCP snooping configuration
+
+**Cisco-style:**
+
+```
+ip dhcp snooping
+ip dhcp snooping vlan 10,20,30
+
+interface GigabitEthernet0/24
+  ip dhcp snooping trust
+
+interface GigabitEthernet0/1
+  ip dhcp snooping limit rate 100     # rate-limit DHCP per port
+```
+
+**Rate-limit prevents DHCP starvation** — a malicious client can't flood the server.
+
+### E. DHCP + dynamic DNS integration
+
+**The problem:** DHCP assigns an IP; the device's hostname may not be registered in DNS. `ping laptop.corp.example.com` fails even though the laptop works.
+
+**The solution:** the DHCP server **registers the client's hostname and IP in DNS** when the lease is granted, and **removes it when the lease expires** (or lets it stale out).
+
+- **Windows AD-integrated DHCP** — automatic for domain-joined clients.
+- **Linux ISC dhcpd + Bind** — `ddns-update-style interim;`
+
+**Without this integration:** DHCP-assigned devices have IPs but no names. **One of the most common operational gaps** in enterprises with DHCP but not DHCP+DNS integration.
+
+### F. DHCP in Azure — the critical clarifications
+
+**Azure does not use traditional DHCP for VMs — the platform manages IP assignment.** Two important distinctions:
+
+1. **Azure-managed IP assignment.** When you configure a **static private IP in an Azure NIC**, you configure it **in Azure's control plane**. The **guest OS still uses DHCP to receive that IP** and related config. **The IP is fixed by the NIC's configuration; the OS gets it via DHCP.**
+
+2. **Do NOT manually configure a conflicting static IP inside the VM operating system.** Always configure IPs on the Azure NIC (control plane), not inside Windows/Linux. The guest OS should use DHCP.
+
+3. **Azure public IPs are separate from guest DHCP.** A VM's public IP is a platform-level construct (mapped via the Azure fabric), **not delivered to the guest OS via DHCP**. The guest OS sees only its private IP.
+
+4. **DNS and DHCP options** are configured on the VNet or NIC. Custom DNS is delivered via DHCP; some options (domain suffix) may need VNet-level configuration.
+
+5. **Custom DHCP options** (newer feature) — VNet-level DHCP options beyond DNS are limited; use DHCP options at the VNet level or NIC-level DNS.
+
+### G. DHCP in Kubernetes — do not confuse with pod allocation
+
+**Kubernetes does not use DHCP for pod IPs.**
+
+- **Nodes** (VMs) get their IPs via cloud DHCP or static config.
+- **Pods** get IPs from the **CNI plugin's pool** — assigned directly at pod creation.
+- **Services** get ClusterIPs from kube-controller-manager's range.
+- **Load balancers** — assigned by the cloud provider.
+
+**Do NOT confuse DHCP with Kubernetes pod IP allocation.** Pod IP allocation is handled by the CNI — not by a DHCP server.
+
+**Why no DHCP for pods?**
+- **Speed** — DORA is 4 messages (~50–200ms). CNI assignment is instant.
+- **Ephemeral** — pods live for seconds; leasing machinery is overhead.
+- **CNI controls** — the plugin knows which IPs are free.
+- **Consistency** — IP is part of the pod's lifecycle.
+
+**This is a subtle but important point:** **modern container networking has largely obsoleted DHCP for short-lived workloads.** But **node-level and cloud-level DHCP is still fundamental.**
+
+### H. Verification commands
+
+**Client:**
+```bash
+# Linux
+sudo dhclient -v eth0
+sudo journalctl -u dhclient --no-pager
+nmcli device show eth0
+ip addr show && ip route && cat /etc/resolv.conf
+```
+
+```powershell
+# Windows
+ipconfig /all
+ipconfig /release
+ipconfig /renew
+Get-NetIPConfiguration
+```
+
+**Server:**
+```powershell
+# Windows DHCP
+Get-DhcpServerv4Scope
+Get-DhcpServerv4Lease -ScopeId 10.10.1.0
+Get-DhcpServerv4OptionValue -ScopeId 10.10.1.0
+Get-DhcpServerv4Statistics
+```
+
+```bash
+# Linux ISC
+cat /var/lib/dhcp/dhcpd.leases
+journalctl -u isc-dhcp-server --no-pager
+```
+
+**Packet capture (ground truth):**
+```bash
+sudo tcpdump -i eth0 -n -vv 'port 67 or port 68'
+```
+
+---
+
+## 10. INTERNAL WORKING — The full DORA exchange and lease lifecycle
+
+### DORA — four messages, one lease
+
+**Scenario:** a laptop with MAC `AA:BB:CC:DD:EE:FF` joins a network for the first time.
+
+#### Message 1 — DHCP DISCOVER (client → broadcast)
+
+The client has no IP. It broadcasts to `255.255.255.255`:
+
+```
+Ethernet:
+  Src MAC: AA:BB:CC:DD:EE:FF
+  Dst MAC: FF:FF:FF:FF:FF:FF         (broadcast)
+
+IP:
+  Src IP:  0.0.0.0
+  Dst IP:  255.255.255.255
+
+UDP:
+  Src port: 68    Dst port: 67
+
+DHCP:
+  Option 53: DISCOVER
+  chaddr:    AA:BB:CC:DD:EE:FF
+  xid:       random transaction ID
+```
+
+**"Is there a DHCP server?"** — broadcast, no target.
+
+#### Message 2 — DHCP OFFER (server → client, usually unicast)
+
+A server responds:
+
+```
+DHCP:
+  Option 53: OFFER
+  yiaddr:    192.168.1.100         (offered IP)
+  Option 1:  255.255.255.0         (subnet mask)
+  Option 3:  192.168.1.1           (gateway)
+  Option 6:  192.168.1.1           (DNS)
+  Option 51: 28800                 (8-hour lease)
+  Option 54: 192.168.1.1           (server identifier)
+  xid:       same as Discover
+```
+
+**"I can offer you 192.168.1.100 for 8 hours."** Multiple servers can offer — the **Option 54 (Server ID)** lets the client know which one.
+
+#### Message 3 — DHCP REQUEST (client → broadcast)
+
+The client accepts **one** offer and broadcasts the request:
+
+```
+DHCP:
+  Option 53: REQUEST
+  Option 50: 192.168.1.100         (requested IP)
+  Option 54: 192.168.1.1           (which server I'm accepting)
+  chaddr:    AA:BB:CC:DD:EE:FF
+```
+
+**Why broadcast?** So **all** servers know which offer was accepted. The **chosen server** confirms; the **others withdraw** their offers. Without the broadcast, other servers would hold their IPs reserved indefinitely.
+
+#### Message 4 — DHCP ACK (chosen server → client)
+
+```
+DHCP:
+  Option 53: ACK
+  yiaddr:    192.168.1.100
+  Option 1:  255.255.255.0
+  Option 3:  192.168.1.1
+  Option 6:  192.168.1.1
+  Option 51: 28800
+  Option 58: 14400                 (T1 = 50%)
+  Option 59: 25200                 (T2 = 87.5%)
+  Option 54: 192.168.1.1
+```
+
+**"Confirmed — your lease begins now."** The client configures its interface.
+
+### The lease lifecycle — after DORA
+
+```
+Time:    0 ──────────────────── T1 ────────────── T2 ────── 100%
+         │                      │                  │           │
+       ACK                  RENEW             REBIND      EXPIRED
+       │                      │                  │           │
+    Lease starts        50% of lease       87.5% of lease  Stop using
+                        client unicasts    client          IP; APIPA
+                        to server to       broadcasts
+                        extend             for any server
+```
+
+**At 50% (T1):** client **unicasts** to its DHCP server to extend. **New lease timer starts** if ACK received.
+
+**At 87.5% (T2):** if renewal failed, client **broadcasts** — any server can extend.
+
+**At 100%:** if both failed, client **must stop using the IP**. Windows falls back to APIPA; Linux depends on client. Retries Discover.
+
+### DHCP RELEASE
+
+When a device cleanly leaves (e.g., `ipconfig /release`, clean shutdown), it sends DHCP RELEASE:
+
+```
+DHCP:
+  Option 53: RELEASE
+  ciaddr:    192.168.1.100         (IP being released)
+  Option 54: 192.168.1.1           (server that granted it)
+```
+
+**The server returns the IP to the pool immediately** — no wait for lease expiry.
+
+### The lease database
+
+The server maintains a **lease database** — for each IP:
+
+| Field | Purpose |
+|---|---|
+| IP | The lease IP |
+| Client MAC | Who has it |
+| Client hostname | Optional (option 12) |
+| Lease start | When granted |
+| Lease duration | How long |
+| State | Active / Expired / Released / Declined |
+
+**The lease database is the source of truth.** **Back it up.** Without it, the server's view of its own pool is lost — it may re-assign IPs while old clients are still using them.
+
+### The relay agent path — full picture
+
+**Client on subnet B, DHCP server on subnet A:**
+
+```
+1. Client broadcasts DISCOVER on subnet B.
+
+2. Relay agent (router's subnet-B interface) receives it.
+   Relay fills giaddr = its interface IP on subnet B (e.g., 10.20.1.1).
+   Relay unicasts DISCOVER to DHCP server on subnet A.
+
+3. Server receives DISCOVER with giaddr = 10.20.1.1.
+   Server knows: "client is on subnet 10.20.1.0/24."
+   Allocates from that pool.
+
+4. Server sends OFFER to relay (unicast).
+   Relay sends to client on subnet B.
+
+5–8. Same pattern for REQUEST and ACK.
+```
+
+**The `giaddr` field is the key** — it identifies the client's subnet, enabling the server to select the right pool. **Without relay agents, every subnet would need its own DHCP server.**
+
+### DHCPv6 vs SLAAC — the critical gotcha
+
+**SLAAC (Stateless Address Autoconfiguration)** — the default IPv6 mechanism:
+
+1. **Router Advertisement (RA)** — the local router multicasts the network prefix (`ff02::1`).
+2. **Client generates its own address** — prefix from RA + host portion (EUI-64 or randomized).
+3. **DAD** — Duplicate Address Detection verifies no other device has this address.
+
+**No DHCP server required.**
+
+**DHCPv6 (stateful)** — for managed networks:
+
+- Client **SOLICIT** → server **ADVERTISE** → client **REQUEST** → server **REPLY**.
+- Similar to DORA but with IPv6-specific messages.
+
+**DHCPv6 options:**
+- **Option 23 — DNS servers** (also available via RA's RDNSS).
+- **Option 22 — Delegated prefixes** (prefix delegation to downstream routers).
+
+**THE CRITICAL GOTCHA:**
+
+> **In IPv6, the default gateway comes from Router Advertisement, NOT from DHCPv6.**
+
+A device that gets an IPv6 address via DHCPv6 but receives **no RAs** has an IP but **no route off-subnet**. Common IPv6 misconfiguration.
+
+**M/O flags in RA:**
+- **M (Managed)** — "use DHCPv6 for addresses."
+- **O (Other)** — "use DHCPv6 for other config (DNS, NTP)."
+
+**Typical enterprise IPv6:** RA with M=1, O=1 (DHCPv6 for everything).
+**Typical home IPv6:** RA with M=0, O=1 (SLAAC + RDNSS for DNS).
+
+---
+
+## 11. FAILURE SCENARIOS
+
+### Failure table
+
+| Failure | Symptoms | Diagnosis |
+|---|---|---|
+| **DHCP server down** | New devices get APIPA; existing lose IP on expiry | Server logs; ping DHCP server |
+| **DHCP pool exhausted** | New clients get no IP; server logs "no free leases" | Server lease DB; pool utilization |
+| **DHCP snooping too strict** | Legit clients can't get IPs | Switch logs; trusted ports |
+| **Rogue DHCP server** | Clients get IPs from unauthorized server; gateway wrong | `ipconfig /all` shows unexpected DHCP server |
+| **DHCP starvation attack** | Pool exhausted; real clients can't get IPs | Server logs (thousands of DISCOVERs) |
+| **Relay agent missing/misconfigured** | Clients on one subnet can't get IPs | Client APIPA; relay logs |
+| **Option 3 (gateway) wrong** | Clients get IPs but no internet | `ipconfig /all`; compare with expected |
+| **Option 6 (DNS) wrong** | Clients can't resolve names | `nslookup` fails |
+| **Lease too short** | Frequent renewals; churn | Increase lease time |
+| **Lease too long** | IPs not reclaimed; pool exhaustion | Decrease lease time |
+| **DHCPv6 misconfiguration** | IPv6 address but no gateway | `ip -6 route`; RA not sent |
+| **Reservation mismatch** | Device gets wrong IP | Check reservation MAC; check device MAC |
+
+### Scenario 1 — `169.254.x.x` (APIPA)
+
+**Symptom:** `ipconfig` shows `IPv4 Address: 169.254.23.45`.
+
+**Diagnosis:** DHCP failed. Device self-assigned APIPA.
+
+**Possible causes:**
+1. DHCP server down.
+2. Network path to DHCP server broken — VLAN, switch port, cable.
+3. DHCP snooping blocking — trusted ports not configured.
+4. Relay agent missing — client on a subnet without DHCP server and no relay.
+5. DHCP pool exhausted.
+6. Firewall blocking DHCP.
+
+**Diagnose:**
+```powershell
+ipconfig /all           # confirm 169.254; check DHCP Server field
+ipconfig /release
+ipconfig /renew         # shows error if server unreachable
+```
+
+```bash
+sudo dhclient -v eth0   # verbose — shows exactly where DORA fails
+```
+
+### Scenario 2 — Rogue DHCP server
+
+**Symptom:** some users have no internet; affected users show an unexpected gateway.
+
+**Diagnosis:**
+```powershell
+ipconfig /all
+#   DHCP Server . . . . . : 192.168.1.99    ← WRONG! should be .1
+```
+
+A rogue device (likely a consumer router with DHCP enabled) plugged into the corporate LAN, handing out IPs with itself as gateway.
+
+**This is a classic "no internet but network up" incident.** A security risk — the rogue server can intercept all traffic from clients it serves.
+
+**Diagnose:**
+- DHCP snooping logs — non-corporate DHCP server IPs.
+- Switch port binding tables — trace the rogue MAC to a switch port.
+
+**Fix:**
+1. **Unplug the rogue device.**
+2. **Enable DHCP snooping** — trusted ports only.
+3. **BPDU Guard** on access ports (Topic 9).
+4. **`ipconfig /release; ipconfig /renew` on affected clients** — get proper leases.
+
+### Scenario 3 — DHCP pool exhaustion
+
+**Symptom:** new clients can't get IPs; existing work fine.
+
+**Possible causes:**
+- **Pool too small** for the number of devices.
+- **Lease time too long** — IPs not reclaimed.
+- **DHCP starvation attack** — malicious client exhausting the pool.
+- **Ghost leases** — departed devices whose RELEASE never reached the server.
+
+**Diagnose:**
+```powershell
+Get-DhcpServerv4Statistics
+Get-DhcpServerv4Lease -ScopeId 10.10.1.0 | Group-Object AddressState
+```
+
+**Mitigations:**
+- **Larger pool** (expand the range).
+- **Shorter lease time** (faster reclamation).
+- **DHCP snooping rate-limits** (prevent starvation).
+- **Multiple DHCP servers** (HA).
+- **Manual lease cleanup** (clear ghosts).
+
+### Scenario 4 — Option 3 (gateway) wrong
+
+**Symptom:** clients get IPs but can't reach other subnets. `ipconfig /all` shows wrong gateway.
+
+**Cause:** DHCP Option 3 misconfigured.
+
+**Diagnose:**
+```powershell
+Get-DhcpServerv4OptionValue -ScopeId 10.10.1.0
+# Router value should match the subnet's gateway
+```
+
+**Fix:** correct the option value. Clients must renew:
+```powershell
+ipconfig /renew
+```
+
+**Common mistake:** the network gateway changed (new router), but DHCP Option 3 still points to the old gateway IP.
+
+### Scenario 5 — New VLAN can't get IPs
+
+**Symptom:** devices on a new VLAN get APIPA; other VLANs work.
+
+**Cause:** **Missing DHCP relay agent on the new VLAN's router interface.**
+
+**Why:** DHCP Discover is broadcast — doesn't cross routers. Without a relay agent on the new VLAN, no DHCP server sees it.
+
+**Fix:** add the relay config (Cisco: `ip helper-address <dhcp-server>` on the new VLAN's interface).
+
+### Scenario 6 — DHCPv6 — address but no gateway
+
+**Symptom:** device has IPv6 address but can't reach other IPv6 networks.
+
+**Diagnose:**
+```bash
+ip -6 addr           # has IPv6
+ip -6 route          # missing default route ::/0
+```
+
+**Cause:** RA not received (or not sent). DHCPv6 does not deliver gateways — RA does.
+
+**Fix:** ensure RA is enabled on the router — `sysctl net.ipv6.conf.<interface>.accept_ra=1` on Linux; verify RA is being sent with `tcpdump -i eth0 icmp6 and ip6[40] == 134`.
+
+### Scenario 7 — VoIP phones slow to boot
+
+**Symptom:** phones take 30s to boot after power on.
+
+**DHCP-related causes:**
+- **DHCP server slow to respond** — check server health.
+- **DHCP snooping rate-limit too tight** — phone sends multiple messages during boot; must be tuned.
+- **Option 66 (TFTP server) misconfigured** — phone can't fetch config.
+- **VLAN option missing** — phone doesn't know which VLAN to join.
+
+### Diagnostic toolkit
+
+**Client:**
+```bash
+sudo dhclient -v eth0
+journalctl -u dhclient --no-pager
+ip addr show && ip route && cat /etc/resolv.conf
+```
+
+```powershell
+ipconfig /all && ipconfig /release && ipconfig /renew
+```
+
+**Server:**
+```powershell
+Get-DhcpServerv4Scope
+Get-DhcpServerv4Lease -ScopeId 10.10.1.0
+Get-DhcpServerv4OptionValue -ScopeId 10.10.1.0
+Get-DhcpServerv4Statistics
+```
+
+```bash
+cat /var/lib/dhcp/dhcpd.leases
+journalctl -u isc-dhcp-server
+```
+
+**Packet capture (the ultimate diagnostic):**
+```bash
+sudo tcpdump -i eth0 -n -vv 'port 67 or port 68'
+```
+
+Shows exactly what was sent, from whom, to whom, and in what sequence.
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Banking, Azure, and Kubernetes
+
+### A. Enterprise banking network
+
+```
+                    ┌──────────────────────────┐
+                    │  DHCP HA pair            │
+                    │  dhcp01: 10.10.1.10      │
+                    │  dhcp02: 10.10.1.11      │
+                    │  Split scope + failover  │
+                    └────────────┬─────────────┘
+                                 │
+                    ┌────────────┴─────────────┐
+                    ▼                          ▼
+        ┌──────────────────┐      ┌──────────────────┐
+        │  Core router     │      │  L3 switch       │
+        │  DHCP relay      │      │  DHCP relay      │
+        │  (ip helper)     │      │  (ip helper)     │
+        └────────┬─────────┘      └────────┬─────────┘
+                 │                          │
+      ┌──────────┼──────────┐    ┌──────────┼──────────┐
+      ▼          ▼          ▼    ▼          ▼          ▼
+    VLAN 10   VLAN 20    VLAN 30  VLAN 40  VLAN 50  VLAN 60
+    (users)   (app)      (db)     (mgmt)   (voip)   (guest)
+```
+
+| Zone | DHCP approach | Lease | Notes |
+|---|---|---|---|
+| **Users (VLAN 10)** | DHCP dynamic | 8 hours | Laptops, phones |
+| **Application (VLAN 20)** | DHCP reservation | 30 days | Servers get fixed IPs |
+| **Database (VLAN 30)** | DHCP reservation | 30 days | Servers |
+| **Management (VLAN 40)** | DHCP reservation | 30 days | Network gear |
+| **VoIP (VLAN 50)** | DHCP dynamic | 8 hours | Option 66 (TFTP) for phone config |
+| **Guest (VLAN 60)** | DHCP dynamic | 30 minutes | Aggressive reclamation |
+
+**Key architectural decisions:**
+- **HA DHCP** — split-scope or DHCP failover. One server can serve all if the other fails.
+- **Relay agents** on every router/L3 switch.
+- **DHCP snooping** on every access switch — trusted ports only toward DHCP servers.
+- **DHCP+DNS integration** — hostnames registered in AD DNS.
+- **Reservations for servers** — no manual static config.
+- **Short leases for guests.**
+- **Options 66/67 for VoIP; Option 42 for NTP; Option 15 for domain.**
+
+### B. Azure architecture — the critical clarifications
+
+```
+Azure VNet (10.10.0.0/16)
+    │
+    ├── App subnet (10.10.1.0/24)     ← Azure DHCP
+    ├── DB subnet (10.10.2.0/24)      ← Azure DHCP
+    └── Mgmt subnet (10.10.3.0/24)    ← Azure DHCP
+```
+
+**Azure does not use traditional DHCP — the platform manages IP assignment. Three important distinctions:**
+
+1. **Azure-managed IP assignment.** When you configure a **static private IP in an Azure NIC**, you configure it **in Azure's control plane**. The **guest OS still uses DHCP to receive that IP** and related config. **The IP is fixed by the NIC's configuration; the OS gets it via DHCP.**
+
+2. **Do NOT manually configure a conflicting static IP inside the VM operating system.** Always configure IPs on the Azure NIC (control plane), not inside Windows/Linux. **The guest OS should use DHCP.**
+
+3. **Azure public IPs are separate from guest DHCP.** A VM's public IP is a platform-level construct, **not delivered to the guest OS via DHCP**. The guest OS sees only its private IP.
+
+4. **DNS and DHCP options** — set at VNet or NIC level. DNS is delivered via DHCP; some options (domain suffix) need VNet-level configuration.
+
+**The pattern:** **Azure is authoritative for its VMs.** On-prem DHCP doesn't typically serve Azure VMs; each environment manages its own.
+
+### C. Kubernetes networking
+
+```
+Kubernetes cluster
+    │
+    ├── Node 1 (VM — IP via cloud DHCP or static)
+    ├── Node 2 (VM — IP via cloud DHCP or static)
+    └── Node 3 (VM — IP via cloud DHCP or static)
+
+Pods:
+  - Get IPs from CNI plugin's pool
+  - NOT from DHCP
+  - IP assigned at pod creation, released at pod deletion
+  - CNI manages its own pool (e.g., 10.244.0.0/16)
+```
+
+**Do NOT confuse DHCP with Kubernetes pod IP allocation.** Pod IP allocation is handled by the CNI — not by a DHCP server.
+
+**The subtle but important point:** **modern container networking has largely obsoleted DHCP for short-lived workloads.** But **node-level and cloud-level DHCP is still fundamental.**
+
+### D. End-to-end flow — a trader's request
+
+1. **Client sends HTTPS** to `api.bank.com`.
+2. **DNS** resolves to the edge router's public IP.
+3. **Edge router** DNATs to the load balancer (Topic 16).
+4. **Load balancer** (VLAN 10) sends to an app server (also VLAN 10).
+5. **App server** queries the database — **inter-VLAN routing** from VLAN 10 to VLAN 20 (via L3 switch SVI).
+6. **Firewall** in the path between VLAN 10 and VLAN 20 allows port 5432.
+7. **Response** returns through the same path.
+
+**Every device that participates in this flow got its IP from DHCP** (or a reservation, or Azure, or the CNI).
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### A. DHCP is critical infrastructure
+
+**DHCP failure = new devices can't join.** In a busy enterprise, this is a **P1 incident**.
+
+**Best practices:**
+- **HA** — two DHCP servers (split-scope or DHCP failover).
+- **Monitoring** — server health, pool utilization, lease failures.
+- **Test failover** — periodically disable one server, verify the other handles all requests.
+- **Backup the lease database** — daily; test restoring.
+- **Document the DHCP design** — scopes, options, relay agents, reservations.
+
+### B. Reservations, not static config, for stable IPs
+
+**The old pattern:** static config on every server.
+**The problem:** every server's config is **independently maintained** — 100 servers = 100 typos, 100 drifts.
+
+**The modern pattern:** **DHCP reservations.**
+- **Central management** — one server holds all reservations.
+- **Same delivery mechanism** — servers use DHCP; reservation ensures stable IP.
+- **Same options apply** — DNS, NTP, domain.
+- **Change one place** — update the reservation, servers renew.
+
+**When static IS correct:** the DHCP server itself, routers, hypervisors' management interfaces, air-gapped systems.
+
+**Principal-level rule:** *DHCP reservations for anything that DHCP can serve; static config only for devices that DHCP cannot reach.*
+
+### C. DHCP + DNS integration is not optional
+
+In an enterprise where people connect by hostname (Topic 6), **DHCP-assigned devices without DNS registration are invisible.**
+
+**Enable DHCP+DNS integration:**
+- **Windows AD-integrated DHCP** — automatic for domain-joined.
+- **Linux ISC dhcpd + Bind** — `ddns-update-style interim`.
+
+**Without this:** a laptop gets `192.168.1.20`, but `ping laptop.corp.example.com` fails — the DNS server never learned the mapping. **One of the most common operational gaps.**
+
+### D. DHCP vs DNS vs Service Discovery vs Load Balancer — different problems
+
+| Technology | Responsibility |
+|---|---|
+| **DHCP** | Provides network configuration (IP, mask, gateway, DNS) |
+| **DNS** | Resolves names to IP addresses |
+| **Service discovery** (K8s, Consul) | Locates available application services |
+| **Load balancer** | Distributes traffic across backends |
+| **API Gateway** | Provides an entry point and policy enforcement |
+
+**For your .NET microservices architecture, DHCP is NOT responsible for discovering `AccountService` or selecting a healthy `NotificationService` instance.** That's handled by DNS, K8s Services, service discovery, and load balancing (Topics 16, 42, 43).
+
+### E. DHCP snooping is mandatory in enterprise
+
+**Without DHCP snooping:**
+- **Rogue DHCP server attacks** — plug in a consumer router, intercept traffic.
+- **DHCP starvation** — one attacker exhausts the pool.
+- **ARP poisoning** — the binding table is the foundation of Dynamic ARP Inspection.
+
+**With DHCP snooping:**
+- **Trusted ports only** toward corporate DHCP servers.
+- **Rate-limiting** on access ports.
+- **Binding table** enables DAI.
+
+**The trio: DHCP snooping + Dynamic ARP Inspection + IP Source Guard.** Every access port in an enterprise LAN should have all three enabled.
+
+### F. DHCP is not the only source of config
+
+| Source | What it configures |
+|---|---|
+| **DHCP** | IP, mask, gateway, DNS, NTP, domain |
+| **IPv6 RA** | IPv6 gateway, prefix, MTU, RDNSS |
+| **DNS** | Name resolution |
+| **Service discovery** (K8s, Consul) | Service endpoints |
+| **Configuration management** (Ansible, Chef) | OS-level settings |
+| **Application config** (appsettings.json, Consul KV) | App-level settings |
+
+**A Principal Engineer knows where each piece of configuration comes from**, and how changes propagate. **Conflating these is a common cause of "why doesn't my change take effect?" incidents.**
+
+### G. Lease time is a trade-off
+
+| Lease too short | Lease too long |
+|---|---|
+| Frequent renewals (network churn) | IPs held by offline devices |
+| Server load spikes | Pool exhaustion |
+| More DORA round-trips | Slower reclamation |
+
+**Rule of thumb:**
+- **User devices** — 8–24 hours.
+- **Guest devices** — 30 min – 2 hours.
+- **Servers** — 30 days (or reservation).
+- **VoIP phones** — 8 hours.
+- **IoT devices** — depends on churn.
+
+### H. The relay agent is a subtle but critical component
+
+**Without relay agents:** every subnet needs its own DHCP server — massive burden.
+**With relay agents:** one server serves many subnets. **But** relay agents are a **failure point**.
+
+**Best practices:**
+- **Monitor relay agents** — they're routers/switches; monitor their health.
+- **Test relay after network changes** — a new VLAN without a relay agent = no DHCP.
+- **Document the relay → server mappings.**
+
+### I. Anti-patterns
+
+| Anti-pattern | Problem |
+|---|---|
+| **Single DHCP server** | Single point of failure |
+| **No DHCP snooping** | Rogue server attacks; starvation |
+| **No DHCP+DNS integration** | DHCP-assigned devices have no names |
+| **Static config on servers** | Manual drift |
+| **Lease = 1 hour on server subnets** | Churn from renewals |
+| **Lease = 30 days on guest** | Pool exhaustion |
+| **Overlapping pools across scopes** | Two devices get same IP |
+| **Overlapping pools across servers** | Same IP assigned twice in HA |
+| **Relay agent missing on new VLAN** | No DHCP on that subnet |
+| **DHCP options copied from another subnet** | Wrong gateway, wrong DNS |
+| **No lease database backup** | Server restart loses state |
+| **Using DHCP for routers** | Chicken-and-egg |
+| **Using DHCP for the DHCP server** | Obviously |
+| **DHCP without monitoring** | Silent failures until users complain |
+| **DHCP snooping disabled on VoIP** | Phone takes 30s to retry |
+| **Configuring static IP inside Azure VM OS** | Conflicts with Azure NIC assignment |
+| **Assuming DHCP delivers K8s pod IPs** | CNI manages pods, not DHCP |
+
+### J. Trade-offs
+
+| Choose | Get | Pay |
+|---|---|---|
+| **DHCP dynamic** | Automation, scalability | Server dependency |
+| **DHCP reservation** | Stable IPs, central management | Server must be reachable at boot |
+| **Static config** | No dependency | Manual drift |
+| **Long lease** | Fewer renewals | Slow reclamation |
+| **Short lease** | Fast reclamation | More churn |
+| **Single DHCP server** | Simple | Single point of failure |
+| **HA DHCP** | Reliability | Complexity |
+| **DHCP snooping** | Security | Config complexity |
+| **No DHCP snooping** | Simple | Rogue server attacks |
+
+### K. Production troubleshooting order
+
+When a newly deployed VM or machine cannot reach an API, investigate systematically:
+
+1. Does the network interface have an IP?
+2. Was the IP obtained through DHCP or the cloud platform?
+3. Is the subnet mask correct?
+4. Is the default gateway correct?
+5. Is DNS configured?
+6. Can the destination be resolved?
+7. Is there a route to the destination?
+8. Does the firewall or NSG allow the traffic?
+9. Can the TCP connection be established?
+10. Does TLS and the application request succeed?
+
+**Principal Engineer takeaway:** DHCP is foundational network infrastructure. **A problem at this layer can look like an application outage even when your .NET application, database, and Kafka services are completely healthy.**
+
+### L. Decision checklist
+
+1. What's the DHCP architecture — single server, HA, or cloud-managed?
+2. Are DHCP servers backed up and monitored?
+3. Is DHCP + DNS integration enabled?
+4. Are reservations used for stable-IP devices?
+5. Is DHCP snooping enabled on all access ports?
+6. Are relay agents configured for every subnet?
+7. Are lease times appropriate per zone?
+8. Are DHCP options correct per subnet?
+9. Is the lease database backed up?
+10. Is failover tested?
+11. Are there monitoring alerts on pool utilization?
+12. Is the DHCP design documented?
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is DHCP?**  
+**Dynamic Host Configuration Protocol** — a UDP-based protocol (DHCPv4: 67/68; DHCPv6: 547/546) that **automatically provides network configuration** (IP address, subnet mask, gateway, DNS servers, NTP, domain, etc.) to devices joining a network. It uses **leases** so addresses are reclaimed automatically. **DHCP is what makes "plug in and it works" possible.**
+
+**Q2. What is DORA?**  
+The four-message DHCP handshake:
+- **D**iscover — client broadcasts "is there a DHCP server?"
+- **O**ffer — server offers an IP.
+- **R**equest — client broadcasts acceptance of one offer.
+- **A**cknowledge (ACK) — server confirms the lease.
+
+**DORA establishes the lease.** After DORA, the client has an IP for the lease duration.
+
+**Q3. Which ports does DHCP use?**  
+DHCPv4: **UDP 67 (server), UDP 68 (client)**. DHCPv6: **UDP 547 (server), UDP 546 (client)**.
+
+**Q4. Why does DHCP use broadcast initially?**  
+The client doesn't yet know its own IP, the DHCP server's IP, or its subnet. **It can only broadcast** to reach any DHCP server on the local L2 segment. DHCP Discover is broadcast to `255.255.255.255`.
+
+**Q5. What is a DHCP lease?**  
+A **time-bounded grant** of an IP address. The client has the IP until the lease expires. Before expiry, it **renews** at T1 (50%) or **rebinds** at T2 (87.5%). If both fail, the lease expires and the client must get a new IP (or use APIPA).
+
+**The lease is what makes DHCP dynamic** — IPs return to the pool without admin intervention.
+
+### Intermediate
+
+**Q6. What is a DHCP relay agent, and why is it needed?**  
+A **relay agent** forwards DHCP messages between a **client on one subnet** and a **DHCP server on another subnet**.
+
+**Why needed:** DHCP Discover is **broadcast**, and broadcasts don't cross routers. Without relay, every subnet would need its own DHCP server.
+
+**How it works:** the relay (router or L3 switch) receives the broadcast, **fills the `giaddr` field** with its own interface IP (identifying the client's subnet), and **unicasts** to the DHCP server. The server allocates from the correct pool; the reply goes back through the relay.
+
+**Q7. What's the difference between lease renewal and rebinding?**  
+- **Renewal (T1, 50% of lease):** client **unicasts** to its original DHCP server.
+- **Rebinding (T2, 87.5%):** if renewal failed, client **broadcasts** asking **any** DHCP server to extend.
+
+**Why two phases:** renewal assumes the original server is up. Rebinding handles the case where the original is down but a backup can serve.
+
+**Q8. What are DHCP options?**  
+**Configurable parameters** the server delivers alongside the IP. Each option has a code:
+- **Option 1** — subnet mask
+- **Option 3** — default gateway
+- **Option 6** — DNS servers
+- **Option 15** — domain name
+- **Option 42** — NTP servers
+- **Option 51** — lease time
+- **Option 53** — message type
+- **Option 54** — server identifier
+- **Option 58/59** — T1/T2
+- **Option 66** — TFTP server
+- **Option 82** — relay agent info
+
+**Options make DHCP extensible** — one protocol delivers all config.
+
+**Q9. What is DHCP snooping?**  
+A **Layer-2 switch feature** that prevents rogue DHCP servers and DHCP starvation.
+
+**How it works:**
+- **Trusted ports** — only these can send DHCP server responses (Offer, ACK). Configured toward legitimate servers.
+- **Untrusted ports** — client-facing; DHCP server responses from these are **dropped**.
+- **Binding table** — tracks MAC/IP/port/VLAN; used by Dynamic ARP Inspection (DAI).
+- **Rate-limiting** — limits DHCP messages per port to prevent starvation.
+
+**Why it's mandatory:** without it, anyone can plug in a consumer router and become the DHCP server — intercepting all traffic.
+
+**Q10. What is APIPA?**  
+**Automatic Private IP Addressing** — when DHCP fails, IPv4 hosts can self-assign from `169.254.0.0/16`. **`169.254.x.x` in `ipconfig` is the universal "DHCP failed" signature.** The device can only talk to other APIPA hosts on the same L2 segment — no internet, no gateway.
+
+### Advanced
+
+**Q11. What is the `giaddr` field, and why is it important?**  
+**Gateway IP address** — a DHCP packet field that identifies **which subnet the client is on**.
+
+When a **relay agent** forwards a DHCP message from a client on one subnet to a server on another, it fills `giaddr` with its own interface IP on the client's subnet. The DHCP server uses `giaddr` to **select the correct pool** for that subnet.
+
+**Without `giaddr`, the server wouldn't know which subnet the client is on** — and couldn't allocate from the right pool.
+
+**Q12. Explain DHCPv6 vs SLAAC.**  
+- **SLAAC (Stateless Address Autoconfiguration)** — device **generates its own IPv6 address** from the network prefix (delivered via Router Advertisement) plus a host portion (EUI-64 or randomized). **No DHCP server required.**
+- **DHCPv6** — a server assigns IPv6 addresses and options. Used when management or additional options are needed.
+
+**THE CRITICAL GOTCHA:**
+
+> **In IPv6, the default gateway comes from Router Advertisement, NOT from DHCPv6.**
+
+A device that gets an IPv6 address via DHCPv6 but receives **no RAs** has an IP but **no route off-subnet**. **This is a common IPv6 misconfiguration.**
+
+**Q13. What is DHCP starvation, and how do you prevent it?**  
+**DHCP starvation** — an attacker sends **thousands of Discover messages with fake MACs**. The server's pool is exhausted. Legitimate clients can't get IPs.
+
+**Prevention:**
+- **DHCP snooping rate-limiting** — limit DHCP messages per port.
+- **Port security** — limit MACs per port.
+- **802.1X** — authenticate devices before they can DHCP.
+
+**Q14. What's a rogue DHCP server, and how do you detect/prevent it?**  
+**Rogue DHCP server** — an unauthorized DHCP server on the network (often a consumer router plugged into a LAN port). It hands out IPs with itself as gateway — intercepting all traffic.
+
+**Detection:**
+- **`ipconfig /all` on affected clients** — shows an unexpected DHCP server IP.
+- **DHCP snooping logs** — shows DHCP server responses from untrusted ports (blocked).
+- **Network scan** — look for DHCP services.
+
+**Prevention:**
+- **DHCP snooping** — the primary defense.
+- **BPDU Guard** on access ports.
+- **802.1X** — authenticate devices before joining.
+
+**Q15. How does Azure handle DHCP?**  
+**Azure does not use traditional DHCP.** The platform manages IP assignment. Key clarifications:
+
+1. **Azure-managed IP assignment.** A VM's static private IP is configured on the **Azure NIC** (control plane), not inside the guest OS. The **guest OS still uses DHCP** to receive that IP.
+2. **Do NOT configure a conflicting static IP inside the VM OS.** Always configure on the Azure NIC.
+3. **Azure public IPs are separate** — mapped via the Azure fabric, not delivered to the guest OS via DHCP.
+4. **DNS** is delivered via DHCP; domain suffix needs VNet-level config.
+
+### Scenario-based
+
+**Q16. A user's device has `169.254.23.45`. What's wrong?**  
+**DHCP failed.** The device self-assigned an APIPA address.
+
+**Diagnose:**
+1. `ipconfig /all` — is the DHCP Server field present? (No → no DHCP reached.)
+2. Ping the DHCP server — reachable?
+3. Check the switch port — VLAN correct? Port enabled?
+4. Check DHCP snooping — is the port trusted for DHCP server traffic?
+5. Check relay agent — if on a remote subnet, is the relay configured?
+6. Check the DHCP server — is it running? Pool exhausted?
+
+**Q17. Some users have no internet, others work fine. Affected users show gateway `192.168.1.99` instead of `192.168.1.1`. What happened?**  
+**Rogue DHCP server.** Someone plugged a device (likely a consumer router with DHCP enabled) into the LAN. It started handing out IPs with itself as gateway.
+
+**Users who got leases from the rogue server** can't reach the real network — all traffic goes through the rogue device, which either drops it or (worse) forwards it while intercepting.
+
+**Fix:**
+1. **Identify the rogue device** — DHCP snooping logs show its MAC; trace to a switch port.
+2. **Unplug it.**
+3. **Enable DHCP snooping** — prevent recurrence.
+4. **`ipconfig /release; ipconfig /renew` on affected clients.**
+
+**Q18. A new VLAN was added to the office, but devices on it can't get IPs. What's the likely cause?**  
+**Missing DHCP relay agent on the new VLAN's router interface.**
+
+**Why:** DHCP Discover is broadcast — doesn't cross routers. Without a relay agent on the new VLAN, the broadcast goes nowhere.
+
+**Fix:** add the relay configuration (Cisco: `ip helper-address <dhcp-server>` on the new VLAN's interface). Test with a client on the new VLAN.
+
+**Q19. Your Azure VM can't reach on-prem resources via VPN. What DHCP-related issue could be involved?**  
+**Azure doesn't use DHCP from on-prem.** Azure VMs get IPs from **Azure's managed DHCP**.
+
+**Possible issues:**
+1. **DNS** — Azure VMs may use Azure DNS, not on-prem DNS. Configure custom DNS on the VNet.
+2. **DHCP options** — Azure doesn't deliver domain name by default; configure on VNet/NIC.
+3. **Route** — Azure UDR may be missing or wrong (most common).
+4. **Asymmetric routing** — VPN return path may differ.
+
+**The DHCP-related insight:** **Azure VMs don't use on-prem DHCP.** If you need on-prem config in Azure, configure it via Azure VNet settings, not via DHCP relay from on-prem.
+
+**Q20. Why doesn't Kubernetes use DHCP for pod IPs?**  
+Because pods are **ephemeral** — they spawn and die in seconds. **DORA's 4-message exchange (~50–200ms) would add latency to every pod start**, and **managing a DHCP pool for high-churn pods is unnecessary complexity.**
+
+The **CNI plugin** assigns IPs from a pool it manages directly — much simpler for high-churn environments. **Node-level and cloud-level DHCP is still fundamental**, but pod networking has largely obsoleted DHCP for short-lived workloads.
+
+**Q21. Your VoIP phones take 30 seconds to boot. What could DHCP do to speed them up?**  
+Several DHCP-related VoIP optimizations:
+1. **Option 66 (TFTP server)** — phone fetches its config from TFTP.
+2. **VLAN option (Option 43/132)** — phone learns its voice VLAN from DHCP.
+3. **Short lease** — 8 hours typical.
+4. **DHCP snooping rate-limit** — must be tuned for phone boot.
+5. **DHCP server responsiveness** — slow server adds delay.
+
+**The 30-second delay is usually DHCP or TFTP — not the phone itself.**
+
+---
+
+## Final knowledge check — before Topic 11
+
+Answer these in your own words. Short answers fine.
+
+1. **In one sentence:** what problem does DHCP solve?
+2. **DORA:** name the four messages and what each does.
+3. **Why broadcast initially?** Why doesn't the client just ask the server directly?
+4. **Lease lifecycle:** what happens at 50% of lease (T1), at 87.5% (T2), and at 100%?
+5. **APIPA:** what is `169.254.x.x`, and what does it mean?
+6. **Relay agent:** why is a relay needed, and what does `giaddr` do?
+7. **DHCP snooping:** what attack does it prevent, and how?
+8. **Reservations vs static:** why is a DHCP reservation usually better than static config for servers?
+9. **DHCP + DNS:** why is DNS integration important?
+10. **DHCPv6:** what does DHCPv6 NOT deliver that IPv4 DHCP does?
+11. **Azure:** what's the correct way to configure a static IP on an Azure VM, and why not configure it inside the OS?
+12. **Kubernetes:** why doesn't Kubernetes use DHCP for pods?
+13. **Troubleshooting:** a user has `169.254.x.x`. Name three possible causes.
+14. **Rogue server:** how would you detect a rogue DHCP server on your network?
+15. **Judgment call:** your team proposes "we'll manage IP addresses with a spreadsheet, no DHCP." What are your concerns?
+
+Once you confirm (or say *"skip, continue"*), I'll teach **Topic 11 — ICMP, MTU, and PMTUD** using the same structure. This topic covers the diagnostic protocol (`ping`, `traceroute` are ICMP-based), the packet size problem that silently breaks large requests, and how Path MTU Discovery makes the internet work — a topic that directly explains the "2 MB POST fails but 2 KB succeeds" production incident I mentioned in Topic 1.
