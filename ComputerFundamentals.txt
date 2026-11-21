@@ -1,0 +1,250 @@
+# Master Learning Prompt — Deep Conceptual & Practical Understanding
+
+I want to learn **[TOPIC]** from fundamentals to advanced, production-level understanding.
+
+Teach me using a WHY → BEFORE → PROBLEM → WHAT → FEATURES → COMPARISON → TRADE-OFFS → WHEN → HOW → INTERNALS approach.
+
+My objective is not just to memorize definitions or syntax. I want to understand why this concept exists, why it was needed, how it evolved, how it works, and how to make the right engineering decisions.
+
+Follow this exact teaching structure:
+
+## 1. WHY — Why was it required?
+- Why was this concept introduced?
+- What industry or engineering problem existed?
+- What triggered its introduction?
+- What were developers struggling with?
+- What requirement could not be addressed effectively?
+
+## 2. BEFORE — What existed previously?
+- What technology, approach or architecture was used before?
+- How did developers solve the same problem?
+- Explain the old architecture and workflow.
+- Show a practical example of the previous implementation.
+- What were its strengths?
+
+## 3. PROBLEM — Why was the previous approach insufficient?
+- What limitations did it have?
+- What problems appeared as systems grew?
+- Explain performance, scalability, reliability, security, maintenance and complexity issues.
+- Give real-world examples of these problems.
+
+## 4. WHAT — What is the new concept?
+- Give a simple definition.
+- Explain its purpose and fundamental principles.
+- Explain its architecture and major components.
+- Explain how it solves the original problem.
+- Start with a simple analogy, then move to technical depth.
+
+## 5. FEATURES — What does it provide?
+- Explain every important feature.
+- Why was each feature introduced?
+- What problem does each feature solve?
+- Explain how each feature works.
+- Give practical examples.
+
+## 6. COMPARISON — Previous vs Current approach
+Create a detailed comparison covering:
+- Architecture
+- Working mechanism
+- Performance
+- Scalability
+- Reliability
+- Security
+- Complexity
+- Maintenance
+- Cost
+- Failure handling
+
+Explain not only WHAT changed, but WHY it changed.
+
+## 7. ADVANTAGES AND DISADVANTAGES
+- Advantages over the previous approach.
+- Disadvantages and limitations.
+- New complexities introduced.
+- Hidden costs and trade-offs.
+- Situations where the old approach is still better.
+
+## 8. WHEN — When should I use it?
+- When should I use this concept?
+- When should I avoid it?
+- What alternatives are available?
+- When should I choose one alternative over another?
+- Give scenario-based decision-making examples.
+- Explain how a Principal Engineer would make this decision.
+
+## 9. HOW — Practical implementation
+Explain implementation in two stages:
+
+A. Previous implementation:
+- How was the same requirement implemented before?
+- Show architecture, workflow and code.
+
+B. Modern implementation:
+- Show the current implementation.
+- Explain project structure.
+- Explain important classes, interfaces, configurations and dependencies.
+- Provide working code examples.
+- Explain each important line.
+- Show the execution flow step by step.
+
+Use modern, relevant technology versions and distinguish established practices from version-specific features.
+
+## 10. INTERNAL WORKING
+- What happens internally?
+- Explain the complete lifecycle.
+- Explain components and their interactions.
+- Explain execution flow step by step.
+- Explain communication between components.
+- Identify important background mechanisms.
+
+## 11. FAILURE SCENARIOS
+- What can go wrong?
+- What happens during timeouts, failures, crashes and network interruptions?
+- How does the system recover?
+- What happens if a component becomes unavailable?
+- Explain troubleshooting and production monitoring.
+
+## 12. REAL-WORLD ARCHITECTURE
+- Demonstrate how this concept is used in a real enterprise application.
+- Use banking, payment processing, trading or distributed-system examples where relevant.
+- Explain the architecture and end-to-end data flow.
+- Explain security, performance, consistency and reliability considerations.
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+Explain:
+- Design decisions.
+- Architectural trade-offs.
+- Scalability considerations.
+- Production best practices.
+- Anti-patterns.
+- Common mistakes.
+- What an experienced engineer should know before adopting it.
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION
+Provide:
+- Basic conceptual questions.
+- Intermediate technical questions.
+- Advanced architecture questions.
+- Scenario-based questions.
+- Real production troubleshooting questions.
+- Answers with explanations, not just one-line definitions.
+
+## TEACHING RULES
+1. Never jump directly into implementation without explaining WHY.
+2. Never assume I understand the underlying fundamentals.
+3. Always explain the previous approach before introducing the new approach.
+4. Whenever you introduce a technical term, explain it.
+5. Use practical examples, architecture diagrams and execution flows.
+6. Compare alternatives instead of explaining technologies in isolation.
+7. Explain trade-offs honestly; never claim the latest technology is always better.
+8. Distinguish conceptual knowledge from framework-specific implementation.
+9. Do not skip important topics or hide complexity.
+10. Teach progressively from fundamentals to advanced engineering depth.
+11. Do not unnecessarily repeat explanations.
+12. Do not move to the next major section until I understand the current one. Ask me short knowledge-check questions at appropriate points.
+
+**Final objective:** I should be able to explain WHY this concept exists, HOW it evolved, HOW it works internally, WHEN to use it, WHEN not to use it, HOW to implement it, and HOW to make production-level architectural decisions independently.
+
+-------------------------------------------------------------------
+
+
+Computer Fundamentals
+
+Phase 1 — Computer Networking Fundamentals
+Depth: Strong basics · Outcome: Understand how network communication works
+
+#	Topic	What you should understand	Key details
+1	Network basics	How computers connect and communicate	LAN, WAN, MAN, PAN; internet vs intranet; clients, servers, peers; router, switch, hub, modem, access point; wired vs wireless; bandwidth, latency, throughput; packets
+2	OSI and TCP/IP models	How networking layers fit together	OSI 7 layers; TCP/IP 4 layers; encapsulation; PDU names; mapping HTTP → TCP → IP → Ethernet; where switches, routers, firewalls operate
+3	Client-server architecture	How most applications are structured	Client, server, request/response; stateless vs stateful; thin vs thick client; P2P vs client-server; examples: web, email, DNS, databases
+4	IP addresses	How devices are identified	IPv4 vs IPv6; public vs private; static vs dynamic; loopback; default gateway; CIDR notation
+5	Subnetting and NAT	How networks divide and reach the internet	Subnet, network ID, host ID, broadcast; CIDR; why subnetting exists; NAT/PAT; private IP ranges; port forwarding
+6	DNS	How names resolve to IPs	DNS hierarchy; root, TLD, authoritative servers; recursive vs iterative; A, AAAA, CNAME, MX, TXT, NS; caching; TTL; DoH/DoT
+7	Ports and sockets	How a computer identifies applications	Port ranges; common ports (80, 443, 22, 53, 25/587, 3306); socket = IP + port is the introduction only — a TCP connection is identified by the 5-tuple: source IP, source port, destination IP, destination port, protocol; TCP socket lifecycle: listen, accept, established, TIME_WAIT
+8	TCP vs UDP	How data is transported	TCP: connection-oriented, reliable, ordered, retransmission, handshake; UDP: connectionless, fast, no guarantee; use cases; QUIC: HTTP/3 runs over QUIC on UDP. QUIC implements retransmission and congestion control itself — UDP does not provide those guarantees
+9	Routing and switching	How packets move across networks	Switch vs router; MAC vs IP; ARP; routing table; default route; static vs dynamic routing; VLAN basics
+10	DHCP	How devices get IP configuration automatically	DORA; lease; IP, subnet mask, gateway, DNS server; static vs dynamic
+11	ICMP, MTU, PMTUD	Diagnostic and packet-size fundamentals	ICMP for diagnostics; MTU and path MTU discovery; why large POSTs fail behind VPNs
+
+***********************************************
+Phase 2 — Security and Network Infrastructure
+Depth: Strong practical understanding · Outcome: Understand enterprise connectivity and security
+
+#	Topic	What you should understand	Key details
+12	TLS and certificates	How communication is encrypted	TLS handshake; certificates; CA; public/private keys; symmetric vs asymmetric; note: SSL is deprecated — say TLS
+13	mTLS	Mutual authentication between services	Client and server both present certificates; service-to-service identity; certificate rotation; use in microservices and Azure
+14	Firewall	How traffic is filtered	Packet filtering; stateful vs stateless; rule ordering; network vs host firewalls
+15	Forward and reverse proxy	Intermediaries between clients and servers	Forward vs reverse; TLS termination; caching proxies; reverse proxy as gateway precursor
+16	Load balancers (mechanics)	How traffic is distributed	L4 vs L7; algorithms (round-robin, least-connections, IP hash); health checks; TLS termination; connection draining
+17	VPN	How remote/private access works	Tunnel; encryption; site-to-site vs remote access; split tunneling
+18	WAF	How web attacks are filtered	OWASP rule sets; WAF vs firewall; bot mitigation
+19	OAuth2 / OIDC	How token-based authorization works	Roles (resource owner, client, auth server); authorization code + PKCE; access vs ID vs refresh tokens; bearer tokens; JWT structure and validation; how API gateways validate tokens; token lifetime and rotation
+20	DNS in production	How DNS behaves at scale	TTL strategy and tradeoffs; failover DNS; GeoDNS / latency-based routing; split-horizon DNS; blue-green and canary cutovers via DNS; DNS caching pitfalls
+
+***********************************************
+Phase 3 — HTTP and Application-Layer Communication
+Depth: Deep · Outcome: Understand .NET API communication end to end
+
+#	Topic	What you should understand	Key details
+21	HTTP request-response	The core web protocol	Wire format; start line, headers, body; statelessness; request/response lifecycle
+22	HTTP methods, headers, status codes, CORS	How HTTP expresses intent	GET/POST/PUT/PATCH/DELETE; idempotency and safety of methods; key headers; 1xx–5xx; CORS: same-origin policy, preflight OPTIONS, Access-Control- headers, credentials, ASP.NET Core CORS configuration*
+23	HTTP caching	How responses are reused	Cache-Control (max-age, no-store, no-cache, private/public, s-maxage, stale-while-revalidate); ETag and If-None-Match (304); Last-Modified / If-Modified-Since; Vary; client vs proxy vs CDN caching; cache invalidation strategies
+24	HTTP/1.1, HTTP/2, HTTP/3	How the protocol evolved	1.1 keep-alive and head-of-line blocking; 2 multiplexing over TCP, HPACK; 3 over QUIC/UDP — reliability comes from QUIC, not UDP; when each version matters in .NET
+25	Cookies, sessions, statelessness	How state is carried across requests	Set-Cookie; attributes (Secure, HttpOnly, SameSite, Domain, Path); session IDs; server-side session stores; why statelessness matters for horizontal scaling
+26	Serialization: JSON and Protobuf	How objects become messages	JSON tradeoffs (human-readable, verbose); Protobuf schema, field numbers, wire format, binary encoding, schema evolution; when to choose each; System.Text.Json vs protobuf-net
+27	Compression	How payload size is reduced	gzip, brotli, deflate; Accept-Encoding / Content-Encoding; ASP.NET Core response compression middleware; when compression hurts (small payloads, already-compressed data, CPU cost, BREACH considerations)
+28	Synchronous vs asynchronous communication	Whether the caller waits	async/await does not mean "one thread handles everything." It allows asynchronous operations — especially I/O — without blocking a thread while waiting. This is distinct from asynchronous messaging between services (temporal decoupling via queues/events). Blocking vs non-blocking; sync coupling vs async decoupling
+29	Polling, long polling, and the push spectrum	How clients learn about updates	Short polling; long polling and its costs; where SSE and WebSockets fit; choosing based on update frequency and latency needs
+30	Persistent connections and keep-alive	How connections are reused	HTTP keep-alive; connection reuse; HttpClient pooling and socket exhaustion; SocketsHttpHandler settings
+
+
+***********************************************
+Phase 4 — Communication Patterns and Resilience
+Depth: Deep · Outcome: Make architectural decisions and design for failure
+
+#	Topic	What you should understand	Key details
+31	Simplex, half-duplex, full-duplex	Channel directionality (awareness)	One-way; alternating two-way; simultaneous two-way; where each appears in software
+32	Request-response as an architectural pattern	Interaction topology, not HTTP mechanics	Sync coupling; fan-out; aggregation; when request-response becomes a scaling or availability problem; contrast with messaging
+33	Push vs pull	Who initiates updates	Pull (client asks); push (server sends); tradeoffs; hybrid models; cost of each at scale
+34	Streaming	Continuous data transfer	Chunked transfer encoding; server streaming; client streaming; bidirectional streaming; backpressure interaction; use cases (large files, telemetry, LLM token streams)
+35	Connection lifecycle	How connections open, live, and close	Open → established → idle → half-open → closing; TIME_WAIT and its scaling impact; connection reuse; graceful close vs abort; detecting dead peers
+36	Heartbeats, timeouts, and reconnection	Keeping long-lived connections healthy	Ping/pong; idle timeouts; connect vs read vs request timeouts; reconnect with exponential backoff and jitter; thundering-herd avoidance
+37	Resilience patterns	Designing for partial failure	Retry with backoff and jitter; circuit breaker; timeout; bulkhead; fallback; Polly in .NET (policy wrapping, policy registry, HttpClientFactory integration); hedging; idempotent retries
+38	Idempotency keys	Making retries safe	Why retries need idempotency; key design and storage; deduplication windows; interplay with at-least-once delivery; idempotent HTTP methods vs idempotency keys for POST
+
+***********************************************
+Phase 5 — Communication Technologies and Messaging
+Depth: Deep for .NET/Azure; awareness for alternatives (you can reason about the tradeoff) · Outcome: Choose the right technology and justify it
+
+#	Topic	What you should understand	Key details
+39	REST APIs	How applications expose functionality	Resource modeling; versioning strategies; pagination; filtering; error contracts (ProblemDetails); HATEOAS awareness; OpenAPI
+40	WebSockets	Bidirectional transport primitive	Upgrade handshake; framing; ping/pong; no built-in semantics; scaling challenges (stateful connections); load balancer support
+41	Server-Sent Events (SSE)	Server → client push over HTTP	Event stream format; auto-reconnect and Last-Event-ID; one-way only; when SSE beats WebSockets; proxy/buffering pitfalls
+42	ASP.NET Core SignalR	Real-time framework for .NET	Hubs; groups; users; mechanism vs framework: SignalR can use WebSockets, SSE, or Long Polling depending on available transport — WebSockets and SSE are mechanisms, SignalR is the abstraction; connection management; scale-out requirements
+43	gRPC	Efficient service-to-service RPC	HTTP/2 multiplexing; Protobuf contracts; streaming types (unary, server, client, bidirectional); status codes; deadlines and cancellation propagation; HTTP/2 connection behaviour; streaming failure handling; interceptors; when gRPC beats REST
+44	GraphQL (overview)	Client-specified queries	Schema and types; resolvers; queries vs mutations vs subscriptions; N+1 problem and DataLoader; tradeoffs vs REST and gRPC; HotChocolate in .NET
+45	Azure Service Bus	Enterprise messaging on Azure	Queues vs topics/subscriptions; sessions; peek-lock; DLQ; duplicate detection; scheduled messages; ordering guarantees; transactions
+46	RabbitMQ	Broker-based messaging	Exchanges (direct, topic, fanout, headers); queues; bindings; publisher confirms; consumer acks/nacks; prefetch; DLQ
+47	Kafka	Distributed log / streaming	Topics; partitions; consumer groups; offsets; ordering within partition; retention and replay; compaction; when Kafka fits vs a queue
+48	Azure Event Hubs and Event Grid	Azure streaming and event routing	Event Hubs: high-throughput streaming, partitions, consumer groups, checkpointing; Event Grid: event routing, subscriptions, filtering, delivery retries; choosing between Service Bus, Event Hubs, Event Grid
+49	Message queue semantics	Why messaging is hard	At-least-once vs at-most-once vs exactly-once; duplicate delivery and redelivery; consumer acknowledgement; visibility timeout; ordering; DLQ and poison messages; retry policies; transactional Outbox (publish side) and Inbox / idempotent consumer (receive side); exactly-once delivery is not assumed — achieve effectively-once business outcomes through Outbox + Inbox + idempotency + acknowledgements together
+50	MQTT (overview)	Lightweight IoT messaging	Pub/sub; QoS 0/1/2; retained messages; last will; topics and wildcards; when MQTT is the right choice
+
+
+***********************************************
+Phase 6 — Production Networking and Reliability
+Depth: Deep on anything you would be paged for · Outcome: Design, operate, and troubleshoot distributed systems
+
+#	Topic	What you should understand	Key details
+51	Connection pooling	Reusing expensive connections	DB connection pools; HttpClient pooling and socket exhaustion; pool sizing; pool exhaustion symptoms and diagnosis; lifetime and validation
+52	Load balancing and scaling	Operating at scale	L4 vs L7 in production; health checks and readiness; autoscaling; connection draining; graceful shutdown; zone/region redundancy; blue-green and canary
+53	Sticky sessions	Session affinity and its costs	Cookie vs IP-based affinity; why it exists; why it is a scaling and resilience smell; alternatives (externalized state, distributed cache)
+54	Redis backplane	Scaling SignalR horizontally	Why a backplane is needed; Redis pub/sub backplane; message flow between instances; failure modes; Redis Cluster considerations
+55	Azure SignalR Service	Managed real-time at scale	Managed alternative to self-hosted SignalR + Redis; connection model; scaling units; tradeoffs vs self-hosted
+56	API Gateway	The edge of the system	Azure API Management, YARP, Ocelot; routing; auth offload; versioning; request/response transformation; rate limiting at the edge; observability
+57	Rate limiting and throttling	Protecting services and SLOs	Fixed window, sliding window, token bucket, concurrency limiter; ASP.NET Core Rate Limiting middleware; gateway-level limits; per-tenant quotas; 429 and Retry-After; fairness
+58	Backpressure and flow control	Handling load you cannot absorb	Why backpressure exists; bounded queues; load shedding; reactive streams awareness; Channel<T> bounded modes in .NET; graceful degradation
+59	Service mesh (overview)	Infrastructure-level networking	Istio, Linkerd, Azure Container Apps built-in; sidecar model; mTLS, retries, timeouts, traffic splitting, observability at the mesh layer; when a mesh is justified
+60	Network troubleshooting	Diagnosing real failures	ping, traceroute, nslookup/dig, ipconfig/ifconfig, netstat/ss, curl; DNS failure vs routing failure vs port blocked vs TLS failure; dotnet-trace, dotnet-counters, HttpClient diagnostics, Application Insights transaction search
+61	Monitoring, latency, and reliability	Measuring and defending reliability	Three pillars: metrics, logs, traces; latency percentiles (p50/p95/p99) and averages lying; SLOs, SLIs, error budgets; alerting on symptoms not causes; dashboards that matter
+62	Distributed tracing	Following a request across services	OpenTelemetry; Application Insights; correlation IDs; W3C trace context (traceparent/tracestate); span design; sampling; tying traces to logs and metrics
