@@ -1,0 +1,109 @@
+Track C — Design Principles and Patterns
+30 topics · 8 parts · Frozen
+
+Out of scope: Architecture styles and DDD in depth, messaging-product internals, language syntax tutorials, and UI architecture beyond the patterns named.
+
+This track covers pattern intent, structure, implementation choices, consequences and trade-offs—not the full depth of every technology that implements them.
+
+Depth: Master = hands-on; Reason = explain trade-offs; Aware = know it exists.
+Part 1: Design foundations and principles
+#	Topic	Key details	Depth
+C1	Design quality fundamentals	Coupling, cohesion, abstraction, encapsulation, patterns vs idioms vs architecture, why patterns exist, over-engineering, wrong abstractions, changeability and maintainability	Reason
+C2	C# features that shape design	Interfaces vs abstract classes, delegates and lambdas, generics, records and immutability, extension methods, pattern matching, default interface methods, functional style and when language features replace a pattern	Master
+C3	SOLID	SRP, OCP, LSP, ISP, DIP with violations and refactors in C#, DI vs DIP vs IoC, when SOLID is over-applied, cohesion and change impact	Master
+C4	Other principles and heuristics	DRY, KISS, YAGNI, Law of Demeter, separation of concerns, composition over inheritance, GRASP, command-query separation, package principles	Reason
+C5	Dependency injection in depth	Constructor injection, lifetimes, captive dependencies, composition root, service locator anti-pattern, keyed services, decorators, options pattern, circular dependencies, scope validation and disposal	Master
+
+Part 2: GoF creational patterns
+#	Topic	Key details	Depth
+C6	Factory patterns	Simple factory, factory method, abstract factory, factories vs DI, IHttpClientFactory as an example, choosing implementations based on configuration or runtime context	Master
+C7	Builder, Prototype, Singleton and Object Pool	Fluent builders, test-data builders, cloning, singleton and why DI lifetimes often replace it, thread-safe lazy initialization, ObjectPool<T>, object-pooling trade-offs	Master
+
+C7 classification note: Object Pool is a useful object-creation/performance pattern, but it is not one of the canonical 23 Gang of Four patterns. Simple Factory is also commonly treated as an idiom rather than a canonical GoF pattern.
+Part 3: GoF structural patterns
+#	Topic	Key details	Depth
+C8	Adapter, Facade and Proxy	Wrapping vendor SDKs, simplifying subsystems, virtual/protection/remote proxies, DispatchProxy, adapting legacy interfaces	Master
+C9	Decorator and Composite	Cross-cutting behavior by wrapping (caching, logging, retry), DelegatingHandler, tree structures, uniform treatment of parts and wholes, decorator ordering	Master
+C10	Bridge and Flyweight	Separating abstraction from implementation, sharing intrinsic state to save memory, extrinsic state, string interning, when complexity is justified	Aware
+
+Part 4: GoF behavioral patterns
+#	Topic	Key details	Depth
+C11	Strategy, State and Template Method	Pluggable algorithms (pricing, fee rules), state machines for order and payment workflows, Strategy vs State, delegates as strategies, inheritance vs composition	Master
+C12	Observer, Mediator and Chain of Responsibility	Events and IObservable<T>, mediator libraries and licensing, ASP.NET Core middleware pipeline, validation chains, synchronous vs asynchronous notification	Master
+C13	Command, Memento and Iterator	Commands as objects (queue, undo, audit), snapshots, IEnumerable<T> and yield, command execution and handler separation	Master
+C14	Visitor, Interpreter and Null Object	Operations over object structures, expression trees, rule interpreters, special-case objects that remove null checks, visitor trade-offs when types change	Reason
+
+Part 5: Enterprise application patterns
+#	Topic	Key details	Depth
+C15	Data access patterns	Repository and generic repository debate, Unit of Work, Specification, Query Object, Data Mapper vs Active Record, Identity Map, Lazy Load, how EF Core already implements several patterns	Master
+C16	Domain logic organization	Transaction Script, Table Module, Domain Model, Service Layer, entities and value objects, Money, Special Case, anemic domain model debate, layering and responsibility boundaries	Reason
+C17	Application structure and distribution patterns	DTO and mapping, Gateway, Remote Facade, Front Controller, MVC, MVP and MVVM, Layer Supertype, Separated Interface, Registry, Plugin, offline locks	Reason
+C18	Error handling, Result and functional patterns	Exceptions vs Result types, Option/Maybe, railway-oriented style, guard clauses, immutability, pure functions, discriminated-union modeling using current C# language capabilities and alternatives	Reason
+
+C15 important distinction: EF Core's DbContext acts as a Unit of Work, while its change tracker and DbSet provide repository-like capabilities. A generic repository layered over EF Core can hide useful query and persistence features, so learn when it adds genuine value and when it becomes unnecessary abstraction.
+Part 6: Cloud design patterns
+#	Topic	Key details	Depth
+C19	Resilience and reliability patterns	Retry, Circuit Breaker, Bulkhead, Timeout, Health Endpoint Monitoring, Leader Election, Throttling, Rate Limiting; retry composition, idempotency, avoiding retry storms and retry amplification	Master
+C20	Messaging and data-flow patterns	Competing Consumers, Priority Queue, Claim Check, Pipes and Filters, Publisher/Subscriber, Queue-Based Load Leveling, Asynchronous Request-Reply, Sequential Convoy, Messaging Bridge	Reason
+C21	Gateway, edge and migration patterns	Gateway Routing, Aggregation and Offloading, Backends for Frontends, Sidecar, Ambassador, Anti-Corruption Layer, Strangler Fig, Gatekeeper, Valet Key, Federated Identity, External Configuration Store	Reason
+C22	Data, performance and scale patterns	Cache-Aside, Materialized View, Index Table, Sharding, CQRS, Event Sourcing, Static Content Hosting, Geode, Deployment Stamps, Compute Resource Consolidation	Reason
+C23	Distributed workflow and consistency patterns	Saga (choreography vs orchestration), Compensating Transaction, Process Manager, Routing Slip, Scheduler-Agent-Supervisor, Transactional Outbox, Idempotent Receiver	Reason
+
+C19 distinction: Understand the individual purpose of each control. A timeout bounds waiting; retry attempts recovery; a circuit breaker prevents repeated calls to an unhealthy dependency; bulkheads isolate resource pools; rate limiting controls demand. They are complementary, not interchangeable.
+
+C23 distinction: Saga compensation is a new business action that counteracts an earlier action. It is not a database rollback across services.
+Part 7: Integration patterns
+#	Topic	Key details	Depth
+C24	Messaging systems fundamentals	Message Channel, Message, Endpoint, point-to-point vs publish-subscribe, command vs event vs document messages, correlation ID, return address, expiration, sequence, message envelope	Reason
+C25	Routing and transformation patterns	Content-Based Router, Message Filter, Splitter, Aggregator, Resequencer, Scatter-Gather, Recipient List, Content Enricher, Envelope Wrapper, Normalizer, Canonical Data Model	Reason
+C26	Endpoint, reliability and management patterns	Idempotent Receiver, Polling vs Event-Driven Consumer, Guaranteed Delivery, Dead Letter Channel, Invalid Message Channel, Wire Tap, Control Bus, Message Store, Messaging Gateway, Service Activator	Reason
+C27	Integration styles and legacy integration	File transfer, shared database, RPC, messaging, webhooks, batch, hub-and-spoke vs choreography, event-carried state transfer, wrapping legacy and SaaS systems	Reason
+
+Part 8: Applying patterns well
+#	Topic	Key details	Depth
+C28	Concurrency and asynchronous patterns	Producer-Consumer with Channel<T>, pipeline, thread pool, read-write lock, Future/Promise (Task), Active Object, actor model and Reactive Extensions awareness, async composition patterns	Reason
+C29	Pattern selection, comparison and refactoring	Problem-solution-consequence thinking, Strategy vs State, Decorator vs Proxy vs Adapter, Factory vs DI, Mediator vs Observer, refactoring to patterns, patterns already inside .NET (middleware, DI, Options, DelegatingHandler, EF Core)	Master
+C30	Anti-patterns and design smells	God object, anemic model, singleton abuse, service locator, golden hammer, big ball of mud, primitive obsession, shotgun surgery, feature envy, leaky abstractions, premature abstraction, pattern overuse	Reason
+
+Coverage check
+Original scope	Covered by
+SOLID	C3, supported by C1, C4 and C5
+GoF creational	C6, C7
+GoF structural	C8, C9, C10
+GoF behavioral	C11–C14
+Enterprise patterns (Repository, Unit of Work)	C15–C17
+Cloud design patterns	C19–C23
+Integration patterns	C24–C27
+
+Banking scenarios
+Scenario	Topics
+A class takes twelve constructor dependencies	C3, C5, C30
+Add a payment method without touching existing code	C3, C6, C11
+Add logging, auth and caching around services	C9, C12
+Swap a vendor SDK	C8
+Order or payment workflow with many states	C11
+Singleton holds a scoped dependency	C5, C7
+Generic repository over EF Core becomes a mess	C15, C30
+Retry storm hits a struggling downstream	C19
+Large payloads clog the message bus	C20
+Replace a legacy system gradually	C21
+Multi-step payment needs compensation	C23
+Same message processed twice	C26
+Partners send messages in different formats	C25, C27
+Producer is faster than consumer	C20, C28
+
+Study order
+Group	Topics
+1. Foundation	C1, C2, C3, C5, C4
+2. Creational	C6, C7
+3. Structural	C8, C9, C10
+4. Behavioral	C11, C12, C13, C14
+5. Enterprise	C15, C16, C17, C18
+6. Concurrency	C28
+7. Cloud patterns	C19, C20, C21, C22, C23
+8. Integration	C24, C25, C26, C27
+9. Applying	C29, C30
+
+Learning rule: For Master topics, build two implementations of the same requirement where useful: one straightforward implementation and one using the pattern. Compare complexity, testability, extensibility and runtime behavior. Deliberately overuse a pattern, then refactor it away. For Reason topics, explain the problem, consequences and alternatives.
+
+Frozen scope: 30 topics, 8 parts. No C31. Do not add architecture styles or DDD as new topics here.
