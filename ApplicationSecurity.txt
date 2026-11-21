@@ -1,0 +1,99 @@
+Track I — Application Security
+29 topics · 7 parts · Frozen
+
+Out of scope: Network security configuration (firewalls, VPN, DDoS, TLS setup), security testing techniques, CI/CD pipeline hardening, SOC operations, physical and endpoint security, mobile and native app security, desktop app security, and network-layer DDoS/WAF rule authoring.
+
+This track focuses on application and workload security: designing, coding, integrating and operating secure applications.
+
+Depth: Master = hands-on; Reason = explain trade-offs; Aware = know it exists.
+Part 1: Foundations and threat thinking
+#	Topic	Key details	Depth
+I1	Security principles and mindset	CIA triad, least privilege, defense in depth, fail secure, secure by default, attack surface, trust boundaries, risk, assume breach, security vs privacy, security invariants	Reason
+I2	Threat modeling	STRIDE, data-flow diagrams, trust boundaries, attack trees, abuse cases, mitigations, LINDDUN and PASTA awareness, threat-modeling a banking feature, risk prioritization, keeping models current as systems change	Master
+I3	Security standards and secure SDLC	OWASP ASVS, OWASP SAMM awareness, NIST SSDF, CVSS, security requirements, security champions, secure SDLC stages, security reviews and risk acceptance	Reason
+I4	Cryptography in applications	Hashing vs encryption, password hashing (Argon2id, bcrypt, PBKDF2), HMAC, AES-GCM, asymmetric keys, digital signatures, key derivation, secure randomness, envelope encryption, key rotation, timing attacks and constant-time comparison, .NET cryptography APIs, never roll your own, post-quantum awareness	Master
+
+Part 2: OWASP and secure coding
+#	Topic	Key details	Depth
+I5	OWASP Top 10:2025	All ten 2025 categories; what each means, root causes, common .NET examples, mitigations and how the 2021 categories changed; distinguish the awareness list from a complete security standard	Reason
+I6	Injection and input handling	SQL injection and parameterization, EF Core FromSqlRaw and Dapper pitfalls, command, LDAP and NoSQL injection, validation vs sanitization, canonicalization, output encoding, log injection	Master
+I7	Browser and HTTP boundary security	Stored, reflected and DOM XSS, CSRF and ASP.NET Core antiforgery, clickjacking, CORS misconfiguration, CSP, HSTS and security headers, cookie flags, open redirects, HTTP request smuggling, host-header injection, client-side storage security (localStorage/sessionStorage/IndexedDB), Subresource Integrity (SRI), browser trust boundaries	Master
+I8	Broken access control	Deny by default, server-side enforcement, IDOR/BOLA, function-level and object-level access, mass assignment, path traversal, horizontal and vertical privilege escalation, tenant isolation	Master
+I9	Server-side and deserialization risks	SSRF, unsafe file upload including malware/antivirus scanning, XXE, zip slip, unsafe deserialization and BinaryFormatter retirement, template injection, ReDoS, race conditions, TOCTOU, unsafe archive extraction	Master
+I10	Secure coding in C# and .NET	Safe defaults, error handling without information leaks, no secrets in logs, checked arithmetic, avoiding unsafe code, secure randomness, constant-time comparison for secrets and tokens, security analyzers, secure code review checklist, safe file and path handling	Master
+I11	Security misconfiguration and hardening	ASP.NET Core and Kestrel hardening, error pages, debug settings, default credentials, config validation at startup, least-privilege runtime accounts, secure headers and production configuration, WAF awareness (application-layer rules only, not network firewall design)	Reason
+I12	Security logging and detection	Authentication events, access denials, admin actions, audit trails, tamper resistance, PII in logs, alertable events, log integrity, sensitive-data redaction and security-event correlation	Reason
+
+I5 depth rationale: OWASP Top 10 is an awareness and prioritization document, not a complete implementation standard. Study all categories and their implications, then gain hands-on depth through I6–I10 and I20. Use OWASP ASVS when translating security expectations into verifiable application requirements.
+Part 3: Identity and access
+#	Topic	Key details	Depth
+I13	Authentication	Passwords, MFA, TOTP, passkeys, WebAuthn/FIDO2, credential stuffing, bot detection and CAPTCHA as supplementary risk signals, lockout and throttling, user/account enumeration (login errors, registration, password reset), reset flows, session management, session fixation, account recovery and secure logout	Master
+I14	OAuth 2.0 and OpenID Connect in practice	Authorization Code with PKCE, Client Credentials, Device Authorization, why implicit and password grants are avoided, scopes and claims, JWT validation, refresh-token rotation, SPA token storage, BFF pattern, revocation, logout, DPoP and FAPI awareness	Master
+I15	Identity providers and ASP.NET Core integration	Microsoft Entra ID, Entra External ID, existing Azure AD B2C considerations, Keycloak, Duende IdentityServer and licensing, ASP.NET Core Identity, JwtBearer and OIDC handlers, SAML federation with assertion validation and signature-wrapping awareness	Master
+I16	Authorization models and design	RBAC, ABAC, ReBAC, claims and policy-based authorization in ASP.NET Core, resource-based authorization, permission design, central policy engines (OPA/OpenFGA awareness), multi-tenant authorization, maker-checker, segregation of duties	Master
+I17	Service and workload identity	Managed identities, service principals, client credentials, on-behalf-of and token exchange, propagating user context, mTLS identity and SPIFFE awareness, service-to-service authorization, application-side authentication and authorization for Kafka, Service Bus, Event Hubs and RabbitMQ	Master
+
+I15 lifecycle note: Azure AD B2C is no longer available for purchase by new customers. Existing customers can continue using the service under Microsoft's published support commitments. B2C P2 has been retired; understand the implications for existing deployments. Evaluate Microsoft Entra External ID for new customer identity designs. Do not treat B2C as already shut down.
+Part 4: Secrets and data
+#	Topic	Key details	Depth
+I18	Secrets management	Azure Key Vault, managed identity access, no secrets in code or Git, development user secrets, secret scanning, rotation, dynamic secrets and HashiCorp Vault awareness, leaked-secret response and emergency rotation	Master
+I19	Data protection and privacy engineering	Data classification, encryption at rest and in transit, field-level encryption, tokenization, masking, database row-level security, Azure Blob/Storage SAS and access-tier security, ASP.NET Core Data Protection API, HSM and Managed HSM, GDPR minimization/retention/erasure, PCI DSS scope reduction	Master
+I20	API security	Rate limiting, schema validation, OWASP API Security Top 10, webhook signature verification, replay protection, GraphQL and gRPC security considerations, excessive data exposure, resource-consumption limits, pagination and payload limits, API key management (keys vs OAuth, rotation, scoping)	Master
+
+Part 5: Zero trust and secure architecture
+#	Topic	Key details	Depth
+I21	Zero trust	Never trust, always verify, identity-centric access, conditional access, device posture, continuous verification, microsegmentation concepts, privileged access/PIM, NIST SP 800-207	Reason
+I22	Secure architecture and design	Security by design, insecure design, trust boundaries, blast radius, tenant isolation models, signing and encrypting events, gateway and BFF security roles, architecture security reviews, threat-informed design	Reason
+I23	Cloud and container application security	Azure RBAC and least privilege, workload identity, Defender for Cloud awareness, container hardening, pod security basics, Kubernetes secrets handling, CSPM concepts, runtime identity and workload permissions	Reason
+
+Part 6: Supply chain
+#	Topic	Key details	Depth
+I24	Dependency and component security	Software composition analysis, NuGet audit, transitive dependencies, typosquatting, dependency confusion, package signing, lock files, license risk, SBOM (CycloneDX/SPDX), VEX awareness, vetting new dependencies	Master
+I25	Software supply chain integrity	SLSA, provenance, artifact signing (Sigstore/cosign), reproducible builds, trusted publishing, third-party and vendor risk, insider risk, software integrity verification	Reason
+
+Part 7: Operations and governance
+#	Topic	Key details	Depth
+I26	Vulnerability management	CVSS, EPSS, known-exploited vulnerability lists, triage and SLAs, patching, risk acceptance, responsible disclosure, bug bounty, reading pen-test reports, remediation verification	Reason
+I27	Application security incident handling	Key and secret compromise response, token revocation, account takeover response, forensic readiness, playbooks, breach notification awareness, containment, recovery and lessons learned	Reason
+I28	Regulatory and compliance security (banking)	PCI DSS, PSD2 strong customer authentication, SOX, GDPR, EU DORA (Digital Operational Resilience Act), ISO 27001, SOC 2, audit evidence, security control ownership	Reason
+I29	AI and LLM application security	OWASP Top 10 for LLM applications, prompt injection, data leakage, excessive agent permissions, output handling, model supply chain, retrieval poisoning and human approval for high-impact actions	Aware
+
+Coverage check
+Original scope	Covered by
+OWASP Top 10	I5–I12, I20
+Identity and access	I13–I17
+Secrets management	I18
+Zero trust	I21
+Secure coding	I6–I11
+Threat modeling	I2
+Supply-chain security	I24–I25
+
+Banking scenarios
+Scenario	Topics
+Customer A accesses Customer B's account by changing an ID	I8, I16
+SQL injection in a search endpoint	I6
+Stolen access token is replayed	I13, I14
+Secret committed to a repository	I18, I27
+Vulnerable transitive NuGet package	I24, I26
+Service B accepts calls without verifying the caller	I17, I21
+Credential stuffing against login	I13, I20
+Auditor asks how card data is protected	I19, I28
+Design review of a new payment feature	I2, I22
+Spoofed webhook	I20
+Compromised signing key	I4, I18, I27
+Maker-checker bypass	I16
+LLM assistant leaks account data	I29
+
+Study order
+Group	Topics
+1. Foundation	I1, I2, I4, I5
+2. Secure coding core	I6, I7, I8, I10
+3. Identity	I13, I14, I15, I16, I17
+4. Secrets and data	I18, I19, I20
+5. Hardening and visibility	I9, I11, I12
+6. Architecture and supply chain	I22, I24, I25, I21, I23
+7. Governance	I3, I26, I28, I27, I29
+
+Learning rule: For Master topics, implement a secure .NET API or workflow, attack it deliberately, inspect the failure, fix it, and document the production control. For Reason topics, explain the trade-offs and control design. For Aware topics, understand the risk and know when to involve a specialist.
+
+Frozen scope: 29 topics, 7 parts. No I30. New security tools and standards go into the nearest existing topic.
