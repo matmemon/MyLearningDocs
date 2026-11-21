@@ -1,0 +1,59 @@
+Part 1: Strategy and test design
+#	Topic	Key details	Depth
+M1	Testing fundamentals, testability and test automation architecture	Pyramid vs trophy; unit, integration, component, E2E, smoke, regression; FIRST; flaky tests; design for testing (DI, seams); framework design for multiple teams, reusable test infrastructure, test isolation and independence, parallel execution and shared-state problems, suite organization and orchestration, avoiding brittle tests and over-mocking; test oracle problem and expected-result strategies	Master
+M2	Test strategy, planning and traceability	Risk-based testing, test plans, exploratory testing, UAT, definition of done, shift-left vs shift-right; requirements-to-test traceability, acceptance criteria verification, business rule coverage, change impact analysis	Reason
+M3	TDD and BDD	Red-green-refactor, outside-in vs inside-out, Reqnroll (successor to SpecFlow), when TDD helps and when it doesn't; BDD anti-patterns	Reason
+M4	Test design techniques and coverage quality	Equivalence partitioning, boundary values, property-based testing (FsCheck), mutation testing (Stryker.NET); line vs branch vs condition coverage, risk-weighted coverage, mutation score interpretation, gaps in critical financial paths, why 90% coverage doesn't prove correctness; pairwise/combinatorial testing, mutation-score thresholds for critical paths, property-test shrinking	Reason
+Part 2: Developer-level testing in .NET
+#	Topic	Key details	Depth
+M5	Unit testing and test doubles	xUnit/NUnit/MSTest, AAA, parameterized tests, Moq/NSubstitute, fakes vs stubs vs mocks, async tests, TimeProvider; when to mock vs use a real dependency, mocking at architectural boundaries, isolation and parallel execution; async void pitfalls	Master
+M6	Integration testing	WebApplicationFactory, Testcontainers (SQL Server, Redis, Kafka, RabbitMQ), Respawn, middleware tests; transaction boundaries, authentication and authorization middleware integration; transaction rollback and test isolation across tests, hosted background worker testing	Master
+M7	API testing, service virtualization, third-party and legacy integration	Postman/Newman, .http files, WireMock.NET, anti-corruption layer tests, characterization tests for vendor systems, sandbox limits; timeout and connection-failure simulation, DNS failures and resets, slow, partial and malformed responses, retry amplification and circuit-breaker behavior, vendor rate limits and throttling; gRPC testing (GraphQL if used), OWASP API Top 10	Master
+M8	Database, transaction and data testing	Migration testing, EF Core in-memory vs real DB pitfalls, stored procedures, data migration validation, reconciliation checks; isolation levels (dirty, non-repeatable, phantom reads), optimistic vs pessimistic concurrency, deadlock reproduction and recovery, rollback and atomicity tests; concurrent transaction anomalies, unique-constraint and foreign-key violation tests; database failover and connection recovery: connection pool recovery after failover, transient failure and reconnection (for example Azure SQL retry behavior), in-flight transaction behavior during failover; migration rollback testing (expand/contract is in M27)	Master
+M9	Test code quality and snapshot testing	Test smells, builders and object-mother patterns, shared fixtures, fast and maintainable suites, Verify/approval tests, golden files, reusable test utilities	Reason
+M10	Test data, environments, configuration and tenant isolation	Synthetic vs masked data, ephemeral/preview environments, environment parity, seed and reset strategy, feature-flag combinations, config and secret validation; tenant isolation tests, infrastructure configuration, secret injection and managed identity validation, per-environment differences	Master
+M11	Concurrency and async testing	Race detection, deterministic time/scheduling, cancellation and timeout tests, lock stress tests (ties to Phase 0.3)	Reason
+Part 3: Contracts and compatibility
+#	Topic	Key details	Depth
+M12	Contract testing	Consumer-driven contracts (Pact), OpenAPI compatibility checks, provider verification in CI; Pact Broker, provider states, asynchronous/event contract testing	Master
+M13	Schema and compatibility testing	Protobuf/Avro/JSON schema evolution, backward/forward compatibility, event and API versioning tests, schema registry checks; registry compatibility modes, event upcasting	Master
+Part 4: System-level and non-functional testing
+#	Topic	Key details	Depth
+M14	End-to-end and UI testing	Playwright, environment strategy, visual regression, accessibility and localization (if you build UIs)	Aware
+M15	Performance testing and workload modelling	Load, stress, soak, spike; k6, JMeter, NBomber; BenchmarkDotNet; baselines; p95/p99 targets; production workload modelling, realistic data volume and distribution, concurrency and read/write ratios, burst and seasonal traffic, testing under dependency degradation, connection pool exhaustion, saturation point and capacity headroom; SLO-based thresholds, workload-model validation	Master
+M16	Profiling and performance diagnostics	dotnet-trace, dotnet-counters, dotnet-dump, PerfView, memory leaks, allocations, thread pool starvation, flame graphs; lock contention	Master
+M17	Resilience, chaos and DR testing	Fault injection, Polly chaos strategies, Azure Chaos Studio (awareness only), game days; failover and restore drills, RTO/RPO validation, capacity testing, infrastructure dependency failure testing	Reason
+M18	Testing distributed systems	Messaging tests (idempotency, redelivery, ordering), eventual consistency, testing in production (canary, flags, synthetic monitoring); Outbox/Inbox consistency verification, duplicate and out-of-order events, cross-service consistency, reconciliation between source and downstream, partial-failure recovery (debit succeeds, credit fails); eventual-consistency convergence tests, message replay and consumer offset recovery, poison-message handling and DLQ recovery, saga compensation verification; exactly-once vs at-least-once reasoning	Master
+M19	Domain-specific testing (trading/payments)	Market data replay, deterministic simulation, latency tests, reconciliation, duplicate-delivery idempotency, end-of-day batches, decimal vs double, rounding, multi-currency, time zones/DST, business calendars; settlement, PnL, FX, market hours and holidays	Master
+M20	Testing observability	Asserting on logs, metrics, traces, health checks; correlation IDs; confirming alerts fire (observability fundamentals stay in the observability track); alert-routing tests	Reason
+M21	Security and authorization testing	SAST, DAST, dependency scanning, SBOM and supply-chain checks, pen-test basics, API/parser fuzzing, malformed, boundary and oversized payload testing; authentication vs authorization, RBAC, claims and policy-based authorization, IDOR and object-level authorization, horizontal and vertical privilege escalation, cross-tenant leakage, negative authorization tests, OAuth2/OIDC token validation and expiry, container image and infrastructure security; OWASP ASVS, JWT key rotation, mTLS/certificate validation, rate-limit tests	Reason
+Part 5: Code quality and design health
+#	Topic	Key details	Depth
+M22	Refactoring and legacy code	Code smells, refactoring catalog, characterization tests, seams, technical debt management	Master
+M23	Code review	What to review, checklists, PR size, automated review, review culture	Reason
+M24	Static analysis and quality gates	Roslyn analyzers, .editorconfig, SonarQube, nullable reference types, vulnerability scanning	Master
+M25	Architecture fitness testing	NetArchTest/ArchUnitNET, layering and dependency rules, evolutionary architecture	Reason
+M26	Documentation as quality	ADRs, API docs, runbooks, README standards, useful comments	Reason
+Part 6: Process, metrics and governance
+#	Topic	Key details	Depth
+M27	Quality in CI/CD, infrastructure and release verification	Test stages, parallelization, flaky-test quarantine, coverage gates, release readiness, post-deploy smoke tests, canary analysis, rollback tests, expand/contract DB migrations; IaC validation (Bicep/Terraform), container image scanning, Kubernetes manifest validation, configuration drift detection, network policy and connectivity tests, deployment rollback and recovery verification (CI/CD fundamentals stay in the DevOps track); test impact analysis	Master
+M28	Quality metrics and engineering health	DORA metrics, defect escape rate, MTTR, complexity, maintainability index, churn, flaky-test rate, suite duration, tech-debt tracking, business-rule and risk-weighted coverage metrics; test-suite cost and ROI	Reason
+M29	Defect management and RCA	Triage, severity vs priority, 5 Whys, blameless postmortems, regression prevention	Reason
+M30	Compliance, traceability and audit evidence	Audit trails, change control, SOX/PCI DSS awareness, validation evidence, GDPR-safe test data, segregation of duties, test execution records, regulatory validation evidence, requirement-to-test-result traceability; evidence retention, GDPR masking/tokenization	Reason
+M31	AI-assisted quality	AI code review, test generation, LLM output evaluation, risks of untrusted generated code; LLM non-determinism, data leakage, human review gates	Aware
+Cross-references (study once, in whichever you reach first)
+M1, M5, M11: isolation and parallelism
+M2, M30: traceability
+M10, M30: test data privacy
+M15, M16: performance measurement vs diagnosis
+M17, M18: resilience vs distributed correctness
+M24, M27: quality gates
+Study order
+Group	Topics
+1. Foundation	M1, M5, M6, M24
+2. Microservice-critical	M12, M13, M7, M8, M18, M17
+3. Performance and domain	M15, M16, M19, M11
+4. Design health and delivery	M22, M3, M23, M27, M25
+5. Governance and security	M2, M10, M21, M20, M28, M29, M30, M26
+6. Additional testing techniques	M4, M9
+7. Awareness	M14, M31
