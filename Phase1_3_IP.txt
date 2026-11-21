@@ -1,0 +1,976 @@
+# Topic 4 — IP Addresses
+
+> **Adaptation note:** IP addressing is conceptual (a protocol, not a feature), so where the master prompt says "show implementation," I'll show **two implementations of the same operational need** — the pre-IP world of static, link-layer-only addressing vs the modern world of logical IP addressing with DHCP, DNS, and dynamic assignment. This is the honest before/after for a .NET engineer.
+
+> **Boundary note:** Subnet masks, gateways, and NAT are introduced here **only as context**. Their mechanics belong to **Topic 5**. I'll flag each time.
+
+> **Gate rule:** No move to Topic 5 until you confirm Topic 4 is solid. Knowledge check at the end.
+
+---
+
+## The practical problem
+
+A trading application spans multiple systems:
+
+- **Trader A's laptop** sends an order.
+- The order reaches an **ASP.NET Core API**.
+- The API retrieves account data from **SQL Server**.
+- The API publishes an event to **Kafka**.
+- A **notification service** updates the trader.
+
+Each system needs a **standard way to identify where another system lives on the network**. That identification must scale across the entire internet — billions of devices, trillions of packets per day.
+
+This is what IP addresses solve.
+
+---
+
+## 1. WHY — Why were IP addresses required?
+
+### The problem
+
+Every packet sent must answer three questions:
+
+1. **Where did this come from?** (source)
+2. **Where should it go?** (destination)
+3. **How does any intermediate device know which direction to forward it?** (routing)
+
+Before IP, each networking technology answered these in its own **proprietary** way. IBM SNA addresses ≠ DECnet addresses ≠ AppleTalk addresses. A packet could not hop between systems built by different vendors.
+
+### What industry was struggling with (1970s–80s)
+
+By the time ARPANET was growing, the pain was acute:
+
+- **Vendor islands.** A DECnet site and an IBM SNA site could not talk without expensive gateways.
+- **No scalable addressing.** Each network used its own scheme — flat, non-hierarchical, or vendor-specific.
+- **No internetwork routing.** You couldn't join multiple networks into one large system.
+- **No standard address space.** Adding a new host meant begging the network administrator for a slot, not obtaining an address from a globally consistent scheme.
+
+### What triggered IP
+
+The **ARPA Internetworking Program** (early 1970s) — specifically Cerf and Kahn's 1974 paper on internetworking — proposed a **network of networks** with a **single global addressing scheme** at Layer 3. That design became **IPv4** (RFC 791, 1981) and, decades later, **IPv6** (RFC 8200).
+
+**IP exists because routing across heterogeneous networks requires a single, hierarchical, logical addressing system that is independent of any underlying link technology.**
+
+### Analogy — the postal system
+
+| Postal system | Network |
+|---|---|
+| Country → state → city → street → house number | Hierarchical addressing |
+| House address | IP address |
+| Person in the house | Process |
+| Apartment / room number | Port number |
+| Post office routing | Router forwarding |
+
+The hierarchy is what makes routing scalable — a post office sorts by city first, not by individual house.
+
+---
+
+## 2. BEFORE — What existed before IP addressing?
+
+### A. Direct physical connections
+
+The simplest network: two machines, one wire.
+
+```
+Computer A ────────── Computer B
+```
+
+The **wire itself** identified the communication path. There was no need for an address — if you were on the wire, you were talking to the other end.
+
+**Limitation:** scales linearly with wire count. N machines = N(N-1)/2 wires. Impossible beyond a handful.
+
+### B. Mainframe and terminal architecture
+
+```
+Terminal 1 ──┐
+Terminal 2 ──┼── Mainframe
+Terminal 3 ──┘
+```
+
+Terminals connect to a **central** mainframe over dedicated links (serial, SNA, coax). The terminal is addressed by **which port** it plugs into, not by any logical identity.
+
+**Limitation:** any two terminals on different mainframes cannot talk. The topology is a **star around one host**, not a network.
+
+### C. MAC addresses and early Ethernet
+
+Ethernet (1973 onward) introduced **MAC addresses** — 48-bit identifiers burned into each network interface:
+
+```
+00:1A:2B:3C:4D:5E
+```
+
+A MAC address is **globally unique** and lets devices on the **same LAN** address each other. Switches learn MAC-to-port mappings and forward frames accordingly.
+
+**Strengths:**
+- **Uniqueness** — no two NICs share a MAC.
+- **Simplifies local delivery** — no configuration needed.
+- **Works beautifully within a LAN.**
+
+**But MAC addresses have a fundamental limitation** — the next section explains it.
+
+### Strengths of the pre-IP approach
+
+- **Simple within scope** — a LAN or mainframe doesn't need more.
+- **No configuration** — MAC addresses are burned in.
+- **Deterministic** — no routing decisions to make.
+
+These strengths are real. That's why MAC addresses still exist in modern networks — they're the right tool **at Layer 2**.
+
+---
+
+## 3. PROBLEM — Why weren't MAC addresses enough?
+
+### The routing problem
+
+Suppose your laptop in Mumbai wants to reach a server in Frankfurt.
+
+```
+Your laptop
+    |
+Local network (MAC)
+    |
+Router
+    |
+Internet
+    |
+Remote network (MAC)
+    |
+Destination server
+```
+
+**MAC addresses cannot solve this**, for four reasons:
+
+**1. No hierarchy.** A MAC address is 48 bits. Every bit is effectively random. There is no structure that says "this MAC is in Europe." A router with 100 million MAC addresses in its table would have to **know every individual MAC on Earth** to forward correctly. That's impossible.
+
+**2. Local only.** MAC addresses are link-layer. They exist **only on the local segment**. Once a packet crosses a router, the MAC addresses are stripped and rewritten for the next hop. MAC addressing cannot span networks.
+
+**3. Broadcast storms.** To find a destination, Ethernet originally broadcast to every device on the segment. This works for 100 devices; it collapses at internet scale.
+
+**4. No multihoming.** A laptop that joins a new network needs its MAC to work there — but a MAC identifies **the NIC**, not the network membership. There is no notion of "the laptop's address changed because it moved to a new network."
+
+### The gap
+
+We needed a **hierarchical, logical address** that:
+- Is **assigned** (not burned in), so a device can move networks.
+- Encodes **which network** the address belongs to, so routers can forward without knowing every host.
+- Spans **multiple networks** end-to-end.
+- Is **independent of the link technology** underneath.
+
+**This is what IP addresses are.**
+
+---
+
+## 4. WHAT — What is an IP address?
+
+### Definition
+
+> An **IP address** is a **logical address** assigned to a **network interface** so that it can participate in **IP communication**. It identifies **source** and **destination** endpoints for routing across interconnected networks.
+
+**Two key words:**
+
+- **Logical** — assigned by configuration or protocol, not burned into hardware. The same NIC can have different IPs at different times or on different networks.
+- **Interface** — an IP belongs to a network interface, not to a host. A server with 3 NICs has 3 IPs.
+
+**Layer mapping:** IP is the **Network Layer (Layer 3)** in OSI, and the **Internet Layer** in TCP/IP.
+
+### Two versions
+
+| Version | Bits | Example | Status |
+|---|---|---|---|
+| **IPv4** | 32 | `192.168.1.10` | Widely used; address space exhausted (IANA allocated last blocks 2011) |
+| **IPv6** | 128 | `2001:db8::10` | Deployed progressively; not yet universal |
+
+### A. IPv4 — how it works
+
+An IPv4 address is **32 binary bits**, written as **four decimal octets** separated by dots:
+
+```
+192.168.1.10
+```
+
+**Each octet = 8 bits = 2^8 = 256 possible values (0–255).**
+
+Binary representation:
+
+| Decimal | Binary |
+|---|---|
+| 192 | `11000000` |
+| 168 | `10101000` |
+| 1 | `00000001` |
+| 10 | `00001010` |
+
+Full address in binary:
+
+```
+11000000.10101000.00000001.00001010
+```
+
+Total possible bit patterns: **2^32 = 4,294,967,296** (about 4.3 billion). Not all are usable for ordinary hosts — some are reserved for private networks, multicast, loopback, and special purposes (covered in §5 and §8).
+
+**Why four octets?** Historical convenience — reading `192.168.1.10` is far easier than `3232235786` (which is the same address as a single 32-bit integer). Bytes align nicely with computing.
+
+### B. IPv6 — why it was introduced
+
+IPv4 address exhaustion is real:
+
+- **1981:** 4.3 billion addresses seemed infinite.
+- **1990s:** PCs, then smartphones.
+- **2000s:** Cloud, IoT, containers.
+- **2011:** IANA allocated its last /8 blocks. Regional exhaustion followed over years.
+
+**NAT (Topic 5)** extended IPv4's life by letting many devices share one public IP — but at cost: NAT complicates peer-to-peer, breaks some protocols, and adds state on the router.
+
+**IPv6 was designed to solve the root cause:** a vastly larger address space, **2^128 addresses** — approximately 340 undecillion (`3.4 × 10^38`). That's roughly 10^28 addresses per human alive, or enough to give every atom on Earth a unique address with room to spare.
+
+Example:
+
+```
+2001:0db8:0000:0000:0000:0000:0000:0010
+```
+
+Shortened:
+
+```
+2001:db8::10
+```
+
+**Why hexadecimal?** One hex digit = 4 bits. Eight groups of 4 hex digits = 32 hex digits = 128 bits. Hex is compact and aligns with binary.
+
+**Simplification rules:**
+- Leading zeros in each group can be dropped (`0db8` → `db8`).
+- One contiguous run of `:0:` groups can be collapsed to `::` (only once per address).
+
+### C. IPv4 and IPv6 coexist
+
+You don't switch overnight. Common deployment models:
+
+| Approach | What it does |
+|---|---|
+| **Dual stack** | Device runs both IPv4 and IPv6 simultaneously |
+| **Tunneling** | Carries IPv6 over an IPv4 network (6in4, Teredo) or vice versa |
+| **Translation** | NAT64/DNS64 lets IPv6-only clients reach IPv4 servers |
+
+In modern cloud (Azure, AWS), **dual stack is the default** for many services. In enterprise, it's still often **IPv4-only** for legacy reasons.
+
+---
+
+## 5. FEATURES — What does IP addressing provide?
+
+| Capability | What it does | Problem it solves |
+|---|---|---|
+| **Logical addressing** | Interface identified by assigned address, not hardware | Devices can move networks |
+| **Hierarchical structure** | Address encodes network + host (Topic 5) | Routers forward without knowing every host |
+| **Source + destination identification** | Every packet carries both | Routing decisions |
+| **Routing support** | Routers use destination IP to choose next hop | Internetwork communication |
+| **Network separation** | Different IP networks distinguished | Isolation, firewalling |
+| **Dual-stack support** | IPv4 and IPv6 coexist | Incremental migration |
+| **Best-effort semantics** | IP delivers *or tries* — no guarantee | Enables layered design (TCP adds reliability) |
+
+### The IP packet
+
+Conceptually:
+
+```
+┌───────────────────────────────┐
+│ Source IP:      192.168.1.20   │
+│ Destination IP: 10.10.5.20    │
+├───────────────────────────────┤
+│             Data              │
+└───────────────────────────────┘
+```
+
+Routers read the **destination IP** and consult a routing table. The source IP lets the receiver reply (and lets firewalls drop packets).
+
+**IP is best-effort.** It can:
+- **Drop** packets (queue full).
+- **Duplicate** packets (rare, but possible).
+- **Reorder** packets (different paths).
+
+IP does **not** guarantee delivery, order, or detection of duplicates. Those are TCP's job (Topic 8). This separation is deliberate — IP does one thing well and lets higher layers choose their own guarantees.
+
+---
+
+## 6. COMPARISON — Pre-IP vs IP (10 dimensions)
+
+The master prompt asks for a 10-dimension comparison. The honest "before" is **MAC-only link-layer addressing** (what Ethernet alone provided before IP). The "after" is **IP addressing**.
+
+| Dimension | MAC-only (before) | IP addressing (after) |
+|---|---|---|
+| **Architecture** | Flat link-layer identities | Hierarchical, logical, network-layer addresses |
+| **Working mechanism** | Switches forward by MAC; broadcasts for discovery | Routers forward by destination IP using routing tables |
+| **Performance** | No routing overhead; single LAN only | Small per-hop processing; scales globally |
+| **Scalability** | O(devices) broadcast; scales to hundreds, not billions | O(routes) in router tables; scales to internet |
+| **Reliability** | No redundancy beyond the LAN | Multiple paths; rerouting on failure |
+| **Security** | No network-layer policy controls | IP-based ACLs, firewalls, segmentation |
+| **Complexity** | Simple within a LAN | Higher — addressing, routing, subnets, DHCP, DNS |
+| **Maintenance** | MACs are fixed; moving devices means rewiring | Addresses assigned logically; devices move freely |
+| **Cost** | Low within scope; ruinous across vendors | Requires routers and IP infrastructure, but scales globally |
+| **Failure handling** | LAN failure = total loss | Routing reconverges; alternate paths available |
+
+**Why each change matters:**
+
+- **Hierarchy** is the single most important change. A MAC address is **flat** — no bit says which network it's on. An IP address in a **CIDR block** (Topic 5) says "this /24 is in London, this /24 is in Frankfurt." Routers forward by **network prefix**, not individual host.
+- **Logical assignment** decouples devices from the hardware. A laptop can join a Wi-Fi network, get a new IP, and be reachable — no rewiring.
+- **Multi-hop routing** turns isolated LANS into an internetwork.
+
+### IPv4 vs IPv6 (secondary comparison)
+
+| Dimension | IPv4 | IPv6 |
+|---|---|---|
+| **Address size** | 32 bits | 128 bits |
+| **Format** | Dotted decimal | Hexadecimal, colon-separated |
+| **Address space** | ~4.3 billion | ~3.4 × 10^38 |
+| **Broadcast** | Supported | Not supported; multicast replaces |
+| **Address config** | Static or DHCP | Static, DHCPv6, or SLAAC (stateless autoconfiguration) |
+| **Header** | Variable length (20–60 bytes) | Fixed 40-byte base header |
+| **NAT** | Common (needed for conservation) | Often unnecessary (but still possible) |
+| **Security** | IPsec optional | IPsec required by spec, not automatically enabled |
+| **Header checksum** | Yes | No (simplifies routers) |
+| **Fragmentation** | Routers can fragment | Only senders fragment |
+
+**Why IPv6 is different:** 128 bits removes the address-conservation pressure that drove NAT. Fixed headers speed up router processing. No router fragmentation simplifies forwarding. **SLAAC** lets a device generate its own address without a DHCP server — useful in mobile and IoT contexts.
+
+**But:** IPv6 is **not automatically faster or more secure**. Real-world performance depends on implementation, dual-stack complexity, and operational maturity.
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### Advantages of IP addressing (over MAC-only)
+- **Global scalability** — routes internet traffic
+- **Hierarchical forwarding** — routers don't need every host in their tables
+- **Logical mobility** — devices change networks without rewiring
+- **Interoperability** — a single addressing standard across vendors
+- **Network layer policy** — firewalls, ACLs, segmentation
+- **Redundancy** — multiple paths possible
+- **Layered separation** — IP doesn't care what's above it (TCP, UDP, QUIC)
+
+### Disadvantages and hidden costs
+- **Configuration** — addresses must be assigned (DHCP, static, SLAAC)
+- **Complexity** — routing tables, subnets, gateways, DNS
+- **Best-effort semantics** — needs TCP for reliability
+- **Address exhaustion** — IPv4 required NAT to survive
+- **Dual-stack overhead** — running IPv4 and IPv6 doubles some operational surface
+- **Overlapping address space** — enterprises merging often collide on RFC 1918 ranges
+- **Not identity** — IP is a locator, not proof of who you are
+
+### When the old approach (MAC-only, no IP) is still correct
+- **Single LAN with no internet access** — an isolated test lab.
+- **Layer-2 industrial networks** — some real-time fieldbus protocols don't need IP.
+- **Storage area networks (Fibre Channel)** — FC uses its own addressing.
+- **Very low-power embedded** — a 2 KB microcontroller can speak link-layer only; adding IP costs memory and code.
+
+**Honest take:** IP is the right default for the internet and enterprise. It's the wrong choice for tightly scoped, latency- or resource-constrained systems where its overhead exceeds its value.
+
+---
+
+## 8. WHEN — When should you use each type of address?
+
+IPv4 vs IPv6 is **one decision**. Public vs private, static vs dynamic are **separate decisions**.
+
+| Situation | Typical choice |
+|---|---|
+| Existing enterprise application | IPv4, IPv6, or dual stack depending on infrastructure |
+| Modern cloud network | IPv4 and/or IPv6 based on service support |
+| Internal application communication | Private IPv4 or private IPv6 |
+| Internet-facing service | Public IPv4 and/or globally reachable IPv6 |
+| Server with stable network identity | Static assignment or reserved DHCP |
+| Employee laptop | Usually DHCP |
+| Local development | `127.0.0.1` or `::1` (loopback) |
+
+### Public vs private IP
+
+| | Public IP | Private IP |
+|---|---|---|
+| **Routable on internet** | Yes (subject to network/provider config) | No — used within private networks only |
+| **Assigning authority** | ISP or IANA-allocated block | Local network admin |
+| **Common ranges** | ISP-allocated | RFC 1918 (see below) |
+| **Security implied** | None by default | **None** — private ≠ secure |
+
+**Private IPv4 ranges (RFC 1918):**
+
+| Range | Block | Size |
+|---|---|---|
+| `10.0.0.0` – `10.255.255.255` | 10.0.0.0/8 | ~16.7M addresses |
+| `172.16.0.0` – `172.31.255.255` | 172.16.0.0/12 | ~1M addresses |
+| `192.168.0.0` – `192.168.255.255` | 192.168.0.0/16 | ~65K addresses |
+
+Example:
+
+```
+Laptop:       192.168.1.20   (private — from home router)
+Home router:  192.168.1.1    (private)
+Cloud API:    10.10.5.20     (private — inside Azure VNet)
+Public IP:    52.168.x.x     (the router's or LB's public address)
+```
+
+**Critical:** A private IP is **not secure** by itself. Security requires:
+- Firewall rules
+- Network segmentation
+- Identity and authorization
+- Encryption
+- Resource-level access control
+
+Private addresses only restrict **reachability from outside**. Anyone who's already inside the network can reach them. This is why "it has a private IP" is never a sufficient security argument.
+
+### Special IPv4 and IPv6 addresses
+
+| Purpose | IPv4 | IPv6 |
+|---|---|---|
+| **Loopback** | `127.0.0.1` (entire `127.0.0.0/8`) | `::1` |
+| **Unspecified** | `0.0.0.0` | `::` |
+| **Link-local** | `169.254.0.0/16` | `fe80::/10` |
+| **Private / ULA** | RFC 1918 ranges | `fc00::/7` |
+| **Multicast** | `224.0.0.0/4` | `ff00::/8` |
+
+**Some to remember:**
+
+- `127.0.0.1` — your own machine (IPv4 loopback)
+- `::1` — your own machine (IPv6 loopback)
+- `0.0.0.0` — unspecified; when bound in a server config, means **"listen on all IPv4 interfaces"**
+- `169.254.x.x` — link-local IPv4; often appears when DHCP fails ("self-assigned APIPA address")
+- `fe80::/10` — IPv6 link-local; automatically assigned
+
+### Static vs dynamic IP
+
+**Static:** manually configured or reserved. The interface **keeps the same address** every time. Used for servers, printers, network gear.
+
+**Dynamic:** assigned automatically via DHCP (Topic 10) or SLAAC (IPv6). Used for laptops, phones, most client devices.
+
+```
+Employee laptop
+     |
+     | DHCP Discover
+     v
+DHCP server
+     |
+     | Assigns 192.168.1.20, gateway, DNS
+     v
+Laptop configured
+```
+
+**Why both exist:** servers need stable addresses for DNS and firewall rules. Clients change networks — dynamic is faster and less error-prone.
+
+---
+
+## 9. HOW — Assigning and using IP addresses
+
+### A. Previous implementation — manual MAC-based configuration
+
+In pre-IP or pre-DHCP environments, adding a host required:
+
+1. **Physically identifying** the NIC's MAC address.
+2. **Adding the MAC** to a static ARP table or host table on relevant systems.
+3. **Manually configuring the IP** in `/etc/hosts` (or equivalent) so others could find it by name.
+
+```
+# /etc/hosts (pre-DNS)
+10.10.5.20   trading-api
+10.10.8.30   sql-primary
+10.10.9.5    kafka-1
+```
+
+**What was wrong:** every new host meant editing every client's hosts file. Nothing scaled past a few dozen machines. And if a MAC changed (new NIC), all mappings broke.
+
+### B. Modern implementation — DHCP + DNS + application config
+
+**Step 1 — device obtains an IP via DHCP (Topic 10):**
+
+```
+Client                 DHCP Server
+  |                         |
+  |------ Discover -------->|
+  |<------- Offer ----------|
+  |------ Request --------->|
+  |<------- ACK ------------|
+  |                         |
+  [IP, mask, gateway, DNS configured]
+```
+
+**Step 2 — name resolves via DNS (Topic 6):**
+
+`trading-api.company.com` → `10.10.5.20`
+
+**Step 3 — application uses the resolved name:**
+
+```csharp
+// Program.cs — config-based base URL, not hardcoded IP
+builder.Services.AddHttpClient<TradingApiClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["TradingApi:BaseUrl"]!);
+});
+
+// appsettings.json
+// {
+//   "TradingApi": { "BaseUrl": "https://trading-api.company.com" }
+// }
+```
+
+**Step 4 — server binds to a specific IP and port:**
+
+```csharp
+// Program.cs — explicit binding (alternative to hardcoding)
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Listen(IPAddress.Any, 443, listen => listen.UseHttps());
+    // or: options.Listen(IPAddress.Parse("10.10.5.20"), 443, ...)
+});
+```
+
+**`IPAddress.Any` (0.0.0.0) vs `IPAddress.Parse("10.10.5.20")`:**
+
+| Binding | Behavior | When to use |
+|---|---|---|
+| `IPAddress.Any` (0.0.0.0) | Listens on **all IPv4 interfaces** | Containers, multi-homed servers, cloud VMs |
+| `IPAddress.Parse("10.10.5.20")` | Listens on **that interface only** | Single-host with fixed IP; restrictive |
+| `IPAddress.IPv6Any` (::) | Listens on all IPv6 interfaces | Dual-stack IPv6 |
+| `IPAddress.Loopback` (127.0.0.1) | Listens only on loopback | Never externally reachable — common dev default (often a production bug) |
+
+**The classic production bug:** the API is bound to `127.0.0.1`, so it works via `localhost` but is unreachable from another machine. This is the #1 answer to "why can't the other machine reach my API."
+
+**Step 5 — URL breakdown:**
+
+```
+https://10.10.5.20:443/api/orders
+└──┬─┘  └───┬────┘ └┬┘ └────┬────┘
+  https    IP      port    path
+  scheme
+```
+
+| Part | Meaning |
+|---|---|
+| `https` | Application protocol / scheme (HTTP over TLS) |
+| `10.10.5.20` | Destination IP address |
+| `443` | Destination port (identifies the service) |
+| `/api/orders` | HTTP resource path |
+
+With a hostname:
+
+```
+https://trading-api.company.com/api/orders
+```
+
+DNS resolves the hostname → IP before the TCP connection begins (Topic 6).
+
+### Execution flow — from app code to network bytes
+
+1. **App calls `client.GetAsync("/api/orders")`.**
+2. **`HttpClient` constructs the URL** from `BaseAddress` + path.
+3. **DNS resolution** — if the host is a name, resolve to IP (cached).
+4. **TCP connect** — source IP (from the app's interface), destination IP (from DNS).
+5. **TLS handshake** (if HTTPS).
+6. **HTTP request** is sent.
+7. **The OS picks the outbound interface** based on the routing table (Topic 9) — usually by longest-prefix match against the destination.
+8. **The packet leaves** with source IP = the interface's IP.
+
+---
+
+## 10. INTERNAL WORKING — What happens when a packet is sent?
+
+**Scenario:**
+- Laptop IP: `192.168.1.20`
+- API IP: `10.10.5.20`
+- API port: `443`
+
+### Sending side
+
+```
+Application: "GET /api/orders HTTP/1.1"
+    │
+    ▼ (add TCP header — source port random, dest port 443)
+TCP segment
+    │
+    ▼ (add IP header — source IP 192.168.1.20, dest IP 10.10.5.20)
+IP packet
+    │
+    ▼ (add Ethernet/Wi-Fi frame — dest = router's MAC)
+Frame
+    │
+    ▼
+Bits on the medium
+```
+
+**Step by step:**
+
+1. **App creates an HTTPS request.**
+2. **The OS resolves the destination IP.** If the app used a hostname, DNS lookup happens here (result cached after first call). The OS also determines that `10.10.5.20` is **not on the same local network** as `192.168.1.20` — so it must send via the **default gateway** (Topic 5 explains the subnet mask decision).
+3. **Transport layer** — TCP segment with **source port** (ephemeral, e.g., 50000) and **destination port 443**.
+4. **Network layer** — IP packet with **source IP** (192.168.1.20) and **destination IP** (10.10.5.20).
+5. **Data link layer** — frame with **source MAC** (laptop's NIC) and **destination MAC** (the router's interface on the local network — **not the API's MAC**, which is not visible from here).
+6. **The packet leaves** the laptop → goes to the router.
+
+### The routing hop
+
+```
+Laptop → [router1] → [router2] → ... → [destination network router] → API
+```
+
+**At each router:**
+- The **IP header stays the same** — source `192.168.1.20`, dest `10.10.5.20` **end-to-end**.
+- The **link-layer frame is stripped and rewritten** at each hop — the router uses its own MAC as the new source and the **next-hop router's MAC** as the new destination.
+- The router **reads the destination IP**, looks it up in its routing table, and forwards to the next hop.
+
+**Exception — NAT (Topic 5):** if the laptop is behind a home router, the router **rewrites** the source IP from `192.168.1.20` to the router's **public IP**, and remembers the mapping so replies come back. This is the one place where the IP header's source changes mid-flight.
+
+### What the server sees
+
+A server receives traffic on a **network interface**. The OS:
+1. **Checks the destination IP** — is it mine? (Yes, `10.10.5.20` is on this interface.)
+2. **Looks up the destination port** — which process is listening on 443?
+3. **Delivers the segment** to the process's socket.
+
+A **socket** = `(IP address, port, protocol)`. For the API:
+
+```
+10.10.5.20:443 (TCP)
+```
+
+This is why IP addresses and ports must be understood **together** — the IP says "which machine," the port says "which service on that machine."
+
+### What each hop proves
+
+| Symptom | Layer |
+|---|---|
+| **No IP address on the client** | Layer 3 — no source |
+| **Client's gateway wrong** | Layer 3 — destination unreachable |
+| **Route missing on a router** | Layer 3 — packet dropped at hop |
+| **Firewall drops at the destination** | Layer 3/4 |
+| **Port closed on the server** | Layer 4 — connection refused |
+| **TLS fails** | Layer 5–7 |
+| **HTTP returns 404** | Layer 7 |
+
+---
+
+## 11. FAILURE SCENARIOS
+
+| Failure | What happens | How to investigate |
+|---|---|---|
+| **Wrong IP configured** | Traffic goes to the wrong destination or nowhere | `ipconfig /all` / `ip addr` |
+| **Duplicate IP** | Two interfaces claim the same address; ARP flapping; intermittent loss | ARP table inspection; DHCP conflict logs |
+| **DHCP failure** | Device gets a link-local `169.254.x.x` | `ipconfig /all` — check DHCP server |
+| **Wrong gateway** | Remote networks unreachable; local network works | `ip route` / `route print` |
+| **Wrong DNS result** | Hostname resolves to an unexpected IP | `nslookup`; check DNS records |
+| **IPv4/IPv6 mismatch** | Client speaks IPv6 but service only speaks IPv4 | `ip addr`; `curl -4` vs `curl -6` |
+| **Firewall block** | Packets dropped | `Test-NetConnection -Port`; firewall rules |
+| **Stale address** | Client uses old IP after infrastructure change | Flush DNS; check DHCP lease |
+| **API bound to localhost** | Works on the host, unreachable from other machines | `netstat -tlnp` — is it bound to `127.0.0.1` or `0.0.0.0`? |
+| **Private IP confusion** | Assumed "private = secure" | No — private ≠ secure |
+
+### Production example — "The API is unreachable"
+
+Your API runs at `10.10.5.20`. A client cannot connect.
+
+**Do not assume the API code is broken.** Investigate in layers:
+
+```
+1. Does the client have an IP address?                    ipconfig /all
+2. Can it reach its default gateway?                      ping <gateway-ip>
+3. Is the destination IP correct?                        nslookup <hostname>
+4. Can it route to the destination network?              tracert 10.10.5.20
+5. Is port 443 reachable?                                Test-NetConnection 10.10.5.20 -Port 443
+6. Is the API listening on that port?                    netstat -tlnp (on server)
+7. Is the API bound to 0.0.0.0, not 127.0.0.1?           check Kestrel config
+8. Is TLS working?                                       curl -v https://10.10.5.20
+9. Is the application healthy?                           /healthz endpoint
+```
+
+**`ping` succeeding ≠ API healthy.** ICMP (Layer 3) can succeed while TCP port 443 is blocked (Layer 4) or the app is hung (Layer 7). **Climb the layers.**
+
+### Diagnostic toolkit
+
+**Windows:**
+```powershell
+ipconfig /all                              # IP, gateway, DNS, MAC, DHCP
+ipconfig /flushdns                         # clear DNS cache
+ping 10.10.5.20                            # Layer 3 reachability
+tracert 10.10.5.20                         # Layer 3 path
+nslookup trading-api.company.com           # DNS resolution
+Test-NetConnection 10.10.5.20 -Port 443    # Layer 4 TCP
+netstat -ano                               # active connections + PIDs
+```
+
+**Linux:**
+```bash
+ip addr                                    # interface addresses
+ip route                                   # routing table
+ping -c 4 10.10.5.20
+traceroute 10.10.5.20
+dig trading-api.company.com
+ss -tlnp                                   # listening ports + PIDs
+```
+
+**Azure:**
+- **Network Watcher → Connection troubleshoot** — end-to-end IP reachability
+- **NSG flow logs** — which security-group rule allowed/dropped packets
+- **Effective routes** — what the VM/subnet actually routes
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Banking and trading platform
+
+```
+                Illustrative enterprise network
+
+     [ Trader laptop ]
+       192.168.1.20
+             │
+             │ Corporate VPN
+             │
+             ▼
+     ┌─────────────────────────┐
+     │  Application network    │
+     │  10.10.5.0/24           │
+     │                         │
+     │  [ Load balancer ]      │
+     │      10.10.5.10         │
+     │         │               │
+     │    ┌────┴────┐          │
+     │    ▼         ▼          │
+     │ [API 1]   [API 2]       │
+     │ 10.10.5.20 10.10.5.21   │
+     └────────┬────────────────┘
+              │
+     ┌────────┴──────────────┐
+     │                       │
+[ SQL Server ]         [ Kafka cluster ]
+  10.10.8.30             10.10.9.x
+     │                       │
+     └───────────────────────┘
+```
+
+*(Illustrative addresses only — not an actual UBS topology.)*
+
+### Principal Engineer considerations
+
+**1. Network segmentation.** Separate the user, application, database, and messaging networks. Each has different access requirements:
+
+| Tier | Who can reach it | Rule |
+|---|---|---|
+| **User network** | Traders, laptops | Restricted; via VPN |
+| **Application network** | Only the load balancer | No direct inbound from outside |
+| **Database network** | Only app API tier | No direct inbound from user tier |
+| **Messaging network** | Only app tier | Same as database |
+
+Each boundary is a **firewall rule**, not an accident of IP assignment.
+
+**2. Stable service discovery.** Applications should **not** hardcode IPs. Use:
+- **DNS names** — `trading-api.company.com` (Topic 6)
+- **Kubernetes Services** — `http://account-service`
+- **Service meshes** — internal DNS + sidecar routing (Topic 59)
+
+**3. Load balancing.** The load balancer fronts multiple API instances. Clients speak to **one LB IP**; the LB picks a backend. Backend IPs can change without clients knowing.
+
+**4. Security.** Private addressing is only the first step. The full stack:
+
+| Layer | Control |
+|---|---|
+| Network | Firewall, NSG, subnet isolation |
+| Transport | TLS |
+| Application | OAuth2/OIDC, authorization (Topic 19) |
+| Identity | Managed identities for service-to-service |
+| Resource | Row-level authorization |
+
+**5. High availability.** Multiple instances, redundant paths, health checks. A single IP on a single host is a single point of failure.
+
+**6. IPv4/IPv6 compatibility.** Confirm each layer speaks the same address families:
+- Application libraries (some older .NET libs have IPv6 gaps)
+- Infrastructure (load balancers, firewalls, DNS)
+- Monitoring
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### Design decisions
+
+**1. Never hardcode IP addresses in application code.**
+
+```csharp
+// BAD
+var apiUrl = "https://10.10.5.20:443";
+
+// GOOD — config-based, resolved via DNS
+var baseUrl = configuration["TradingApi:BaseUrl"];
+// appsettings.json: { "TradingApi": { "BaseUrl": "https://trading-api.company.com" } }
+```
+
+**Why:** an IP is an implementation detail. Moving, scaling, or failing over changes the IP. The name stays.
+
+**2. Understand container and Kubernetes networking.**
+
+Containers and pods get IPs that are **ephemeral** — a recreated pod gets a new IP. **Never hardcode pod IPs.** Use Kubernetes Services (stable virtual IPs) or DNS names.
+
+```
+.NET API Pod
+     │ http://account-service
+     ▼
+Kubernetes Service
+     │
+     ├──► Account Pod 1 (10.244.1.5)
+     └──► Account Pod 2 (10.244.1.6)
+```
+
+**3. Understand client IP forwarding behind proxies.**
+
+When a request passes through a reverse proxy or load balancer, the app sees the **proxy's IP** as the direct network peer. The original client IP arrives in headers:
+
+- `X-Forwarded-For`
+- `Forwarded` (RFC 7239)
+- `X-Real-IP` (nginx convention)
+
+**These headers are untrusted by default.** Anyone can send `X-Forwarded-For: 8.8.8.8` and lie. In ASP.NET Core, only accept them from **known proxies** via `ForwardedHeadersOptions`:
+
+```csharp
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor
+                             | ForwardedHeaders.XForwardedProto;
+    options.KnownProxies.Add(IPAddress.Parse("10.10.5.10")); // your LB
+});
+app.UseForwardedHeaders();
+```
+
+**Why:** IP-based rate limiting, geo-fencing, audit logs, and rate limit policies all rely on the correct client IP. If you trust forged headers, they're all bypassable.
+
+**4. Azure considerations.**
+
+| Azure component | IP concept |
+|---|---|
+| **VNet** | Address space (e.g., `10.10.0.0/16`) |
+| **Subnet** | CIDR slice (e.g., `10.10.5.0/24`) |
+| **Private IP** | NIC, VM, internal LB — from the subnet |
+| **Public IP** | Public LB, App Gateway — from Microsoft's pool or reserved |
+| **Private Endpoint** | A private IP in your VNet that maps to an Azure PaaS service (SQL, Storage, Service Bus) |
+| **AKS** | Pod network + service network, both distinct CIDR blocks |
+
+**Principal decision:** Design **addressing, routing, and access rules together.** A private IP alone does not make a service unreachable to an attacker who is already in the VNet, and does not guarantee the routing exists. Private Endpoints require **DNS configuration** to resolve the PaaS hostname to the private IP — a common operational failure.
+
+**5. IP address is NOT identity.**
+
+An IP address identifies a **network location**, not a **person or service**.
+
+- A shared NAT makes thousands of users appear from one public IP.
+- A user can change networks (VPN, mobile) and get a new IP.
+- An attacker can spoof a source IP on UDP packets.
+
+**Never use IP address as your authentication or authorization basis** for anything security-sensitive. Use:
+- **OAuth 2.0 / OIDC** for users (Topic 19)
+- **Managed identities** for Azure resources
+- **mTLS** for service-to-service (Topic 13)
+- **API keys** for third-party integrations
+
+IP allow-listing is a **defense-in-depth** control — useful at the network edge (WAF, firewall) but not a substitute for identity. This is a **Principal-level distinction** that separates architects who understand security layers from those who don't.
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is an IP address?**  
+A **logical address assigned to a network interface** used to identify **source and destination** endpoints for IP communication across interconnected networks. It is **logical** (assigned, changeable) — not **physical** (burned into hardware like a MAC address). It operates at **Layer 3 (Network)** in OSI and the **Internet Layer** in TCP/IP. Without it, routers could not make forwarding decisions that scale beyond a single LAN.
+
+**Q2. What is the difference between IPv4 and IPv6?**  
+**IPv4** uses **32-bit** addresses written in dotted decimal (`192.168.1.10`), giving ~4.3 billion addresses — exhausted at the IANA level in 2011. **IPv6** uses **128-bit** addresses written in hexadecimal (`2001:db8::10`), giving ~3.4 × 10^38 addresses. Beyond size, IPv6 has: **no broadcast** (multicast only), **fixed 40-byte base header** (simpler routing), **SLAAC** (stateless autoconfiguration — no DHCP needed), **no router fragmentation** (senders fragment). The address space difference removes the pressure that made NAT necessary, but IPv6 is not automatically faster or more secure.
+
+**Q3. What is the difference between an IP address and a MAC address?**  
+An **IP address is logical and Layer 3** — assigned, hierarchical, used for routing across networks, changeable when a device moves. A **MAC address is physical and Layer 2** — 48-bit hardware identifier burned into the NIC, flat (no hierarchy), used only for local delivery on the same link. Across routers, the IP header is preserved but the MAC frame is rewritten at each hop. **IP answers "which network and host"; MAC answers "which interface on this link."**
+
+### Intermediate
+
+**Q4. What is the difference between public and private IP addresses?**  
+**Public IPs are globally routable** on the public internet — traffic reaches them from anywhere (subject to firewall rules). **Private IPs use RFC 1918 ranges** (`10/8`, `172.16/12`, `192.168/16`) and are **not routed** on the public internet — traffic leaves a private network only via NAT (Topic 5). Private addresses are not automatically secure — any host inside the network can reach them, so firewall rules, identity, and segmentation are still required.
+
+**Q5. What is loopback?**  
+A reserved address that identifies **your own device**:
+- `127.0.0.1` (IPv4 — entire `127.0.0.0/8` block)
+- `::1` (IPv6)
+
+Traffic to loopback never leaves the machine's network stack. It's used for local testing, local IPC, and services that bind to `localhost` for security. **Common production bug:** binding a server to `127.0.0.1` (often the Kestrel default in development) makes it work via `localhost` but unreachable from any other machine. **The fix is `0.0.0.0` (listen on all interfaces) or the specific external IP.**
+
+**Q6. What is the difference between static and dynamic IP addresses?**  
+**Static** — manually configured or reserved. The interface keeps the same address every time. Used for servers, printers, network gear. **Dynamic** — assigned automatically (DHCP or IPv6 SLAAC). The interface may get a different address when it reconnects. Used for laptops, phones, and anything that moves between networks. **The choice is not about "better"** — servers need stable addresses for DNS and firewall rules; clients prefer the speed and low maintenance of auto-assignment.
+
+**Q7. What is the difference between `0.0.0.0` and `127.0.0.1` in server binding?**  
+Both look like "special" IPs, but they mean opposite things in a `listen()` call:
+- **`0.0.0.0`** — bind to **all IPv4 interfaces**. Incoming connections to **any** IP on this host reach the socket.
+- **`127.0.0.1`** — bind to **loopback only**. Only connections from this machine itself reach the socket.
+
+**The classic failure:** bind to `127.0.0.1`, test with `localhost`, works, then deploy and no one else can reach it. In containers, bind to `0.0.0.0` — otherwise the host cannot forward traffic to the container's loopback.
+
+### Advanced
+
+**Q8. Why can't we use MAC addresses instead of IP addresses for internet routing?**  
+MAC addresses are **flat** — no bits encode network membership. A router would have to maintain **every MAC on Earth** in its table to forward correctly. That's not just impractical — it's structurally impossible (the table would need billions of entries and could never converge). MAC addresses also exist **only on the local link** — routers strip and rewrite them at every hop, so they have no end-to-end meaning.
+
+**IP addresses are hierarchical** — a prefix (Topic 5's CIDR block) represents a **whole network**, so a router needs only routes like "anything starting with `10.10.5.0/24` is over here." The table has millions of routes, not billions of hosts. **This is the entire reason IP exists.**
+
+**Q9. Does a private IP address mean a server is secure?**  
+**No.** Private addresses only restrict **reachability from outside the network**. Anyone already inside the network — a compromised laptop, a misconfigured service, a rogue employee — can reach private services. Security requires:
+- Firewall rules (which traffic is allowed, from where)
+- Identity and authorization (who is calling?)
+- Encryption (TLS)
+- Resource-level access control (can this user read this account?)
+- Audit logging
+
+**"It has a private IP" is never a security argument.** This is a common junior mistake; a Principal Engineer treats it as a network-location fact, not a security property.
+
+**Q10. Why shouldn't a microservice hardcode another service's IP address?**  
+Because the target is **ephemeral**:
+- Kubernetes pods are recreated with new IPs on rollout, node failure, scaling.
+- Cloud VMs may be replaced, rescheduled, or moved.
+- Load balancers abstract backends — clients should speak to the LB, not to backends.
+- Blue-green deployments shift backends.
+
+Hardcoding an IP creates an **invisible operational bomb** — it works until the target moves, then fails at 3 AM with no obvious cause. Use **DNS names** (`http://account-service`) or **service discovery** (Kubernetes Services, Consul, service mesh) — the name is stable, the IP is an implementation detail.
+
+### Scenario-based
+
+**Q11. Your ASP.NET Core API works using `localhost`, but another machine cannot access it. What could be wrong?**  
+The most common answer, in order of likelihood:
+
+1. **The API is bound to `127.0.0.1` (loopback only)** — it works locally because both the client and server are on the same machine. Check Kestrel config or `ASPNETCORE_URLS`. **Fix:** bind to `0.0.0.0` or the specific external IP.
+2. **A host firewall blocks the port** — the OS firewall (Windows Defender, `ufw`, `iptables`) is not allowing inbound on 443.
+3. **The client uses the wrong IP or port** — typo, DNS resolution to wrong host, IPv6 vs IPv4 mismatch.
+4. **Network routing or security rules** — NSG, network ACL, VPN, or subnet isolation is blocking.
+5. **Container networking** — the container binds `0.0.0.0` but the **host** port isn't published (`-p 443:443` missing).
+
+**Investigation order:** `netstat -tlnp` on the server (is it bound to `0.0.0.0`?), `Test-NetConnection` from the client (is 443 reachable?), firewall rules on both ends.
+
+**Q12. You have an API running in Kubernetes. A client calls the pod IP directly. Works fine for weeks, then breaks after a deployment. What happened?**  
+The **pod was recreated** during deployment and got a **new IP**. The client's hardcoded IP still points at the **old pod** — which no longer exists. **This is exactly why Kubernetes Services exist.** The fix:
+
+1. Create a **Service** with a stable name (`account-service.default.svc.cluster.local`).
+2. Clients call `http://account-service`, not the pod IP.
+3. The Service's virtual IP stays stable; kube-proxy load-balances to current pods.
+
+**The lesson:** in any ephemeral compute (K8s, ECS, autoscaling VMs), the IP is an implementation detail — always reference services by name.
+
+**Q13. Your API logs show requests from `10.10.5.10` — the load balancer's IP — but you need the real client IP for rate limiting. What do you do?**  
+The load balancer should forward the original client IP in a header — typically `X-Forwarded-For` (list of hops) or `Forwarded` (RFC 7239). In ASP.NET Core:
+
+1. **Enable the `ForwardedHeaders` middleware:**
+   ```csharp
+   builder.Services.Configure<ForwardedHeadersOptions>(options =>
+   {
+       options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+       options.KnownProxies.Add(IPAddress.Parse("10.10.5.10"));
+   });
+   app.UseForwardedHeaders();
+   ```
+2. **Configure your load balancer** to add/replace the header (e.g., Azure App Gateway, nginx `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for`).
+
+**Critical security note:** `X-Forwarded-For` is a **client-controllable header** unless you strip it at the edge. Configure `KnownProxies` (or `KnownNetworks`) so ASP.NET Core **only trusts headers from known proxies**. Without this, an attacker sends `X-Forwarded-For: 1.2.3.4` and impersonates any IP — breaking rate limiting, geo-blocking, and audit logs.
+
+**Q14. Your service has an `IP allow-list` for admin endpoints. Is that sufficient security?**  
+**No.** IP allow-listing is **defense-in-depth**, not authentication:
+- Users behind the same NAT share an IP — you can't distinguish them.
+- An attacker who compromises a machine inside the allowed range can reach the endpoint.
+- VPNs and mobile IPs change — the allow-list breaks legitimate users.
+- IP spoofing is possible on some protocols (UDP, but not TCP with a completed handshake).
+- Cloud providers reuse IP ranges.
+
+**Correct design:** IP allow-list **plus** strong authentication (OAuth2/OIDC, mTLS, managed identity) **plus** authorization (can this user perform this action?) **plus** audit logging. IP is a coarse network boundary; **identity is the actual security control.**
+
+---
+
