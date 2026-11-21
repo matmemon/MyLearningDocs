@@ -1,0 +1,1889 @@
+
+---
+
+# Topic 8 — TCP vs UDP
+
+Phase 1 · Computer Networking Fundamentals
+
+> **Central question:** When two computers communicate, should the network guarantee the data arrives correctly and in order, or should it prioritise speed and low overhead?
+>
+> **This is the fundamental difference between TCP and UDP.**
+
+> **Adaptation note:** This is the transport layer — the boundary where applications hand bytes to the network. Where the master prompt asks for implementation, I show real .NET TCP/UDP code — because this is where "network theory" becomes "how your app behaves under load."
+
+> **Teaching clarification (frozen syllabus):** **HTTP/3 runs over QUIC, which runs over UDP. QUIC itself provides retransmission, ordering, congestion control, and encryption. UDP alone provides none of these.** The performance gain of HTTP/3 comes from what QUIC does *with* UDP's freedom — not from UDP itself.
+
+> **Boundary note:** Ports (Topic 7) identify TCP/UDP endpoints. IP (Topic 4) is the layer below. TLS (Topic 12) provides security. HTTP versions (Topic 24) sit on top.
+
+> **Gate rule:** No move to Topic 9 until you confirm Topic 8 is solid. Knowledge check at the end.
+
+---
+
+## Why this topic matters for a Principal .NET Engineer
+
+TCP vs UDP affects:
+
+- HTTP/1.1 and HTTP/2 (TCP), HTTP/3 (QUIC over UDP)
+- SQL Server, Kafka, Redis connections (TCP)
+- gRPC (HTTP/2 over TCP), SignalR (WebSockets/SSE/long-poll over TCP)
+- Real-time notifications, market data, VoIP (UDP)
+- Microservice-to-microservice communication
+- **Timeouts, retries, latency, and reliability — the operational concern behind every one of the above**
+
+Getting this choice wrong isn't a "minor performance issue" — it's a design decision that determines whether your system survives lossy networks, delivers payments without duplication, or collapses under retransmission storms.
+
+---
+
+## 1. WHY — Why were two transport protocols required?
+
+### The two scenarios
+
+**Scenario A — Financial transaction:**
+
+```
+BUY 100 shares of ABC
+```
+
+You cannot casually lose part of the communication or silently rearrange the data. **You want reliable, ordered delivery between endpoints.**
+
+**Scenario B — Live video:**
+
+Suppose one video packet is lost. Would you rather:
+
+- **Wait** for retransmission, delaying the video?
+- **Continue** playing newer video and tolerate a brief glitch?
+
+**Usually continuing is preferable.** Retransmission of an old frame has already become useless by the time it arrives.
+
+**These requirements are different, and no single transport can serve both efficiently.**
+
+### The foundation: IP is best-effort
+
+IP (Topic 4) provides addressing and routing. That's all. IP **does not**:
+
+- Guarantee delivery.
+- Guarantee ordering.
+- Detect duplicates.
+- React to network congestion.
+- Signal the application when delivery fails.
+
+**IP's promise:** *"I'll try to deliver this packet. Maybe."*
+
+Applications need to send **files, payments, voice, and video**. Different applications need **very different guarantees**. One transport cannot serve them all.
+
+### The design insight
+
+**RFC 793 (TCP, 1981)** and **RFC 768 (UDP)** proposed a general solution: split transport into **two protocols with different contracts**, letting applications choose.
+
+> **TCP provides reliable ordered byte streams. UDP provides unreliable datagrams. Applications choose.**
+
+This is the **same separation-of-concerns principle as Topic 2** — each layer does one job, so higher layers choose their guarantees.
+
+### Historical context
+
+TCP/IP evolved from the **ARPANET** project. **Cerf and Kahn's 1974 paper** proposed internetworking with reliability baked in. **RFC 791/793 (1981)** separated the addressing layer (IP) from the reliability layer (TCP), enabling UDP (RFC 768) to offer transport without reliability. **Postel's robustness principle** (*"be conservative in what you send, liberal in what you accept"*) shaped the design.
+
+**TCP and UDP exist because no single transport can be both maximally reliable and maximally low-latency, and the internet serves both kinds of applications.**
+
+### The deeper insight
+
+The transport layer is a **contract**:
+
+- **TCP says:** *"I will deliver your bytes, in order, without duplicates, or tell you the connection failed."*
+- **UDP says:** *"I will deliver a message, or drop it, and never tell you which."*
+
+**The contract determines the application's responsibilities.** A TCP app can assume delivery; a UDP app must handle loss or use a higher-level protocol (like QUIC) that rebuilds reliability.
+
+---
+
+## 2. BEFORE — What existed previously?
+
+### A. NCP — the ARPANET predecessor (1970s)
+
+NCP (Network Control Program) **combined** addressing, transport, and reliability into one protocol.
+
+**Strengths:** worked; reliable within ARPANET.
+**Weaknesses:**
+- **No separation.** Couldn't have unreliable/fast transport — NCP always did reliability.
+- **ARPANET-only.** Couldn't route across other networks.
+- **No internetworking.** Adding a second network required a new protocol.
+
+### B. X.25 — reliable virtual circuits (1976)
+
+X.25 provided **reliable virtual circuits** at the network layer — retransmission at every hop.
+
+**Strengths:** genuinely reliable; worked over noisy links.
+**Weaknesses:**
+- **Every hop was stateful.** Routers held per-connection state; retransmitted.
+- **End-to-end latency was high.**
+- **Not suited for voice or real-time.**
+- **Couldn't scale to the internet.**
+
+### C. Vendor protocols (1970s–80s)
+
+- **SNA** (IBM) — reliable, vendor-locked.
+- **DECnet** (DEC) — reliable, vendor-locked.
+- **AppleTalk** (Apple) — unreliable by default.
+
+**None interoperated.** A DEC host couldn't speak SNA.
+
+### The design shift
+
+The 1981 split of TCP/IP into separate layers (RFC 791/793/768) enabled:
+
+- **IP** = addressing and routing (best-effort).
+- **TCP** = reliable transport.
+- **UDP** = datagram transport.
+
+**Layered architecture made per-application transport choice possible.**
+
+### Strengths of the pre-TCP/UDP approach
+
+- **Simplicity of use.** One behaviour — reliable delivery — baked into every application.
+- **Optimized for the medium.** X.25 was reliable on noisy copper links — that mattered when links *were* noisy.
+- **No application responsibility.** The transport did the work.
+
+These strengths still matter — some industrial protocols (Modbus, Profibus) provide reliable delivery at the field level.
+
+---
+
+## 3. PROBLEM — Why isn't IP alone enough?
+
+### What IP does
+
+```
+Client 192.168.1.20 → Network → Server 10.20.1.15
+```
+
+IP routes packets from source to destination. IP **does not** guarantee:
+
+- Delivery.
+- Ordering.
+- Duplicate suppression.
+- Retransmission.
+- Receiver flow control.
+- Congestion control.
+- Application-level acknowledgement.
+
+### The concrete failure
+
+Send three packets:
+
+```
+Packet 1: BUY
+Packet 2: 100
+Packet 3: ABC
+```
+
+The receiver might get:
+
+```
+Packet 1: BUY
+Packet 3: ABC
+Packet 2: 100
+```
+
+Or Packet 2 might never arrive.
+
+**IP does not fix these problems. It cannot — by design, it's stateless and best-effort.**
+
+### The gap
+
+We needed **multiple transports** so applications could choose their guarantees:
+
+- **Reliable** (TCP) — every byte, in order.
+- **Unreliable** (UDP) — low-latency, message-oriented, application controls recovery.
+
+### The end-to-end principle (Saltzer, Reed, Clark, 1981)
+
+> **Network functions should be pushed to the endpoints unless there is a strong reason not to.**
+
+Reliability is a **strong reason** — but only when the application needs it. **TCP puts reliability at the endpoints; UDP doesn't put it anywhere.** Both are correct — for different applications.
+
+### Problem 4 — Congestion collapse (1986)
+
+In 1986, the internet experienced **congestion collapses** — retransmissions amplified load, making things worse. The industry learned that the transport layer **must react to congestion** (TCP's congestion control, added by Van Jacobson, 1988). **A pure "reliable" protocol without congestion control is worse than none** — it collapses the network.
+
+**This is why TCP's reliability is bound to congestion control.** You cannot have "reliable but doesn't back off" in TCP. **UDP is the escape valve** — it doesn't back off (which is why UDP floods are dangerous, and why modern QUIC reintroduces congestion control on top of UDP).
+
+---
+
+## 4. WHAT — What are TCP and UDP?
+
+### Part 1 — TCP (Transmission Control Protocol)
+
+#### Definition
+
+> **TCP** is a **connection-oriented, reliable, ordered byte-stream** transport protocol. It establishes a connection before data transfer, guarantees delivery and ordering, and closes the connection when done.
+
+#### The promises
+
+| Promise | What it means |
+|---|---|
+| **Connection-oriented** | A handshake happens before data flows; both sides agree on the connection |
+| **Reliable** | Every byte sent is either delivered or the connection fails |
+| **Ordered** | Bytes arrive in the order they were sent |
+| **No duplicates** | Retransmissions are deduplicated |
+| **Byte stream** | The application reads a continuous stream of bytes — **no message boundaries** |
+| **Flow-controlled** | The receiver advertises how much data it can accept |
+| **Congestion-controlled** | The sender backs off when the network is overloaded |
+| **Error-detected** | A checksum catches corruption; corrupted segments are discarded and retransmitted |
+
+#### The header (20 bytes minimum)
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Source Port          |       Destination Port        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Sequence Number                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Acknowledgment Number                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Data |           |U|A|P|R|S|F|                               |
+| Offset| Reserved  |R|C|S|S|Y|I|            Window             |
+|       |           |G|K|H|T|N|N|                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           Checksum            |         Urgent Pointer        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+Fields that matter:
+
+| Field | Purpose |
+|---|---|
+| **Sequence Number** | Which byte this segment starts at — enables ordering |
+| **Acknowledgment Number** | Which byte the sender expects to receive next |
+| **Flags** | `SYN`, `ACK`, `FIN`, `RST`, `PSH`, `URG` — control the connection |
+| **Window** | Receiver's available buffer — enables flow control |
+| **Checksum** | Detects header + payload corruption |
+
+#### The three-way handshake
+
+```
+Client                              Server
+   │                                   │
+   │  ──── SYN (seq=x) ────────────►  │
+   │                                   │  (SYN_RECEIVED)
+   │  ◄─── SYN-ACK (seq=y, ack=x+1) ──│
+   │                                   │
+   │  ──── ACK (ack=y+1) ──────────►  │
+   │                                   │
+   │  ◄──────── ESTABLISHED ─────────► │
+   │  (after 1 RTT)                    │
+```
+
+**Cost:** 1 round trip before any data. On a 100ms RTT link, that's **100ms of added latency** per new connection.
+
+**This is why QUIC does its handshake in 1 RTT or 0-RTT** — combining the transport handshake with the TLS handshake (Topic 12).
+
+#### What TCP doesn't do
+
+TCP **does not preserve message boundaries.** Send `"HELLO"` and `"WORLD"` — the receiver might read `"HELLOWORLD"` in one read, or `"HEL"` and `"LOWORLD"` in two. **TCP is a byte stream, not a message protocol.**
+
+Applications must **frame messages themselves** — length-prefix, delimiter, or use a protocol (HTTP, gRPC) that frames.
+
+---
+
+### Part 2 — UDP (User Datagram Protocol)
+
+#### Definition
+
+> **UDP** is a **connectionless, unreliable datagram** protocol. Every send produces one datagram; the datagram may arrive, may not, may arrive out of order, and may arrive twice. UDP provides no guarantees beyond optional checksum.
+
+#### The promises
+
+| Promise | What it means |
+|---|---|
+| **Connectionless** | No handshake; every datagram is independent |
+| **Message-oriented** | Each `sendto()` produces one datagram; each `recvfrom()` returns one. **Message boundaries are preserved** |
+| **Unreliable** | The datagram may be lost. UDP will not retransmit |
+| **Unordered** | Datagrams may arrive out of order |
+| **No duplicates protection** | A datagram may arrive twice |
+| **No flow control** | The receiver's buffer can overflow |
+| **No congestion control** | Sender unconstrained; network may collapse |
+| **Checksum** | Optional; detects corruption (mandatory in IPv6) |
+
+#### The header (8 bytes — fixed)
+
+```
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Source Port          |       Destination Port        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|            Length             |           Checksum            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+```
+
+**8 bytes.** That's the entire header. No sequence, no ACK, no window — just ports, length, checksum.
+
+#### What UDP actually provides
+
+Only:
+
+- **Multiplexing** (ports) — many apps share one IP (Topic 7).
+- **Optional integrity** (checksum).
+- **Message boundaries** — datagrams preserve send boundaries.
+
+**Everything else (reliability, ordering, congestion control) is the application's job.**
+
+---
+
+### Part 3 — The QUIC nuance (the critical clarification)
+
+**HTTP/3 runs over QUIC, which runs over UDP.** This often confuses people because UDP is unreliable — how can HTTP, which requires reliability, run over it?
+
+**The answer:** QUIC is a **transport protocol implemented in userspace** on top of UDP. QUIC provides:
+
+- **Connection establishment** (own handshake, 1-RTT or 0-RTT on reconnect)
+- **Reliability** (per-stream ACKs, retransmission)
+- **Ordering** (per-stream — see below)
+- **Congestion control** (own algorithm, usually CUBIC or BBR)
+- **Flow control**
+- **Encryption** (TLS 1.3 integrated — no separate handshake)
+
+**UDP itself provides none of this.** UDP is a **raw datagram carrier**. **QUIC builds the reliability on top.**
+
+#### Why UDP instead of TCP for QUIC?
+
+Three reasons:
+
+1. **TCP is ossified.** Changing TCP requires OS kernel changes — browsers, servers, and applications can't change TCP. QUIC runs in userspace, so it can evolve rapidly.
+2. **TCP has head-of-line blocking.** A lost segment in TCP blocks **all later data** — even data for other streams. QUIC's per-stream ordering eliminates this.
+3. **Handshake latency.** TCP+TLS 1.3 = 2 RTT before data. QUIC combines transport + TLS into 1 RTT — or **0-RTT on reconnect** using a cached ticket. **Caveat: 0-RTT is replayable** (the first flight can be replayed by an attacker); applications must handle this.
+
+#### The clarification in one sentence
+
+> **UDP is unreliable by design. QUIC implements reliability, ordering, congestion control, and encryption in userspace on top of UDP. HTTP/3 runs over QUIC, not over bare UDP.**
+
+**This is why "UDP is used for gaming" and "UDP is used for HTTP/3" are both true — they use UDP for different reasons.** Gaming uses UDP for low latency. QUIC uses UDP for freedom from TCP's constraints while rebuilding TCP's reliability.
+
+---
+
+### Part 4 — The connection concept
+
+A **TCP connection** is a **4-tuple** (Topic 7):
+
+```
+(src IP, src port, dst IP, dst port)
+```
+
+The connection is **stateful**. Both endpoints track:
+
+- Sequence numbers (what's been sent, what's been ACKed).
+- Window (receiver's buffer space).
+- Congestion state (slow start, congestion avoidance).
+- Timers (retransmission, keep-alive, TIME_WAIT).
+
+A **UDP "connection"** is a **lie**. UDP has no connection. The tuple `(src IP, src port, dst IP, dst port)` identifies a **flow** for the OS's bookkeeping, but the endpoints track **nothing**. Each datagram is independent.
+
+**Terminology matters:** "UDP connection" is commonly used but is inaccurate. UDP flows are convenient identifiers, not established connections.
+
+---
+
+### Part 5 — TCP vs UDP — basic comparison
+
+| Feature | TCP | UDP |
+|---|---|---|
+| **Connection-oriented** | Yes | No |
+| **Reliability** | Built-in | Not built-in |
+| **Ordered delivery** | Yes | No |
+| **Retransmission** | Yes | No |
+| **Flow control** | Yes | No |
+| **Congestion control** | Yes (built-in transport-level) | No built-in transport-level mechanism |
+| **Message boundaries** | No — byte stream | Yes — datagrams |
+| **Header size** | 20 bytes minimum | 8 bytes |
+| **Typical use** | APIs, databases, files | DNS, real-time media, QUIC transport |
+
+**Important:** UDP's checksum detects corruption — it does not **repair** lost or corrupted data.
+
+---
+
+## 5. FEATURES — What does each protocol provide?
+
+### TCP features
+
+| Feature | How it works | What it solves |
+|---|---|---|
+| **Connection establishment** | Three-way handshake (SYN → SYN-ACK → ACK) | Both sides agree the connection exists |
+| **Reliability** | Sequence numbers, ACKs, retransmission on timeout or dup-ACK | Every byte delivered or connection fails |
+| **Ordering** | Sequence numbers reassemble in order | Bytes arrive in send order |
+| **Deduplication** | Duplicate segments discarded | No double-delivery |
+| **Flow control** | Receiver advertises window; sender limits in-flight data | Prevents receiver buffer overflow |
+| **Congestion control** | Slow start, congestion avoidance (AIMD), fast recovery | Prevents network collapse |
+| **Graceful close** | FIN handshake | Both sides agree the transfer is complete |
+| **Abort close** | RST | Immediate termination without handshake |
+| **Error detection** | Checksum over header + payload | Corruption caught |
+| **Selective Acknowledgement (SACK)** | Receiver reports non-contiguous received ranges | Faster recovery from multiple losses |
+| **Keep-alive** (optional) | Probe idle connections | Detect dead peers (default off) |
+
+### UDP features
+
+| Feature | How it works | What it solves |
+|---|---|---|
+| **Connectionless send** | Every datagram independent | Low overhead per message |
+| **Message-oriented** | Datagram boundaries preserved | Receiver gets discrete messages |
+| **Low latency** | No handshake, no ACK | First byte goes immediately |
+| **Multicast / broadcast** | `sendto()` to a multicast group | One-to-many delivery |
+| **Minimal header** | 8 bytes | Low protocol overhead |
+| **No connection state** | No per-flow kernel state | Scalable to many endpoints |
+| **No retransmission** | Loss is silent | No retransmission storms |
+| **No congestion control** | Sender unconstrained | Low latency for gaming, telemetry |
+| **Optional checksum** | Can be disabled (rarely wise) | Saves a little CPU |
+| **Stateless servers** | No state per client | Easy to scale |
+
+### Why message boundaries matter
+
+```
+Message 1: HELLO
+Message 2: WORLD
+```
+
+- **UDP** — two distinct datagrams. The receiver gets `"HELLO"` and `"WORLD"` as separate messages.
+- **TCP** — a continuous byte stream. The receiver might get `"HELLOWORLD"` in one read, or `"HEL"` and `"LOWORLD"` in two, or `"HELLOW"` and `"ORLD"` — TCP makes no promise about boundaries.
+
+**This is a crucial concept when implementing custom TCP protocols in .NET.** Common framing strategies:
+
+| Framing | Structure | When to use |
+|---|---|---|
+| **Fixed-length** | Every message is exactly N bytes | Binary protocols with fixed-size frames |
+| **Delimiter-based** | `"HELLO\n"` — newline or null terminates | Text protocols, simple |
+| **Length-prefix** | `[length: 4 bytes][payload: N bytes]` | Binary, robust, most common in production |
+
+**Length-prefix example:**
+
+```
+Length: 5
+Payload: HELLO
+```
+
+The receiver reads the 4-byte length first, then exactly that many bytes. **This is how most binary protocols work** — gRPC (via HTTP/2 framing), Redis (RESP), etc.
+
+### Nagle's algorithm — the flow control feature that hurts latency
+
+**Nagle coalesces small writes into one segment.** If you write 10 bytes ten times, Nagle may send one 100-byte segment instead of ten small ones — reducing per-packet header overhead.
+
+**Why it matters:**
+
+- **Good for bulk transfer** — coalescing reduces overhead.
+- **Bad for interactive protocols** — combined with **delayed ACK**, produces up to **200ms latency** per round-trip.
+
+**The interaction:**
+
+```
+Client writes "A" (small)
+   → Nagle holds it (waiting for more data or ACK)
+Server receives "A"
+   → Delayed ACK holds the ACK (waiting for more data or 40ms)
+Client's Nagle waits for the ACK
+   → Client holds the next write for 40–200ms
+
+Result: small request-response cycles pay 40–200ms per round.
+```
+
+**Fix:** disable Nagle — `TcpClient.NoDelay = true` in .NET. Modern HTTP clients do this by default (`.NET SocketsHttpHandler` does).
+
+**When to keep Nagle on:** bulk transfers, batch-oriented writes.
+
+**TCP keep-alive** is another common source of confusion. It probes the connection after **2 hours of idle** (Linux default) by sending an empty ACK. If the peer doesn't respond, the connection is closed. **For applications**, set `TCP_KEEPIDLE`, `TCP_KEEPINTVL`, `TCP_KEEPCNT` to reasonable values, or use `SocketsHttpHandler.KeepAlivePingDelay` (Topic 6). **TCP keep-alive is not application heartbeat** — see Topic 36.
+
+---
+
+## 6. COMPARISON — TCP vs UDP in practice
+
+### 6.A — Practical scenario mapping
+
+| Scenario | Typical choice | Why |
+|---|---|---|
+| Banking REST API | **TCP** | Reliable, ordered byte stream |
+| SQL Server connection | **TCP** | Reliable database communication |
+| Kafka broker communication | **TCP** | Reliable, ordered transport |
+| File transfer | **TCP** | Complete, ordered data |
+| Traditional DNS query | **UDP** (with TCP fallback) | Small request/response; low overhead |
+| Live voice / video | **Often UDP-based** | Timeliness can matter more than retransmitting old data |
+| Online gaming | **Often UDP-based** | Low latency; app-controlled recovery |
+| **HTTP/3** | **QUIC over UDP** | Reliable streams with QUIC-managed recovery + congestion control |
+| **gRPC** | **TCP** (HTTP/2) | Reliability required |
+| **SignalR** | **TCP** (WebSockets/SSE/long-poll) | Reliability required |
+
+**Important exception:** UDP does not automatically mean unreliable application behaviour. **QUIC uses UDP as its underlying transport but implements reliability, congestion control, encryption and ordered delivery within its own stream abstractions.**
+
+### 6.B — Ten-dimension comparison
+
+| Dimension | TCP | UDP |
+|---|---|---|
+| **Architecture** | Connection-oriented; stateful per connection | Connectionless; stateless |
+| **Working mechanism** | Handshake → data with ACKs → FIN close | Independent datagrams, no state |
+| **Performance (throughput)** | High, with flow + congestion control | High, unconstrained (can cause collapse) |
+| **Performance (latency)** | Higher — handshake, ACKs, Nagle, delayed ACK | Lower — no handshake, no ACK |
+| **Scalability** | Per-connection state at endpoints | No per-connection state |
+| **Reliability** | Guaranteed delivery, ordering, no duplicates | None — silent loss, out-of-order, duplicate possible |
+| **Security** | TLS over TCP is standard | DTLS, or hand-rolled crypto |
+| **Complexity** | Lower for the application (reliability is free) | Higher (application must handle loss, ordering) |
+| **Maintenance** | Well-understood; mature tooling | Application must implement what TCP provides |
+| **Failure handling** | Retransmits, backs off, aborts on failure | Silent loss; app decides |
+
+**Why each difference matters:**
+
+- **Latency vs reliability is a fundamental trade.** TCP's guarantees require **waiting** (ACKs, retransmissions, congestion control). UDP's speed requires **not waiting** — which means silent loss.
+- **State per connection** — millions of TCP connections = millions of pieces of state. UDP has none.
+- **Congestion control** — TCP backs off under load; UDP doesn't. **A network dominated by UDP without control collapses** (this is why modern QUIC reintroduces congestion control).
+- **Multicast and broadcast** — TCP can't. UDP can. This is why **DNS, DHCP, streaming, and gaming** use UDP.
+
+### 6.C — TCP's head-of-line blocking
+
+```
+Packet 1 → received
+Packet 2 → lost
+Packet 3 → received
+Packet 4 → received
+```
+
+TCP **must** preserve byte-stream order. The application cannot consume bytes past the missing range as if the gap didn't exist — it must wait for recovery.
+
+**This is head-of-line (HOL) blocking.** It affects latency even when later packets have already reached the receiver.
+
+**Consequences:**
+
+- **HTTP/1.1** — one request per connection at a time; HOL is per-request.
+- **HTTP/2** — many concurrent requests share one TCP connection; **one lost packet stalls all of them**.
+- **HTTP/3 (QUIC)** — separate streams; a lost packet in stream A doesn't block stream B. **This is the primary reason HTTP/3 exists.**
+
+### 6.D — The Principal-level insight on HTTP versions
+
+**Don't assume "newer HTTP version is always faster."** On **lossy networks** (mobile, congested Wi-Fi), **HTTP/2 over TCP can be *worse* than HTTP/1.1 with 6 parallel connections** — because a single lost packet in HTTP/2 stalls all 100 concurrent requests, whereas HTTP/1.1's 6 connections each fail independently.
+
+**HTTP/3 solves this properly** — but only if UDP is not blocked (some corporate networks block UDP egress; the client must fall back to HTTP/2).
+
+**Test on real networks. Benchmark on mobile. Don't trust synthetic clean-network benchmarks.**
+
+### 6.E — Decision flow
+
+**What does the application need?**
+
+- **Reliable, ordered byte stream** → **TCP** (APIs, databases, file transfer)
+- **Datagrams, application-controlled delivery** → **UDP** (DNS, real-time media, QUIC foundation)
+- **Reliability + low latency + no HOL blocking** → **QUIC over UDP** (HTTP/3, modern custom protocols)
+
+**This is a starting point, not a universal rule. Application protocols can add reliability over UDP.**
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### TCP
+
+| Advantages | Disadvantages |
+|---|---|
+| Reliable byte delivery | More protocol overhead |
+| Ordered data delivery | Connection establishment takes time (1 RTT) |
+| Retransmission of lost data | Retransmission can increase latency |
+| Flow control | **Head-of-line blocking** |
+| Congestion control | Connection state consumes resources |
+| Widely supported | **Nagle + delayed ACK can add 200ms** |
+| TLS integration is universal | Ossified (kernel-level; slow to change) |
+| Mature tooling | TIME_WAIT accumulation |
+
+### UDP
+
+| Advantages | Disadvantages |
+|---|---|
+| Small header (8 bytes) | No built-in reliable delivery |
+| No TCP handshake | No built-in ordering |
+| Preserves datagram boundaries | Application may need to handle loss |
+| Supports multicast | No built-in flow control |
+| Useful for latency-sensitive | No built-in congestion control |
+| Useful foundation for QUIC | Application must implement what TCP provides |
+| Stateless servers scale trivially | **Amplification attack vector** (DNS, NTP, memcached) |
+| | MTU / fragmentation must be handled |
+
+### A common misconception
+
+> **"UDP is always faster than TCP."**
+
+**Not necessarily true.** UDP has less built-in transport machinery, but actual application performance depends on:
+
+- Network latency.
+- Packet loss.
+- Congestion.
+- Application protocol.
+- Retransmission strategy.
+- Connection reuse.
+- Data size.
+- Network path.
+
+A UDP application that must repeatedly retry lost messages can be **slower and more complex** than a well-designed TCP application.
+
+### When the pre-TCP/UDP approach is still correct
+- **Field-level industrial protocols** — Modbus, Profibus. Deterministic, local, not IP-based.
+- **Hard real-time systems** — automotive CAN, aviation ARINC. Latency-bound.
+- **Very resource-constrained** — a 2 KB RAM microcontroller cannot run a TCP stack.
+
+**Honest take:** TCP is the **right default** for most applications. UDP is the **right choice** when latency, multicast, or statelessness dominate — or when you want to build your own transport (QUIC). **UDP without a plan is just "I hope nothing goes wrong."**
+
+---
+
+## 8. WHEN — When to use TCP vs UDP?
+
+### Use TCP when
+- Every byte matters.
+- Data must be delivered in order.
+- The application expects a reliable stream.
+- You're implementing conventional REST APIs.
+- Communicating with SQL Server, Kafka, Redis, gRPC, SignalR.
+- Transferring files.
+
+### Use UDP when
+- You need independent datagrams.
+- Low latency is a priority.
+- Losing an occasional update is acceptable.
+- The application has its own loss-recovery strategy.
+- You need multicast or broadcast.
+- Building a protocol such as QUIC over UDP.
+
+### Use neither alone (build on top)
+
+| Requirement | Choice |
+|---|---|
+| **HTTP/3 (low latency + reliability)** | **QUIC over UDP** — QUIC provides the reliability UDP lacks |
+| **Real-time with guarantees (WebRTC)** | **RTP/RTCP over UDP** — reliability where it matters |
+| **Low-latency multiplayer with reliability** | **Custom UDP** with selective reliability |
+
+### Scenario decisions
+
+| Scenario | Choice | Why |
+|---|---|---|
+| Public HTTPS API | **TCP** (HTTP/2) | Standard; reliability; TLS |
+| Mobile-optimized HTTPS | **QUIC over UDP** (HTTP/3) | Lower handshake; HOL-block elimination |
+| Video call | **UDP** (RTP) | Loss tolerance; low latency |
+| File upload | **TCP** | Every byte must arrive |
+| DNS query | **UDP** (with TCP fallback) | Small; retry at app level |
+| Online game state | **UDP** | Latest state matters, not old |
+| Game chat (text) | **TCP** (or WebSocket) | Text must arrive |
+| Metrics scraping | **UDP** (StatsD, syslog) | Losing some samples is fine |
+| Database connection | **TCP** | Reliability essential |
+| IoT telemetry | **UDP** or **MQTT over TCP** | Depends on guarantee |
+
+### Banking example — two workloads
+
+**Workload A — Place an order:**
+
+```
+Client → Trading API → Order service
+```
+
+The communication **must be dependable**. HTTPS API uses **TCP** (HTTP/1.1 or /2).
+
+**Workload B — Live market-price updates:**
+
+```
+Market data source → Client
+```
+
+A system **may use UDP-based market-data protocols** because timeliness is critical and the application can handle sequence numbers, gaps and recovery.
+
+**The important lesson:** a banking platform can legitimately use both TCP and UDP. **Choose per-stream, not globally.**
+
+### Principal Engineer framing
+
+A Principal Engineer doesn't ask "TCP or UDP?" — they ask:
+
+1. **What's the latency budget?** Sub-100ms → UDP or QUIC. Tens of ms → TCP fine.
+2. **What's the loss tolerance?** Zero loss → TCP. Losing 5% is fine → UDP.
+3. **What does the network look like?** Clean, low-loss → either. Lossy → the choice matters.
+4. **What's the operational burden?** TCP's tooling is mature. UDP requires custom diagnostics, custom congestion control, custom everything.
+5. **Can I afford to implement reliability myself?** If not, TCP. If yes, UDP + custom transport (like QUIC).
+6. **Does the protocol need multicast?** TCP can't. UDP can.
+
+**The default is TCP.** UDP is chosen for a specific reason, not to "go faster." **The Principal-level insight: the fastest transport is often TCP with `TCP_NODELAY` and a well-tuned application, not UDP with a naive protocol on top.**
+
+---
+
+## 9. HOW — Practical implementation in .NET
+
+### A. TCP in .NET — TcpListener / TcpClient
+
+```csharp
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+// ──── Server ────
+var listener = new TcpListener(IPAddress.Any, 9000);
+listener.Start();
+Console.WriteLine("TCP server listening on 0.0.0.0:9000");
+
+while (true)
+{
+    using var client = await listener.AcceptTcpClientAsync();
+    client.NoDelay = true;                                  // ← TCP_NODELAY
+
+    using var stream = client.GetStream();
+    var buffer = new byte[4096];
+    int read = await stream.ReadAsync(buffer);
+    var msg = Encoding.UTF8.GetString(buffer, 0, read);
+    Console.WriteLine($"Received: {msg}");
+
+    await stream.WriteAsync(Encoding.UTF8.GetBytes("ACK\n"));
+}
+```
+
+```csharp
+// ──── Client ────
+using var tcp = new TcpClient();
+tcp.NoDelay = true;                                        // ← TCP_NODELAY
+await tcp.ConnectAsync("10.20.1.15", 9000);
+
+using var stream = tcp.GetStream();
+await stream.WriteAsync(Encoding.UTF8.GetBytes("HELLO\n"));
+
+var buffer = new byte[4096];
+int read = await stream.ReadAsync(buffer);
+Console.WriteLine($"Response: {Encoding.UTF8.GetString(buffer, 0, read)}");
+```
+
+**What this shows:**
+
+| Line | Concept |
+|---|---|
+| `IPAddress.Any, 9000` | Port binding (Topic 7) |
+| `AcceptTcpClientAsync()` | Creates a **new connected socket** per client |
+| `NoDelay = true` | **TCP_NODELAY** — disable Nagle |
+| `ReadAsync` | Reads from the **byte stream** — no message boundaries |
+| `WriteAsync` | Writes to the **byte stream** |
+
+**The critical caveat:** TCP **does not preserve message boundaries**. The application **must frame messages**:
+
+```csharp
+// Length-prefixed framing
+await stream.WriteAsync(BitConverter.GetBytes(msgBytes.Length));
+await stream.WriteAsync(msgBytes);
+
+// Receiving
+var lengthBuffer = new byte[4];
+await stream.ReadExactlyAsync(lengthBuffer);               // .NET 7+
+int length = BitConverter.ToInt32(lengthBuffer);
+var payload = new byte[length];
+await stream.ReadExactlyAsync(payload);
+```
+
+**`ReadExactlyAsync`** (added in .NET 7) is essential — plain `ReadAsync` may return fewer bytes than requested. **Reading the wrong number of bytes from a stream is one of the most common TCP bugs.**
+
+---
+
+### B. UDP in .NET — UdpClient
+
+```csharp
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+// ──── Server ────
+var udpServer = new UdpClient(9001);            // bind 0.0.0.0:9001
+Console.WriteLine("UDP server listening on 0.0.0.0:9001");
+
+while (true)
+{
+    var result = await udpServer.ReceiveAsync();
+    var msg = Encoding.UTF8.GetString(result.Buffer);
+    Console.WriteLine($"Received from {result.RemoteEndPoint}: {msg}");
+
+    await udpServer.SendAsync(Encoding.UTF8.GetBytes("ACK\n"), result.RemoteEndPoint);
+}
+```
+
+```csharp
+// ──── Client ────
+var udpClient = new UdpClient();
+var server = new IPEndPoint(IPAddress.Parse("10.20.1.15"), 9001);
+
+await udpClient.SendAsync(Encoding.UTF8.GetBytes("HELLO\n"), server);
+
+udpClient.Client.ReceiveTimeout = 1000;      // 1 second
+try
+{
+    var response = await udpClient.ReceiveAsync();
+    Console.WriteLine($"Response: {Encoding.UTF8.GetString(response.Buffer)}");
+}
+catch (SocketException ex) when (ex.SocketErrorCode == SocketError.TimedOut)
+{
+    Console.WriteLine("No response — datagram may have been lost");
+}
+```
+
+**What this shows:**
+
+| Line | Concept |
+|---|---|
+| `new UdpClient(9001)` | Bind port 9001 (Topic 7) |
+| `ReceiveAsync()` | **One datagram** — message boundaries preserved |
+| `result.RemoteEndPoint` | UDP "connection" identifier — the sender's endpoint |
+| `ReceiveTimeout = 1000` | **No built-in reliability** — app handles timeouts |
+| `SendAsync(data, endpoint)` | Each send is independent |
+
+**The critical difference:** with UDP, **loss is silent**. If the ACK is lost, the client sees a timeout. If the request is lost, the server never receives it. **The application decides what to do — retry, give up, or ignore.**
+
+---
+
+### C. HttpClient over TCP (the common case)
+
+```csharp
+using var client = new HttpClient();
+var response = await client.GetAsync("https://trading-api.company.com/api/orders");
+```
+
+**This uses TCP underneath.** `HttpClient` (with its `SocketsHttpHandler`) opens a TCP connection, negotiates TLS, sends HTTP. Connection pooling reuses TCP connections across requests.
+
+**You don't manage TCP directly** — the handler does. But the tuning knobs are there:
+
+```csharp
+var handler = new SocketsHttpHandler
+{
+    PooledConnectionLifetime = TimeSpan.FromMinutes(5),     // re-resolves DNS (Topic 6)
+    MaxConnectionsPerServer = 100,
+    KeepAlivePingDelay = TimeSpan.FromSeconds(60),
+    KeepAlivePingTimeout = TimeSpan.FromSeconds(30),
+};
+```
+
+**`SocketsHttpHandler` disables Nagle by default.** This is why .NET HTTP clients don't suffer the Nagle + delayed ACK 200ms problem. **Custom raw TCP sockets must disable it explicitly with `NoDelay = true`.**
+
+---
+
+### D. gRPC — HTTP/2 over TCP
+
+gRPC uses **HTTP/2 over TCP** by default. **One TCP connection multiplexes many gRPC calls.**
+
+```csharp
+builder.Services.AddGrpcClient<TradingService.TradingServiceClient>(o =>
+{
+    o.Address = new Uri("https://trading-api.company.com");
+});
+```
+
+**Why gRPC chose TCP:**
+
+- **Reliability** — every protobuf message matters.
+- **Ordering** — for streaming semantics.
+- **HTTP/2 multiplexing** — many concurrent calls on one connection.
+- **Mature ecosystem** — TLS over TCP is standard.
+
+**gRPC-Web** also uses TCP. **gRPC over HTTP/3** exists (running on QUIC/UDP) but is less common.
+
+---
+
+### E. HTTP/3 — QUIC over UDP
+
+```csharp
+// HttpClient supports HTTP/3 in .NET 5+
+var handler = new SocketsHttpHandler();
+
+var client = new HttpClient(handler);
+client.DefaultRequestVersion = HttpVersion.Version30;
+client.DefaultVersionPolicy = HttpVersionPolicy.RequestVersionOrLower;
+
+var response = await client.GetAsync("https://trading-api.company.com/api/orders");
+```
+
+**What this shows:**
+
+- The same `GetAsync` API.
+- HTTP/3 uses **QUIC over UDP**.
+- QUIC provides reliability, ordering, congestion control — **that UDP itself does not**.
+- Falls back to HTTP/2 (TCP) if HTTP/3 isn't available.
+
+**This is the QUIC clarification in code form.** The application code is identical. The transport beneath is different. **QUIC is the reliability layer; UDP is the packet carrier.**
+
+---
+
+### F. SignalR — WebSockets over TCP
+
+SignalR uses **WebSockets over TCP** by default.
+
+```csharp
+// Server
+app.MapHub<NotificationHub>("/hubs/notifications");
+
+// Client
+var hub = new HubConnectionBuilder()
+    .WithUrl("https://trading-api.company.com/hubs/notifications")
+    .Build();
+await hub.StartAsync();
+```
+
+**SignalR's transport ladder** (Topic 42):
+1. WebSockets (over TCP)
+2. Server-Sent Events (over TCP)
+3. Long Polling (over TCP)
+
+**All over TCP.** SignalR's abstractions (hubs, groups) don't change the transport.
+
+---
+
+### G. How common technologies use them
+
+| Technology | Typical transport |
+|---|---|
+| ASP.NET Core HTTPS API | TCP (HTTP/1.1, HTTP/2); QUIC/UDP for HTTP/3 |
+| SQL Server | TCP |
+| Kafka | TCP |
+| Redis | TCP by default |
+| DNS | UDP commonly; TCP also used |
+| SSH | TCP |
+| QUIC | UDP |
+| RTP media | Often UDP |
+
+**Always check the actual deployment and configuration.** A service's default port or transport can be changed.
+
+---
+
+## 10. INTERNAL WORKING — Complete TCP and UDP lifecycle
+
+### A. TCP lifecycle — end to end
+
+Suppose your .NET application calls:
+
+```csharp
+await client.GetAsync("https://trading-api.company.com/api/orders");
+```
+
+Assume HTTP/1.1 or HTTP/2 over TCP.
+
+#### Step 1 — DNS resolution (Topic 6)
+
+```
+trading-api.company.com → 10.20.1.15
+```
+
+DNS gives the client the destination IP. It does **not** establish the TCP connection.
+
+#### Step 2 — Socket creation and ephemeral port
+
+The client obtains a socket and a local ephemeral port:
+
+```
+Client: 192.168.1.20:52000
+```
+
+#### Step 3 — Three-way handshake (1 RTT)
+
+```
+Client                              Server
+   │  ──── SYN (seq=x) ────────────►  │
+   │                                   │  (SYN_RECEIVED)
+   │  ◄─── SYN-ACK (seq=y, ack=x+1) ──│
+   │                                   │
+   │  ──── ACK (ack=y+1) ──────────►  │
+   │  ◄──────── ESTABLISHED ─────────► │
+```
+
+#### Step 4 — TLS handshake (for HTTPS, +1–2 RTT)
+
+After TCP is established, TLS negotiates encryption and authenticates the server via its certificate.
+
+**Caveat:** TLS 1.3 can complete in 1 RTT after TCP. **Combined cost: 2 RTT before any application data.**
+
+**This is exactly what QUIC eliminates** — merging transport + TLS into 1 RTT (or 0-RTT on reconnect).
+
+#### Step 5 — Data transmission with ACKs, sequence numbers
+
+```
+Client                              Server
+   │  ──── DATA [seq=1, len=1000] ──►  │
+   │  ──── DATA [seq=1001, len=1000] ►│
+   │                                   │
+   │  ◄──── ACK [ack=2001, win=65536] ─│
+   │  ──── DATA [seq=2001, len=1000] ──►│
+```
+
+**What's happening:**
+
+- **Sequence numbers** — each segment carries the byte offset of its first byte.
+- **ACKs** — receiver acknowledges the highest contiguous byte received.
+- **Window** — receiver says "I have 64 KB free; don't send more than that without an ACK."
+
+**Retransmission:** if the sender doesn't receive an ACK within the **retransmission timeout (RTO)**, it resends. Multiple consecutive ACKs for the same byte (dup-ACKs) can trigger **fast retransmit** before RTO fires.
+
+**SACK (Selective Acknowledgement)** — the receiver can report non-contiguous received ranges, so the sender retransmits only the truly lost segments, not everything after the gap.
+
+#### Step 6 — Sequence number example
+
+```
+Segment A: bytes 1–100
+Segment B: bytes 101–200
+Segment C: bytes 201–300
+```
+
+Suppose segment B is lost:
+
+```
+Sender                         Receiver
+A ──────────────────────────► Received
+B ────────X                    Lost
+C ──────────────────────────► Received, but gap remains
+```
+
+TCP detects the missing data and recovers it through retransmission. **The receiving application gets the ordered byte stream — never a stream with missing bytes silently skipped.**
+
+**ACK semantics:**
+
+```
+Received bytes: 1–100
+ACK: 101
+```
+
+The receiver has received through byte 100, expecting byte 101 next. **TCP can acknowledge cumulatively** (and modern TCP also uses SACK).
+
+#### Step 7 — Flow control vs congestion control
+
+**Two separate mechanisms that are often confused:**
+
+| Mechanism | Protects | How |
+|---|---|---|
+| **Flow control** | The **receiver** | Receive window — how much buffer the receiver can accept |
+| **Congestion control** | The **network** | Congestion window (cwnd) — how much data the sender can have in flight |
+
+**Flow control:** the sender limits in-flight data to the receiver's advertised window. When the buffer drains, the window grows; when full, it shrinks (down to zero — the sender stops).
+
+**Congestion control — the algorithm:**
+
+**Slow start:**
+
+- Connection starts with a small **cwnd** (e.g., 10 segments).
+- On each ACK, cwnd **doubles** (exponential growth).
+- Continues until cwnd reaches **ssthresh** (slow-start threshold).
+
+**Congestion avoidance (AIMD — Additive Increase, Multiplicative Decrease):**
+
+- Once ssthresh is reached, cwnd grows **linearly** (one segment per RTT).
+- On any loss event (RTO or dup-ACKs), cwnd is **halved** (multiplicative decrease).
+
+**Fast recovery:**
+
+- After a single dup-ACK (fast retransmit), TCP can recover without dropping to slow start — it drops cwnd to ssthresh and continues in congestion avoidance.
+
+**Why this matters for the application:**
+
+- **Throughput is window-limited.** A high-bandwidth, high-latency link (a "long fat pipe") has a hard throughput ceiling: **`throughput ≤ window_size / RTT`**. This is why **window scaling (RFC 1323)** matters for international connections.
+- **Loss is catastrophic for throughput.** A 0.1% loss rate on a long fat pipe can cut throughput by 50% or more.
+- **Congestion control is per-connection.** Twenty connections share the network better than one big one — which is why browsers open many TCP connections (Topic 24).
+
+**Modern congestion control algorithms:**
+
+- **CUBIC** (Linux default) — better for high-bandwidth links.
+- **BBR** (Google) — model-based, ignores loss as a congestion signal; dramatically better on lossy networks.
+- **QUIC supports BBR** — and can iterate faster than TCP (userspace).
+
+**The QUIC difference:** QUIC uses the same congestion control principles but implements them in **userspace**. It can iterate quickly; TCP requires kernel changes.
+
+#### Step 8 — Graceful close (four-way)
+
+```
+Client                              Server
+   │  ──── FIN ─────────────────►  │
+   │                                │  (CLOSE_WAIT)
+   │  ◄─── ACK ─────────────────── │
+   │                                │
+   │  ◄─── FIN ─────────────────── │
+   │                                │
+   │  ──── ACK ─────────────────►  │  (TIME_WAIT on client, 2×MSL)
+```
+
+**Who enters TIME_WAIT?** The **active closer**. In HTTP with `Connection: close`, usually the server. In HTTP keep-alive, connections stay `ESTABLISHED` until idle timeout or max-requests.
+
+**RST (reset) vs FIN (graceful close):**
+
+- **FIN** — graceful; the side says "I have no more data to send."
+- **RST** — immediate abort; used when the connection is invalid, the peer crashed, or an application closes abruptly.
+
+**Client-side "connection reset" usually means the server sent RST** — the process crashed, the socket was invalidated, or a firewall/LB reset the connection.
+
+---
+
+### B. UDP lifecycle — much simpler
+
+```
+Application
+     │
+     ▼
+Create UDP datagram
+     │
+     ▼
+Add source/destination ports
+     │
+     ▼
+Add UDP checksum
+     │
+     ▼
+IP packet
+     │
+     ▼
+Network
+     │
+     ▼
+Receiver's UDP socket
+     │
+     ▼
+Application
+```
+
+There is:
+
+- **No handshake.**
+- **No built-in acknowledgement.**
+- **No built-in retransmission.**
+- **No connection state.**
+
+The receiving application gets the datagram **if** it reaches the socket and the OS accepts it.
+
+**UDP packet loss example:**
+
+Sender transmits:
+```
+Datagram 1
+Datagram 2
+Datagram 3
+Datagram 4
+```
+
+Receiver gets:
+```
+Datagram 1
+Datagram 3
+Datagram 4
+```
+
+Datagram 2 is missing. **UDP itself does not retransmit.**
+
+If the application needs detection, it must implement sequence numbers:
+
+```
+Sequence 101 → received
+Sequence 102 → missing
+Sequence 103 → received
+```
+
+The app decides whether to request recovery, ignore the missing update, or use another strategy.
+
+---
+
+### C. QUIC internals — why HTTP/3 uses UDP
+
+```
+HTTP/3 layer    │  Application protocol
+                ▼
+QUIC layer      │  Streams, reliability, congestion control, TLS 1.3
+                ▼
+UDP layer       │  Datagrams, ports, checksum
+                ▼
+IP layer        │  Addressing, routing
+                ▼
+Link layer      │  Ethernet / Wi-Fi
+```
+
+**QUIC's streams solve TCP's head-of-line blocking.** TCP is a **single ordered byte stream** — one lost segment blocks all later bytes. QUIC is **many independent streams** over one connection — a lost segment in stream A doesn't block stream B. **HTTP/3 benefit: one lost packet no longer stalls all concurrent requests.**
+
+**QUIC's handshake combines transport + TLS.** TCP+TLS 1.3 = 2 RTT before data. QUIC's handshake = 1 RTT, or **0-RTT on reconnect** (using a cached ticket). **0-RTT trade-off:** the first flight can be replayed by an attacker; applications must handle this (usually by restricting 0-RTT to idempotent operations).
+
+**This is the QUIC clarification in one paragraph:** UDP provides the packet carrier. QUIC builds the connection, streams, reliability, and encryption on top. **The performance gain isn't from UDP itself — it's from what QUIC does with UDP's freedom.**
+
+---
+
+## 11. FAILURE SCENARIOS
+
+### TCP failure modes
+
+| Failure | What happens | Diagnosis |
+|---|---|---|
+| **Packet loss** | Retransmission on RTO; delay increases | `tcpdump`; check loss with ping/mtr |
+| **Congestion** | cwnd collapses; throughput drops | `mtr`; `ss -i` shows congestion window |
+| **Nagle + delayed ACK** | Up to 200ms latency for small writes | Set `NoDelay = true`; verify with `tcpdump` |
+| **Head-of-line blocking** | One lost segment blocks all later data | Visible in HTTP/2; eliminated in HTTP/3 |
+| **Connection timeout** | No SYN-ACK; connection never establishes | `Test-NetConnection`; firewall |
+| **Connection refused** | RST returned by remote | Nothing listening; app crashed |
+| **Connection reset** | RST mid-transfer | App crash; firewall/LB reset; idle timeout |
+| **SYN flood** | Server's connection table fills with half-open connections | SYN cookies; rate limiting |
+| **TIME_WAIT accumulation** | Rebind failures; ephemeral port exhaustion (Topic 7) | `ss -tan state time-wait` |
+| **Path MTU black hole** | Large packets dropped silently (Topic 11) | `ping -M do -s 1472` |
+| **Keep-alive absent** | Dead peer detected only at next send | Enable TCP keep-alive or app heartbeat |
+| **Slow start on long fat pipe** | Underutilized bandwidth | Window scaling; more connections |
+| **Retransmissions on lossy network** | Throughput collapse | mtr; consider BBR/QUIC |
+| **Too many short-lived connections** | Ephemeral exhaustion; TIME_WAIT storms | Connection pooling (Topic 7) |
+
+### UDP failure modes
+
+| Failure | What happens | Diagnosis |
+|---|---|---|
+| **Silent loss** | Datagram dropped, app never knows | App must timeout; `tcpdump` shows send vs receive |
+| **Reordering** | Datagrams arrive out of order | App must reorder (or tolerate) |
+| **Duplication** | Datagram arrives twice | App must dedupe (or tolerate) |
+| **MTU issues / fragmentation** | Datagram larger than path MTU is dropped | `ping -M do -s 1472`; measure MTU |
+| **Amplification attacks** | UDP service abused for DDoS (DNS, NTP, memcached) | Rate limiting; BCP 38 ingress filtering |
+| **NAT state timeouts** | NAT mapping expires; return traffic dropped (Topic 5) | UDP keep-alive every 15–30s |
+| **Firewall blocks UDP** | Some networks block UDP egress entirely | Fall back to TCP |
+| **Receive buffer overflow** | Kernel drops datagrams when app doesn't read fast enough | Larger buffer; faster app; flow control |
+
+### The Nagle + Delayed ACK interaction (the classic latency bug)
+
+```
+Client sends "A" (small write)
+   → Nagle holds it (waiting for more data or ACK)
+Server receives "A"
+   → Delayed ACK holds the ACK (waiting for more data or 40ms)
+Client's Nagle waits for the ACK
+   → Client holds the next write for 40–200ms
+
+Result: small request-response cycles pay 40–200ms per round.
+```
+
+**Fix:** disable Nagle (`TCP_NODELAY` / `NoDelay = true`) on latency-sensitive sockets. This is why HTTP clients disable it by default.
+
+**When to keep Nagle on:** high-throughput, batch-oriented applications where each write is a large block.
+
+### SYN flood — how it works and how to mitigate
+
+**Attack:** attacker sends many SYN packets from **spoofed** source addresses. Each creates a half-open connection (`SYN_RECEIVED`) that consumes server state. The server's connection table fills; legitimate connections are refused.
+
+**Mitigations:**
+
+- **SYN cookies** (the primary defense) — the server doesn't allocate state until the connection completes; the state is encoded in the SYN-ACK sequence number. Enabled by default on most systems (`net.ipv4.tcp_syncookies=1` on Linux).
+- **Rate limiting** at the firewall or LB.
+- **Larger SYN backlog** — `net.ipv4.tcp_max_syn_backlog`.
+- **Anycast** (Cloudflare, Azure Front Door) — attack traffic distributes across many servers.
+
+### UDP amplification — the DDoS vector
+
+**Attack:** attacker sends queries with **spoofed source IPs** to a UDP service (DNS, NTP, memcached). The service sends **large responses** to the **victim** (not the attacker). Small queries, large responses — **amplification**.
+
+**Mitigations:**
+
+- **Rate limiting** — limit responses per source IP per second.
+- **BCP 38 ingress filtering** — prevents source spoofing at the network edge (usually the ISP's responsibility).
+- **Anycast** — distribute across many servers.
+- **Response size limits** — cap response size (DNSSEC makes this harder).
+- **DNS cookies** — require a client cookie that a spoofer can't guess.
+- **Move behind a DNS provider** (Cloudflare, Route 53) that handles DDoS at scale.
+
+### Diagnosing the transport
+
+```bash
+# TCP state and stats
+ss -tan                              # all connections
+ss -tin                              # TCP internals — cwnd, rtt, rto
+ss -ti dst 10.20.1.15                # specific destination
+
+# Packet capture
+tcpdump -i eth0 'tcp port 443'       # all traffic on 443
+tcpdump -i eth0 'udp port 53'        # DNS
+
+# Path analysis
+mtr 10.20.1.15                       # latency + loss per hop
+ping -M do -s 1472 10.20.1.15        # test MTU 1500 (1472 + 28 headers)
+
+# Windows
+netstat -ano
+Get-NetTCPConnection
+Test-NetConnection 10.20.1.15 -Port 443
+```
+
+**`ss -ti` output shows:**
+- `rtt:X/Y` — smoothed RTT / RTT variance.
+- `cwnd:N` — current congestion window.
+- `ssthresh:N` — slow-start threshold.
+- `retrans:N` — retransmission count for this connection.
+
+**If retransmits are climbing, the network is losing packets — check the path, not the app.**
+
+### Scenario 6 — Too many TCP connections
+
+A .NET service creates excessive short-lived outbound connections.
+
+**Possible effects:**
+- Ephemeral port exhaustion.
+- Increased CPU usage.
+- Increased handshake overhead.
+- More connection tracking state.
+- Higher latency.
+
+**Mitigation:**
+- Use `IHttpClientFactory`.
+- Reuse connections.
+- Configure connection lifetimes appropriately.
+- Limit concurrency.
+- Monitor connection counts and TCP states.
+
+### Scenario 7 — UDP fragmentation
+
+Large UDP datagrams may exceed the path MTU and require IP fragmentation. **If one fragment is lost, the entire original datagram may be unusable.**
+
+**Design rule:** avoid unnecessarily large UDP datagrams; account for path MTU. **This is especially relevant for real-time media and custom UDP protocols.** (Path MTU is Topic 11.)
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Banking and trading platform
+
+```
+                   [ Client / Browser ]
+                           │
+                   HTTPS over TCP 443
+                           │
+                           ▼
+                   ┌───────────────┐
+                   │ Load balancer │
+                   └───────┬───────┘
+                           │
+                   HTTPS over TCP
+                           │
+                           ▼
+               ┌──────────────────────────┐
+               │   Trading API (Kestrel)  │
+               │   TCP 8443, HTTP/2       │
+               └──────┬───────────────────┘
+                      │
+       ┌──────────────┼──────────────┐
+       │              │              │
+       ▼              ▼              ▼
+  SQL Server      Kafka         Redis
+  TCP 1433        TCP 9092      TCP 6379
+
+  ────────── Side channels ──────────
+
+  Market data feed    VoIP              Metrics
+  UDP multicast       UDP (RTP)         UDP (StatsD)
+```
+
+### Why TCP for banking APIs?
+
+Consider an order:
+
+```
+Order ID: ORD-1001
+Customer: CUST-100
+Quantity: 100
+Instrument: ABC
+```
+
+TCP provides reliable, ordered transport. **But TCP's guarantee is transport-level, not business-level.**
+
+**The critical scenario:**
+
+1. Client sends an order request over TCP.
+2. Server receives it.
+3. Server commits the order to the database.
+4. Server's response is lost (network blip, server crash after commit).
+5. Client experiences a timeout.
+
+**The client does not know whether the order was committed.**
+
+**TCP reliability does not solve business-level ambiguity.**
+
+Your application still needs:
+- **Idempotency keys.**
+- **Order-status lookup.**
+- **Business acknowledgements.**
+- **Transactional processing.**
+- **Appropriate retry rules.**
+
+*(These are Topics 38 and 49.)*
+
+**This is the single most important Principal-level insight about TCP:**
+> **TCP guarantees the bytes arrived. It does not guarantee the business operation succeeded. Those are different questions, answered by different mechanisms.**
+
+### Why Kafka uses TCP
+
+Kafka clients communicate with brokers over TCP. **TCP provides the ordered byte stream**; Kafka's own protocol defines requests, responses, records, offsets, acknowledgements, and delivery semantics.
+
+**Kafka's durability and delivery guarantees are not provided by TCP alone.** They're implemented through Kafka's protocol and broker architecture — replication, ISR (in-sync replicas), acks=all, exactly-once transactions. **TCP is the transport; Kafka is the protocol.**
+
+### Why market-data systems may use UDP
+
+A market-data feed may send frequent price updates. For some use cases, **the newest update is more useful than retransmitting an old one.**
+
+A UDP-based feed can use:
+- **Sequence numbers** — detect gaps.
+- **Multicast** — one-to-many fan-out.
+- **Gap detection** — client knows what it missed.
+- **Recovery channels** — a separate TCP connection to request missed updates.
+- **Snapshot messages** — periodic full state, so missed increments don't leave the client permanently stale.
+
+**The application controls how it responds to missing data.** This is the pattern that real market-data protocols (e.g., FIX/FAST, ITCH, OPRA) use.
+
+### The Principal-level pattern: choose per stream
+
+**Market data (loss-tolerant) → UDP + multicast.**
+**Order flow (loss-intolerant) → TCP.**
+**Metrics (aggregate) → UDP.**
+**Logs (searchable) → TCP.**
+
+**The transport choice is a per-stream decision, not a global one.**
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### A. Reliable transport does not mean reliable business processing
+
+**The most important insight in this topic.**
+
+```
+Client
+  │ TCP request
+  ▼
+Trading API
+  │ Database commit
+  ▼
+SQL Server
+  │ Response lost
+  ▼
+Client timeout
+```
+
+TCP may have **reliably delivered the request to the server**. But the client may **not receive the response**. **The client cannot conclude that the transaction failed.**
+
+**This is why distributed systems need idempotency and reconciliation mechanisms.**
+
+| Problem | TCP handles | Application must handle |
+|---|---|---|
+| Bytes arriving in order | ✅ | — |
+| Duplicate segments | ✅ | — |
+| Connection failure detection | ✅ | — |
+| **Duplicate business operations** | ❌ | Idempotency keys |
+| **Ambiguous transaction outcomes** | ❌ | Status lookup endpoints |
+| **Retry safety** | ❌ | Idempotent retries, backoff |
+| **Transaction rollback** | ❌ | Business logic + DB transactions |
+
+**TCP is a transport guarantee. It is not a business guarantee.** A Principal Engineer never confuses the two.
+
+### B. TCP vs UDP is not the same as synchronous vs asynchronous
+
+**These are separate concepts.**
+
+| Concept | Meaning |
+|---|---|
+| **TCP** | Transport protocol |
+| **UDP** | Transport protocol |
+| **Synchronous communication** | Caller waits for a response or completion |
+| **Asynchronous communication** | Work can proceed without the caller waiting |
+
+**Examples:**
+
+- An asynchronous C# method can use TCP.
+- An asynchronous C# method can use UDP.
+- Kafka can use TCP while providing asynchronous messaging patterns.
+- A synchronous REST call commonly uses TCP.
+
+**`async/await` does not turn TCP into UDP or make communication asynchronous at the network protocol level.**
+
+**`async/await` is about non-blocking execution on a thread** — it lets the runtime release the thread while an I/O operation (TCP send, disk read, DB query) is in progress. **The transport is unchanged.** See Topic 28 for the full distinction.
+
+### C. TCP vs HTTP vs Kafka — layering
+
+| Technology | Layer / responsibility |
+|---|---|
+| **IP** | Addressing and routing |
+| **TCP** | Reliable ordered byte transport |
+| **UDP** | Datagram transport |
+| **TLS** | Encryption + authentication |
+| **HTTP** | Application protocol for web communication |
+| **Kafka protocol** | Application protocol for Kafka clients and brokers |
+| **gRPC** | Application protocol on top of HTTP/2 |
+
+**The stack:**
+
+```
+HTTP request
+     │
+     ▼
+TLS
+     │
+     ▼
+TCP
+     │
+     ▼
+IP
+     │
+     ▼
+Network
+```
+
+**For HTTP/3:**
+
+```
+HTTP/3
+   │
+   ▼
+QUIC
+   │
+   ▼
+UDP
+   │
+   ▼
+IP
+```
+
+**Different layers, different guarantees.** HTTP gives semantics (GET, POST, status codes). TLS gives security. TCP/UDP gives transport. IP gives routing.
+
+### D. Connection pooling matters in .NET
+
+For a high-throughput API, **do not** create and dispose an `HttpClient` for every request.
+
+```csharp
+builder.Services.AddHttpClient("TradingApi", client =>
+{
+    client.BaseAddress = new Uri("https://trading-api.company.com");
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+```
+
+Then inject `IHttpClientFactory`:
+
+```csharp
+public class TradingService
+{
+    private readonly HttpClient _client;
+
+    public TradingService(IHttpClientFactory factory)
+    {
+        _client = factory.CreateClient("TradingApi");
+    }
+
+    public async Task<string> GetOrdersAsync(CancellationToken cancellationToken)
+    {
+        return await _client.GetStringAsync("/api/orders", cancellationToken);
+    }
+}
+```
+
+**This supports managed handler lifetimes and connection pooling.** It also **avoids socket exhaustion and TIME_WAIT storms** (Topic 7).
+
+### E. Don't blindly retry every TCP failure
+
+A failed request may have been processed even if the client didn't receive the response.
+
+- **For a read-only GET**, retrying is often straightforward (subject to application semantics).
+- **For a financial POST that creates an order**, blindly retrying can **create duplicate orders**.
+
+**Use:**
+
+- **Idempotency keys.**
+- **Business operation identifiers.**
+- **Retry policies appropriate to the operation.**
+- **Bounded retries with backoff.**
+- **Status checks for ambiguous outcomes.**
+
+*(Topic 38 covers idempotency keys; Topic 37 covers retry/backoff; Topic 49 covers message delivery semantics.)*
+
+### F. Production troubleshooting checklist
+
+When a .NET service experiences communication issues, ask:
+
+1. Is DNS resolving correctly?
+2. Is the destination IP correct?
+3. Is the destination port open?
+4. Is the correct transport protocol being used?
+5. Can the TCP connection be established?
+6. Are retransmissions or packet loss occurring?
+7. Is the receiver overloaded?
+8. Are connection pools configured correctly?
+9. Is a firewall or load balancer closing connections?
+10. Is the application waiting on an HTTP response, database response, or message acknowledgement?
+
+### G. Anti-patterns
+
+| Anti-pattern | Problem |
+|---|---|
+| **UDP without retransmission policy** | Silent loss becomes silent failure |
+| **Disabling TCP_NODELAY on interactive protocols** | 200ms latency per round-trip |
+| **Relying on TCP message boundaries** | TCP is a byte stream — app must frame |
+| **Long-lived TCP connections without keep-alive** | Dead peers not detected |
+| **No window scaling for WAN** | Throughput capped at window/RTT |
+| **HTTP/2 on lossy mobile networks without testing** | HOL blocking can make it slower than HTTP/1.1 |
+| **UDP multicast without TTL planning** | Multicast storms, network saturation |
+| **No MTU discovery** | Fragmented packets, black holes (Topic 11) |
+| **UDP bound to 0.0.0.0 without firewall** | Amplification attack vector |
+| **`new HttpClient()` per request** | Socket exhaustion, TIME_WAIT storms |
+| **Blind retries on POST** | Duplicate business operations |
+| **Assuming TCP = reliable business outcome** | Client timeouts after successful commit |
+| **`ReadAsync` returning fewer bytes than expected** | Corrupted message stream |
+
+### H. Trade-offs
+
+| Choose | Get | Pay |
+|---|---|---|
+| **TCP** | Reliability, ordering, congestion control | Handshake latency, ACKs, HOL blocking, TIME_WAIT |
+| **UDP** | Lowest latency, message boundaries, multicast | Silent loss, reordering, no congestion control |
+| **QUIC over UDP** | Reliability + low latency + HOL-block elimination | Complex; needs QUIC libraries; some networks block UDP |
+| **Nagle on** | Better throughput on small writes | Up to 200ms latency with delayed ACK |
+| **Nagle off** | Lower latency | More packets; more CPU |
+| **One TCP connection** | Simplicity | Head-of-line blocking |
+| **Many TCP connections** | Parallelism | More state; fairness issues |
+| **HTTP/2 (TCP)** | Multiplexing | HOL blocking on loss |
+| **HTTP/3 (QUIC/UDP)** | No HOL blocking | UDP blocked on some networks; less tooling |
+
+### I. Production best practices
+- **Default to TCP.**
+- **Set `TCP_NODELAY` on interactive protocols.**
+- **Enable TCP keep-alive** on long-lived connections; also use app-level heartbeat (Topic 36).
+- **Enable window scaling** for WAN connections.
+- **Measure before switching to UDP.** Benchmark the app, not the transport.
+- **Monitor retransmits and RTT** — they signal network problems, not app problems.
+- **Test HTTP/2 on real networks** — it can be worse than HTTP/1.1 on high-loss.
+- **Use HTTP/3 for mobile when latency matters** — accept UDP blocking as a known constraint (fallback to HTTP/2).
+- **For custom UDP protocols**: implement retry, dedupe, reorder, congestion control, or use a library (QUIC, WebRTC, SCTP).
+- **Firewall UDP** as strictly as TCP — amplification attacks are real.
+- **Use `ReadExactlyAsync`** (.NET 7+) to read exact byte counts from TCP streams.
+- **Design idempotency** for all writes — retries are inevitable.
+
+### J. Decision checklist
+
+1. Does the application need every byte delivered? → **TCP**.
+2. Is latency sub-100ms critical? → **UDP** (or QUIC).
+3. Is multicast/broadcast needed? → **UDP**.
+4. Is the network lossy (mobile, satellite)? → **Test TCP and UDP**; consider QUIC.
+5. Do you need to multiplex many concurrent requests on one connection without HOL blocking? → **HTTP/3 (QUIC)**.
+6. Is the app interactive (small messages)? → **TCP with `TCP_NODELAY`**.
+7. Is the app bulk transfer? → **TCP with Nagle on**.
+8. Are you building a custom protocol? → **Use a library** (QUIC, WebRTC), don't reimplement.
+9. Are you choosing UDP for speed? → **Benchmark the app first; TCP may be fine.**
+10. Is `TCP_NODELAY` set on your interactive sockets? → **Verify**.
+11. Does the application handle ambiguous outcomes? → **Idempotency + status lookup**.
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is the primary difference between TCP and UDP?**  
+**TCP** provides **connection-oriented, reliable, ordered byte-stream** delivery — it establishes a connection, guarantees delivery and ordering (ACKs, retransmission), and closes gracefully. **UDP** provides **connectionless, unreliable datagram** delivery — every send is independent, may be lost, may arrive out of order, may duplicate, and provides no guarantees beyond optional checksum.
+
+**The trade:** TCP trades latency and overhead for reliability. UDP trades guarantees for speed and simplicity.
+
+**Q2. Why does TCP use a three-way handshake?**  
+To **establish and synchronize connection state** between both endpoints before data flows. It ensures both sides:
+
+- Agree the connection exists.
+- Exchange initial sequence numbers (so both know where the byte stream starts).
+- Detect half-open connections (the SYN-ACK tells the client the server is alive).
+
+**Cost:** 1 RTT before any data. **This is why QUIC combines transport + TLS into 1 RTT** — reducing the total handshake cost.
+
+**Q3. Does UDP guarantee packet delivery?**  
+**No.** Datagrams may be lost, duplicated, or reordered. UDP provides no guarantees beyond an optional checksum that detects (but does not correct) corruption. **Applications using UDP must implement their own reliability if they need it** — sequence numbers, ACKs, retransmission, or use a protocol like QUIC.
+
+**Q4. What is TCP flow control?**  
+A mechanism to **prevent a fast sender from overwhelming a slower receiver**. The receiver advertises a **window** — how many bytes it can accept. The sender limits in-flight data to the window. When the receiver's buffer drains, it advertises a larger window; when full, a smaller one (down to zero — sender stops).
+
+**Flow control protects the receiver's buffer, not the network.** (Congestion control protects the network — see Q6.)
+
+**Q5. What is TCP congestion control?**  
+A mechanism to **adjust the sending rate in response to network conditions**. When the sender detects loss (RTO or dup-ACKs), it **reduces** its congestion window; when ACKs arrive steadily, it **increases** it.
+
+**Algorithms:** slow start (exponential growth), congestion avoidance (AIMD), fast recovery (recover without slow start).
+
+**Why it matters:** without congestion control, senders would flood overloaded networks, causing **congestion collapse**. TCP's response to loss (slowing down) is what keeps the internet stable.
+
+### Intermediate
+
+**Q6. What is the difference between flow control and congestion control?**  
+- **Flow control** protects the **receiver** — the receiver's buffer capacity determines how much the sender can send.
+- **Congestion control** protects the **network path** — the sender's rate is reduced when it detects that the network is dropping packets.
+
+**They are independent mechanisms.** A connection can have plenty of receiver buffer but a congested path (flow control says "go," congestion control says "slow down"). Or a fast network but a slow receiver (congestion control says "go," flow control says "wait").
+
+**Both are necessary. Neither is sufficient alone.**
+
+**Q7. Why does TCP experience head-of-line blocking?**  
+Because TCP **must deliver bytes in order**. The byte stream is a **single ordered sequence** — if a segment is lost, the application **cannot consume bytes past the missing range** as if the gap didn't exist. It must wait for retransmission.
+
+**Consequences:**
+
+- **HTTP/1.1** — one request per connection; HOL per-request.
+- **HTTP/2** — many concurrent requests share one TCP connection; **one lost packet stalls all of them**.
+- **HTTP/3 (QUIC)** — separate streams; **one lost packet in stream A doesn't block stream B**.
+
+**This is the primary reason HTTP/3 exists.**
+
+**Q8. Why does HTTP/3 use UDP?**  
+Because **HTTP/3 runs over QUIC, which runs over UDP**. QUIC is a userspace transport protocol that provides:
+
+- **Reliability, ordering, congestion control** (that UDP does not).
+- **Per-stream ordering** — eliminates TCP's head-of-line blocking.
+- **1-RTT or 0-RTT handshake** — combines transport + TLS.
+- **Userspace evolution** — can iterate faster than kernel TCP.
+
+**The trade:** QUIC must reimplement transport features over UDP. **But the result is a transport that can evolve and eliminates TCP's fundamental limitation.**
+
+**Q9. Does TCP guarantee that a database transaction commits?**  
+**No.** TCP guarantees **transport-level delivery** — bytes arrive in order, or the connection fails. It does **not** guarantee business-level success.
+
+**The classic scenario:**
+1. Client sends order over TCP.
+2. Server commits to database.
+3. Response is lost.
+4. Client times out.
+
+**The client does not know whether the order was committed.** Application-level idempotency, status lookup, and business acknowledgements are still required. **TCP ≠ business reliability.**
+
+**Q10. Why does Kafka use TCP?**  
+TCP provides **reliable ordered byte-stream communication** between Kafka clients and brokers. Kafka implements its own message, acknowledgement, and durability semantics **above TCP**.
+
+**Kafka's guarantees are not TCP's guarantees:**
+- **Kafka's acks=all** — all in-sync replicas have the message. TCP can't provide this.
+- **Kafka's exactly-once** — via transactions and idempotent producers. TCP can't.
+- **Kafka's ordering** — per partition, not global. TCP provides per-connection ordering; Kafka builds its partitioning semantics on top.
+
+**TCP is the transport; Kafka is the protocol.**
+
+**Q11. Can UDP be made reliable?**  
+**Yes.** An application or protocol built over UDP can implement acknowledgements, sequencing, retransmission, and congestion control.
+
+**QUIC is the most important example** — it provides TCP-like reliability, plus stream multiplexing (eliminating HOL blocking), integrated TLS 1.3, and fast handshakes.
+
+**Other examples:** SCTP, WebRTC (via SCTP), custom gaming protocols (usually with selective reliability), QUIC-based protocols beyond HTTP/3 (DNS-over-QUIC, etc.).
+
+**Building reliability over UDP is significant engineering** — QUIC took years. **Use a library; don't reimplement.**
+
+**Q12. Is `async/await` related to TCP or UDP?**  
+**No.** `async/await` is a **programming model for asynchronous execution in .NET** — it lets the runtime release the thread while an I/O operation is in progress. It can be used with operations involving **either** transport protocol.
+
+**The distinction:**
+
+| | Meaning |
+|---|---|
+| **`async/await`** | Non-blocking execution on a thread |
+| **Asynchronous messaging** | Temporal decoupling — work proceeds without waiting |
+| **TCP/UDP** | Transport protocol |
+
+**`async/await` does not make TCP asynchronous in the protocol sense.** It makes the **C# code** non-blocking. See Topic 28.
+
+### Advanced
+
+**Q13. Why does TCP throughput suffer on high-loss networks?**  
+Because TCP interprets **loss as congestion** and **halves its congestion window** (AIMD). On a network where loss is caused by corruption (Wi-Fi, satellite) rather than congestion, this is **wrong** — the network isn't congested, so halving cwnd wastes capacity.
+
+**Math:** `throughput ≤ window_size / RTT`. On a 100ms RTT link with a 64KB window, throughput is limited to ~5 Mbps regardless of link capacity. **With loss, cwnd halves, and throughput drops further.**
+
+**Solutions:**
+
+- **Window scaling (RFC 1323)** — allows windows larger than 64KB.
+- **Congestion control alternatives** — **BBR** (Google) handles loss better than CUBIC; **QUIC** can use BBR.
+- **Multiple parallel connections** — browsers open 6 per origin to work around this.
+
+**Q14. Explain the interaction between Nagle and delayed ACK.**  
+**Nagle** holds small writes until an ACK or a full segment. **Delayed ACK** holds ACKs up to 40ms (hoping to piggyback on outgoing data or batch ACKs).
+
+**The interaction:** client writes a small request → Nagle holds it until ACK. Server receives it → delayed ACK holds the response ACK for up to 40ms. Client's Nagle waits for the ACK. **Result: 40–200ms latency for small request-response patterns.**
+
+**Fix:** disable Nagle (`TCP_NODELAY` / `NoDelay = true`) on latency-sensitive sockets. Modern HTTP clients do this by default (`.NET SocketsHttpHandler` does).
+
+**When it's not a problem:** bulk transfers, large writes that fill a segment. Nagle's coalescing is efficient.
+
+**Q15. What is a SYN flood, and how is it mitigated?**  
+**SYN flood** — an attacker sends many SYN packets from **spoofed** source addresses. Each creates a half-open connection (`SYN_RECEIVED`) that consumes server state. The server's connection table fills; legitimate connections are refused.
+
+**Mitigations:**
+
+- **SYN cookies** (the primary defense) — the server doesn't allocate state until the connection completes; the state is encoded in the SYN-ACK sequence number. Enabled by default on most systems.
+- **Rate limiting** at the firewall or LB.
+- **Larger SYN backlog** — `net.ipv4.tcp_max_syn_backlog`.
+- **Anycast** — attack traffic distributes across many servers.
+
+**Q16. What is 0-RTT in QUIC, and what's the security concern?**  
+**0-RTT** — QUIC can send application data **immediately** on a reconnect (no handshake round-trip), using a **session ticket** cached from a previous connection. **Reduces latency by ~1 RTT.**
+
+**The security concern: 0-RTT data can be replayed.** An attacker who captures the first flight of a 0-RTT connection can replay it later — the server may process the same data twice.
+
+**Mitigation:** restrict 0-RTT to **idempotent operations** (GET requests, not POST). TLS 1.3 and QUIC support this constraint at the protocol level.
+
+### Scenario-based
+
+**Q17. Your interactive chat app has 200ms latency per message. What's the likely cause, and how do you fix it?**  
+Most likely: **Nagle + delayed ACK interaction**. The client writes a small message; Nagle waits for an ACK; the server delays the ACK; the client waits. **40–200ms per message.**
+
+**Fix:** `TcpClient.NoDelay = true` on both sides. If using `HttpClient`, verify the handler disables Nagle (`.NET SocketsHttpHandler` does by default).
+
+**Verify:** capture with `tcpdump` — you'll see the small write held for tens of ms before transmission.
+
+**If the fix doesn't help:** check for app-level buffering (`StreamWriter` auto-flush), TLS layer buffering, or server-side processing time.
+
+**Q18. Your HTTP/2 mobile users report inconsistent latency. What could be wrong?**  
+**Head-of-line blocking on TCP.** HTTP/2 multiplexes many requests on one TCP connection. On mobile networks (higher loss, more jitter), **a single lost packet stalls all concurrent requests.** This makes HTTP/2 **worse** than HTTP/1.1 (which uses 6 parallel connections).
+
+**Fixes:**
+
+- **HTTP/3 (QUIC over UDP)** — eliminates HOL blocking; per-stream ordering.
+- **Verify with measurements** — don't assume HTTP/2 is faster. Test on real mobile networks.
+- **Consider HTTP/1.1 with parallel connections** if HTTP/3 isn't available.
+
+**Q19. Your UDP-based telemetry loses 10% of messages. How do you handle it?**  
+Depends on the guarantee you need:
+
+1. **If loss is acceptable** (aggregate metrics, non-critical samples) — **do nothing.** Losing 10% is fine; the aggregate is still meaningful.
+2. **If every message matters** — add **selective reliability at the application layer**: sequence numbers, ACKs for missed messages, retransmission on timeout. This is what QUIC does.
+3. **If the network is the problem** — check whether loss is on-path (mtr) or at the receiver (buffer overflow). Fix the bottleneck.
+4. **Consider switching to TCP** if 10% loss breaks the business requirement. **UDP without a retry plan is a bug, not a design.**
+
+**Q20. Your service is under a UDP amplification attack (DNS). What do you do?**  
+An attacker sends queries with **spoofed source IPs** to your DNS server; the server sends large responses to the **victim** (not the attacker). **Small queries, large responses — amplification.**
+
+**Mitigations:**
+
+- **Rate limiting** — limit responses per source IP per second.
+- **BCP 38 ingress filtering** — prevents source spoofing at the network edge (usually the ISP's responsibility).
+- **Anycast** — distribute across many servers.
+- **Response size limits** — cap response size (DNSSEC makes this harder).
+- **DNS cookies** — require a client cookie that a spoofer can't guess.
+- **Move behind a DNS provider** (Cloudflare, Route 53) that handles DDoS at scale.
+
+**Q21. You're designing a real-time trading feed. TCP or UDP?**  
+**Depends on the feed semantics:**
+
+- **Market data (prices, order book)** — **UDP with the ability to drop old data.** The latest state matters; old prices are useless. Sub-millisecond matters more than guaranteed delivery. **But:** use **multicast** for fan-out; **implement sequence numbers** so receivers detect gaps; **implement snapshot recovery** (periodic full snapshot + incremental updates) so a lost update doesn't leave the client stale.
+- **Order confirmation** — **TCP.** Every order confirmation must arrive.
+- **Position updates (trader's view)** — **TCP or reliable UDP.** Losing a position update is dangerous.
+
+**The Principal-level answer:** *Choose per stream.* Don't force one transport on the whole system. **Market data is UDP-multicast (loss tolerant); order flow is TCP (reliable).** The system combines them.
+
+**Q22. Your app uses `HttpClient` and occasionally sees 30-second hangs. What could cause this?**  
+Several possibilities:
+
+1. **TCP retransmission backoff** — the network is dropping packets; TCP backs off exponentially (up to 60s per retransmit). Check `ss -ti` for retransmits.
+2. **Long TLS handshake on slow network** — the server's handshake is slow.
+3. **DNS timeout** — resolution blocked; 30s is a common timeout.
+4. **Application-level timeout in the wrong place** — a downstream call without a timeout.
+5. **Firewall dropping SYN** — connection never establishes; SYN retries take 30s to give up.
+
+**Diagnose:** open a trace (Topic 62) and look at which span takes 30s — TCP connect, TLS handshake, request, or response.
+
+**Q23. Your microservices run on Kubernetes. Some use gRPC over TCP, some HTTP/2, some HTTP/3. What are the transport implications?**  
+- **gRPC over TCP** — reliable; per-connection state; good for internal service calls with moderate latency needs.
+- **HTTP/2 over TCP** — multiplexing across requests; **HOL blocking** on loss. **Fine on clean in-cluster networks.** **Problematic across lossy networks.**
+- **HTTP/3 over QUIC/UDP** — no HOL blocking; lower handshake; **requires UDP egress from the cluster** (often blocked by default); **less mature tooling** for observability.
+
+**The pattern:** use **gRPC over TCP** for internal (east-west), **HTTP/2 over TCP** for stable client connections, **HTTP/3 (QUIC) for mobile** (higher loss, latency-sensitive). **The transport is a per-hop choice, not global.**
+
+---
+
+## Final knowledge check — before Topic 9
+
+Answer these in your own words. Short answers fine.
+
+1. **In one sentence:** why do two transport protocols exist? Why not one for everything?
+2. **The contract:** what does TCP guarantee? What does UDP guarantee?
+3. **Handshake:** what is the TCP three-way handshake, and what does it cost?
+4. **Reliability:** how does TCP guarantee delivery? Name the three mechanisms.
+5. **Flow vs congestion:** what's the difference, and what does each protect?
+6. **Nagle:** what is Nagle's algorithm, and when should you disable it?
+7. **HOL blocking:** what is it, and how does HTTP/3 solve it?
+8. **The QUIC clarification:** HTTP/3 uses UDP — how can it be reliable? One sentence.
+9. **Message boundaries:** does TCP preserve them? Does UDP? What must the application do?
+10. **Business reliability:** why doesn't TCP guarantee that a database transaction commits? What does the application need instead?
+11. **HTTP versions on lossy networks:** why might HTTP/2 be *worse* than HTTP/1.1 on mobile? What's the fix?
+12. **Choosing:** name three scenarios where UDP is the right choice and one reason each.
+13. **Diagnostic:** your app has 200ms latency on small requests. What's the most likely TCP cause, and how do you verify?
+14. **Judgment call:** a colleague says "let's use UDP for our API; it's faster." What's your response?
+
+Once you confirm (or say *"skip, continue"*), I'll teach **Topic 9 — Routing and Switching** using the same structure. Topic 9 explains how packets move hop-by-hop across networks — the layer beneath TCP/UDP that delivers the segments and datagrams.
