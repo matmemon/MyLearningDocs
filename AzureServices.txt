@@ -1,0 +1,116 @@
+Track H — Azure Services
+27 topics · 8 parts · Frozen
+
+Out of scope: The hundreds of Azure services outside this list, Azure network design in depth, Docker and Kubernetes fundamentals, pipeline authoring, application-level security techniques, and certification exam preparation.
+
+This track covers the role, architecture, configuration, identity, tiers, limits, cost, reliability and trade-offs of the selected Azure services.
+
+Depth: Master = hands-on; Reason = explain trade-offs; Aware = know it exists.
+Part 1: Foundations and governance
+#	Topic	Key details	Depth
+H1	Azure fundamentals and resource model	Tenant, management groups, subscriptions, resource groups, Azure Resource Manager, resource providers, regions and availability zones, quotas and limits, tags, resource locks, Portal vs CLI vs PowerShell, pricing models, SLAs and shared responsibility	Master
+H2	Governance and landing zones	Management-group hierarchy, Azure Policy and initiatives, naming and tagging standards, subscription design, Cloud Adoption Framework and landing-zone concepts, guardrails vs gates, resource organization, management-group inheritance	Reason
+H3	Regions, reliability and SLAs	Zone-redundant vs zonal vs regional services, region pairs, composite SLA calculation, active-active vs active-passive, failover responsibility (Microsoft vs you), service resiliency options, data residency and regional availability	Reason
+
+Part 2: Compute
+#	Topic	Key details	Depth
+H4	Azure App Service	Plans and tiers, deployment slots and swap, scale up vs out, autoscale rules, hosted applications, WebJobs, built-in authentication, VNet integration, Always On, container support, health checks, deployment and platform limits	Master
+H5	Azure Functions	Triggers and bindings, isolated worker model, in-process model migration and end-of-support implications, hosting plans (Consumption, Flex Consumption, Premium, Dedicated), cold start, scale controller, Durable Functions patterns, idempotency and retry behavior, host.json tuning, Functions execution-model support vs .NET runtime support lifecycle	Master
+H6	Azure Container Apps	Environments, revisions and traffic splitting, ingress, KEDA scaling rules including scale to zero, jobs, workload profiles, Dapr awareness, managed identity, secrets, Container Apps vs AKS, deployment and scaling trade-offs	Master
+H7	Azure Kubernetes Service (AKS)	Managed control plane, system vs user node pools, networking models (Azure CNI, overlay), workload identity, ingress options, cluster autoscaler and KEDA, upgrade channels, AKS Automatic, Key Vault CSI driver, cost levers, shared responsibility	Master
+H8	Other compute and choosing a compute service	Virtual machines and scale sets, Azure Container Instances, Azure Batch, Static Web Apps, Azure Container Registry (tiers, geo-replication, tasks), decision framework by control, scale, operational effort and cost	Reason
+
+H5 support note: The Azure Functions in-process model's support end date of 10 November 2026 has passed. Study isolated worker as the primary model for new .NET Functions work. Learn in-process for existing-system migration and compatibility analysis. Also distinguish the Functions execution model's support lifecycle from the lifecycle of the .NET runtime version used by the application.
+Part 3: Storage and data services
+#	Topic	Key details	Depth
+H9	Azure Storage	Blob, Files, Queues and Tables, redundancy options (LRS, ZRS, GRS, GZRS), access tiers and lifecycle management, SAS vs Entra authentication, immutability and legal hold, Data Lake Storage Gen2, soft delete and versioning, Azurite for local development	Master
+H10	Azure SQL family	SQL Database vs Managed Instance vs SQL on VM, DTU vs vCore, serverless, elastic pools, Hyperscale, zone redundancy, active geo-replication and failover groups, point-in-time restore and long-term retention, Entra authentication, Defender for SQL	Master
+H11	Azure Cosmos DB	NoSQL API and other APIs, partition-key design, request units and autoscale vs provisioned vs serverless, consistency levels, global distribution and multi-region writes, change feed, indexing policy, continuous backup, emulator, .NET SDK	Master
+H12	Other data services	Azure Database for PostgreSQL and MySQL, Azure Managed Redis, Azure Cache for Redis migration and retirement awareness, Azure AI Search, Data Factory, Synapse and Fabric awareness	Aware
+
+H12 Redis lifecycle note: Azure Managed Redis should be the forward-looking Azure Redis service to study. Do not teach Azure Cache for Redis as the default choice for a new Azure deployment. Understand its migration path and published retirement dates:
+- Enterprise and Enterprise Flash: 31 March 2027.
+- Basic, Standard and Premium: 30 September 2028.
+Creation restrictions and migration requirements can vary by tier and customer status. Before choosing Azure Managed Redis for production, check feature maturity, SKU availability, regional availability, migration compatibility and current Microsoft guidance.
+Part 4: Messaging and integration services
+#	Topic	Key details	Depth
+H13	Azure messaging services	Service Bus (tiers, queues, topics, sessions, quotas, duplicate detection, transactions, DLQ and geo-disaster recovery), Event Hubs (tiers, partitions, capture, Kafka endpoint), Event Grid (system events and namespaces), Storage Queues, choosing between them, Service Bus emulator	Master
+H14	API Management and integration services	API Management tiers, policies, products, subscriptions, self-hosted gateway awareness, Logic Apps awareness, Azure Front Door and Application Gateway roles at the edge, API versioning, throttling and gateway selection	Reason
+
+Part 5: Identity, secrets and security services
+#	Topic	Key details	Depth
+H15	Microsoft Entra ID	Tenants, users and groups, app registrations vs enterprise applications, service principals, system- and user-assigned managed identities, workload identity federation, Conditional Access, Microsoft Graph, Entra External ID, existing Azure AD B2C considerations	Master
+H16	Azure RBAC and access design	Scopes and inheritance, built-in vs custom roles, Azure roles vs Entra roles, data-plane vs control-plane access, ABAC conditions, Privileged Identity Management, access reviews, least-privilege role design	Master
+H17	Azure Key Vault and Managed HSM	Secrets, keys and certificates, RBAC vs access policies, soft delete and purge protection, Key Vault references in App Service and Functions, rotation and expiry events, throttling limits, Managed HSM, certificate lifecycle	Master
+H18	Azure security services	Microsoft Defender for Cloud and its plans, Microsoft Sentinel awareness, secure score, confidential computing awareness, Azure DDoS and Firewall roles, security posture and cloud security recommendations	Aware
+
+H15 identity lifecycle note: Azure AD B2C stopped being available for purchase by new customers on 1 May 2025. Existing customers can continue using it under Microsoft's published support commitments. B2C P2 has been retired; understand the implications for existing deployments. For new customer identity designs, evaluate Microsoft Entra External ID. Do not describe B2C as already shut down.
+Part 6: Monitoring and operations
+#	Topic	Key details	Depth
+H19	Azure Monitor	Metrics vs logs, Log Analytics workspaces and design, diagnostic settings, data collection rules, KQL fundamentals, alert rules and action groups, workbooks, managed Prometheus and Grafana, retention and ingestion cost	Master
+H20	Application Insights and OpenTelemetry in .NET	Workspace-based Application Insights, Microsoft OpenTelemetry Distro for .NET, sampling, transaction search, application map, availability tests, live metrics, custom telemetry, cost control, existing SDK migration considerations	Master
+H21	Operational and recovery services	Azure Backup, Azure Site Recovery, Service Health and Resource Health, Azure Advisor, Update Manager and Automation awareness, activity log, backup policy, recovery validation and operational notifications	Reason
+
+H20 instrumentation note: For new .NET applications adopting OpenTelemetry, learn the Microsoft OpenTelemetry Distro and its Azure Monitor export path. Also understand existing Application Insights SDK instrumentation so you can troubleshoot and migrate established systems.
+Part 7: Infrastructure as code and DevOps services
+#	Topic	Key details	Depth
+H22	Bicep and Azure deployments	Bicep syntax, parameters and outputs, modules, deployment scopes, what-if, deployment stacks, Azure Verified Modules, template specs, ARM and Terraform on Azure awareness, Azure Developer CLI awareness	Master
+H23	Azure DevOps as a service	Organization and project structure, Boards, Repos, Artifacts, Test Plans awareness, permissions and Entra integration, parallel jobs and licensing, Azure DevOps vs GitHub, service connections and organization governance	Reason
+
+Part 8: Cost, SDK, architecture and AI
+#	Topic	Key details	Depth
+H24	Cost management on Azure	Cost analysis, budgets and alerts, tag-based allocation, reservations and savings plans, Azure Hybrid Benefit, spot capacity, dev/test pricing, right-sizing with Advisor, pricing calculator, common cost traps (Log Analytics ingestion, Cosmos RUs, egress, idle resources)	Master
+H25	Azure SDK and .NET integration	Azure.Identity and DefaultAzureCredential (and why to narrow it in production), SDK client patterns, built-in retries and pagination, Microsoft.Extensions.Azure dependency injection, local emulators, .NET Aspire integrations	Master
+H26	Architecture and service selection	Azure Architecture Center, Well-Architected Framework pillars, reference architectures for banking workloads, choosing compute, data and messaging services, multi-region design, data residency and sovereignty, Azure compliance offerings, Azure Migrate awareness	Reason
+H27	Azure AI services	Azure OpenAI and Microsoft Foundry, AI Search, document and speech services, model deployment and quotas, responsible-AI and data-handling considerations	Aware
+
+Coverage check
+Original scope	Covered by
+Compute (App Service, Functions, Container Apps, AKS)	H4–H8
+Storage	H9
+SQL and Cosmos DB	H10, H11
+Key Vault	H17
+Entra ID	H15, H16
+Monitor and Application Insights	H19, H20
+DevOps and Bicep	H22, H23
+Cost management	H24
+Additional Azure knowledge needed in production	H1–H3, H12–H14, H18, H21, H25–H27
+
+Banking scenarios
+Scenario	Topics
+Choose where to host a new payment API	H4, H6, H7, H8, H26
+Service must access Azure SQL with no stored password	H10, H15, H17
+Region outage hits the primary database	H3, H10, H21
+Cosmos DB bill spikes overnight	H11, H24
+Secret expired and caused an outage	H17
+A developer has too much production access	H16
+Function app scales out and overwhelms a downstream system	H5, H13
+Choosing Service Bus, Event Hubs or Event Grid for a new flow	H13
+Log Analytics cost is out of control	H19, H24
+Slow requests with no telemetry	H20
+Subscription sprawl with no tagging	H1, H2
+Resources must stay in approved regions	H2, H26
+Public API needs throttling and versioning	H14
+Documents need immutable retention for audit	H9
+Infrastructure must be repeatable across environments	H22
+
+Study order
+Group	Topics
+1. Foundation	H1, H2, H15, H16
+2. Secrets and SDK	H17, H25
+3. Compute	H4, H5, H6, H7, H8
+4. Data	H9, H10, H11, H12
+5. Messaging and integration	H13, H14
+6. Monitoring and operations	H19, H20, H21
+7. Infrastructure and DevOps	H22, H23
+8. Cost and architecture	H24, H3, H26
+9. Awareness	H18, H27
+
+Learning rule: For Master topics, build a small .NET application on Azure—for example, a Container App using managed identity to access Key Vault and Azure SQL. Break it deliberately by removing a role assignment, expiring a secret or exceeding a quota. Investigate the resulting failure, then connect it to a production banking scenario. Set a budget alert and remove resources after experiments.
+
+Frozen scope: 27 topics, 8 parts. No H28. New services go into the nearest existing topic. Azure changes quickly, so verify current Microsoft documentation before relying on version-specific details, particularly:
+- Azure Functions execution models and supported .NET versions.
+- Entra External ID and existing Azure AD B2C deployments.
+- Azure Cache for Redis retirement and Azure Managed Redis.
+- AKS networking and upgrade options.
+- Azure service tiers, regional availability, quotas and limits.
