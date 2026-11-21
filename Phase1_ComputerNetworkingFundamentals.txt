@@ -1,0 +1,735 @@
+
+
+# Comparison: File version vs my earlier version
+
+**What the file did better:**
+- Honest adaptation note — said up front that code isn't relevant to every concept
+- Consistent UBS banking narrative (Mumbai / London / Singapore) throughout — better than my jump to a generic example
+- Excellent **A–G feature breakdown** — organized, complete, well-scoped
+- The **"network reachability vs transport connectivity vs application availability"** three-layer diagnostic — that framing is sharper than mine
+- **Test-NetConnection** — practical and Windows-native, better than my generic `curl`
+- Correct caveat that **LAN/MAN/WAN are scope classifications, not necessarily different technologies**
+- Correct caveat that **an intranet can reuse internet technologies** — avoids a common misconception
+- SSID / WPA2 / WPA3 / 2.4–5–6 GHz / channels folded in as supporting concepts, not a separate topic
+
+**What my earlier version did better:**
+- Fully honored the 14-part structure (the file compressed several sections)
+- Included a **working code demo** (TcpListener/TcpClient) — valuable for a .NET engineer
+- Included a **latency budget table** — quantifies the abstract journey
+- Included **detailed model answers** for interview questions — the file only had multiple-choice
+- Included the **MTU blackhole** diagnostic scenario — a real and famous production failure
+
+**What I'll do below:** merge the best of both, keep the file's narrative and honest framing, add the code demo and model answers, and format it cleanly. **Topic 1 only, as requested.**
+
+---
+
+# Phase 1 — Computer Networking Fundamentals
+## Topic 1 — Network Basics
+
+> **Learning structure:** I'll follow the 14-part template, but I'll adapt it honestly. Some parts — especially the "code implementation" section — don't map naturally to a conceptual topic like "what is a network." Where that happens, I'll substitute **real commands, configurations, packet flows, or architecture examples** rather than force code that doesn't belong. I'll say so when I do.
+
+> **Gate rule:** We do not move to Topic 2 until you confirm Topic 1 is solid. Knowledge check at the end.
+
+---
+
+## The fundamental problem — framing
+
+Imagine two computers:
+
+- **Computer A** in Mumbai
+- **Computer B** in London
+
+You want A to send a message to B. How?
+
+Computers were originally **independent machines** — they processed and stored data locally. Sharing information required **physically moving media**, or a **bespoke, vendor-specific direct link**.
+
+As businesses scaled, they needed to:
+- Share files.
+- Share printers and other expensive resources.
+- Access centralized databases.
+- Exchange messages.
+- Communicate across offices and countries.
+- Reach remote servers in real time.
+
+**Networking exists because computation and data became more valuable when shared than when isolated.**
+
+---
+
+## 1. WHY — Why was networking required?
+
+Consider a banking organization with three offices:
+
+```
+BEFORE NETWORKING
+
+   [ Mumbai ]          [ London ]         [ Singapore ]
+   Local files         Local files        Local files
+        |                   |                  |
+   No direct communication between offices
+   Sharing requires physical transfer or manual process
+```
+
+**The business requirement:** A trader in Mumbai must be able to read information stored on a server in London, **in real time**.
+
+The organization needs a **communication mechanism that lets computers exchange information reliably** — not a physical courier service.
+
+**This is the reason networking exists.**
+
+---
+
+## 2. BEFORE — What existed previously?
+
+| Approach | How it worked | Limitation |
+|---|---|---|
+| Standalone computer | Data stored locally | No sharing |
+| Floppy disk / removable media | Physically transfer files | Slow, manual, loss-prone |
+| Direct cable connection | Two devices linked by cable | Limited distance and scale |
+| Centralized mainframe | Dumb terminals connected to one machine | Central dependency; specialized infrastructure |
+
+**Important caveat:** central mainframes were not necessarily *isolated*. They often used communication networks — serial links, IBM SNA, DECnet. The point is that their **architecture** differed from modern distributed networks: one powerful central machine, many terminals, no peer-to-peer coordination.
+
+**Old workflow example:**
+
+```
+London employee
+      |
+      v
+Save report to disk
+      |
+      v
+Physically transfer disk (courier / mail)
+      |
+      v
+Mumbai employee
+      |
+      v
+Open report
+```
+
+It works — but the *data* and the *decision* are separated in time by hours or days. Real-time business coordination is impossible.
+
+---
+
+## 3. PROBLEM — Why was the old approach insufficient?
+
+| Problem | Real-world impact |
+|---|---|
+| **Distance** | Employees in different cities cannot exchange data easily |
+| **Speed** | Physical transfer takes time; overnight batches hide errors until morning |
+| **Scalability** | Connecting every computer individually becomes unmanageable |
+| **Availability** | Information exists on a single machine; if that machine fails, everything stops |
+| **Maintenance** | Updates and data distribution become manual |
+| **Security** | Physical media can be lost, copied, or tampered with |
+| **Collaboration** | Multiple users cannot easily share a resource |
+
+The industry needed a way for **devices to exchange data without moving storage devices**.
+
+---
+
+## 4. WHAT — What is a computer network?
+
+> **A computer network is a collection of interconnected devices that communicate and exchange data using agreed rules called protocols.**
+
+Breaking that down:
+
+| Phrase | Meaning |
+|---|---|
+| **Collection of devices** | Computers, servers, phones, printers, routers, switches |
+| **Interconnected** | There is a communication path, wired or wireless |
+| **Exchange data** | They send and receive information |
+| **Protocols** | Agreed rules that define how communication happens |
+
+### Analogy — the postal system
+
+| Postal system | Computer network |
+|---|---|
+| Sender | Source device |
+| Recipient address | Destination IP address |
+| Post office routing | Network routing |
+| Letter | Data |
+| Postal rules | Network protocols |
+| Delivery | Data reception |
+
+The analogy helps — but remember: computer networks communicate in **both directions**, at **extremely high speed**, between **millions of endpoints**, with **retransmission and error correction** the postal system can only dream of.
+
+---
+
+## 5. FEATURES — The seven core concepts
+
+### A. Network types — LAN, MAN, WAN, PAN
+
+Networks are classified by **geographic scope**.
+
+| Type | Coverage | Example |
+|---|---|---|
+| **PAN** — Personal Area Network | A few meters | Bluetooth headphones, phone ↔ smartwatch |
+| **LAN** — Local Area Network | One building or campus | Office Ethernet, home Wi-Fi |
+| **MAN** — Metropolitan Area Network | One city | City fiber ring, cable ISP headend |
+| **WAN** — Wide Area Network | Countries / continents | Corporate MPLS, ISP backbone |
+| **Internet** | Global | The public network of networks |
+
+**Important:** these are **scope classifications**, not necessarily four different technologies. A WAN today may physically run over the same fiber as the internet. The label describes the *reach*, not the *mechanism*.
+
+### B. Internet vs Intranet
+
+| Term | What it is | Example |
+|---|---|---|
+| **Internet** | The global public network of networks using TCP/IP | google.com, public APIs, online banking |
+| **Intranet** | A private network or private set of services used inside an organization | Internal HR portal, internal banking services |
+
+```
+                INTERNET
+                   |
+           Corporate Firewall
+                   |
+            Company Network
+                   |
+       -----------------------
+       |          |          |
+    Mumbai     London    Singapore
+       |          |          |
+   Internal   Internal   Internal
+   Services   Services   Services
+```
+
+**Important:** an intranet is **not necessarily physically separate** from the internet. It can run over internet technologies while access is restricted by:
+- Private addressing (RFC 1918 — Topic 4/5)
+- VPNs (Topic 17)
+- Firewalls (Topic 14)
+- Identity controls (Topic 19)
+
+### C. Client, Server, Peer
+
+| Role | Definition | Example |
+|---|---|---|
+| **Client** | Initiates a request | Browser, React app, `HttpClient` |
+| **Server** | Listens and responds | ASP.NET Core API, SQL Server |
+| **Peer** | Both client and server symmetrically | BitTorrent, some blockchain nodes |
+
+**The same machine can be all three at different times.** An ASP.NET Core API is a **server** to a React client, and a **client** to the database. It can also be a **peer** if it participates in gossip protocols.
+
+```
+React App  --HTTP-->  ASP.NET Core API  --SQL-->  SQL Server
+  (client)               (server)                 (server)
+                          ^     |
+                          |     |  (client to DB)
+                          +-----+
+```
+
+### D. Networking hardware — what each device does
+
+| Device | Layer | Primary responsibility |
+|---|---|---|
+| **Switch** | Layer 2 | Forwards Ethernet frames within a LAN by MAC address |
+| **Router** | Layer 3 | Forwards IP packets **between networks** by destination IP and routing table |
+| **Hub** | Layer 1 | Repeats signal to all ports; obsolete, collision-prone |
+| **Modem** | Layer 1 | Modulates / demodulates for the access medium (DSL, cable, fiber) |
+| **Access Point (AP)** | Layer 2 | Bridges Wi-Fi clients into a wired LAN |
+
+**Switch vs router is the classic confusion.** Internally they answer different questions:
+
+- **Switch:** "Which port has the MAC address I need?" — inside one network
+- **Router:** "Which network is the destination IP on, and what's the next hop?" — between networks
+
+A modern home Wi-Fi router **bundles** a router, a switch, an access point, and often a modem. That bundling is convenience — physically, they are distinct functions.
+
+### E. Wired vs Wireless
+
+| Consideration | Wired (Ethernet) | Wireless (Wi-Fi) |
+|---|---|---|
+| **Medium** | Copper / fiber | Radio waves |
+| **Mobility** | Limited | High |
+| **Interference** | Low | Significant |
+| **Performance consistency** | High | Environment-dependent |
+| **Deployment** | Cabling required | Easy onboarding |
+| **Security** | Physical access matters | Encryption essential |
+
+Wireless-specific fundamentals:
+
+- **SSID** — the network name
+- **WPA2 / WPA3** — Wi-Fi security standards
+- **2.4 / 5 / 6 GHz** — frequency bands (trade range vs throughput)
+- **Channels** — RF sub-bands; overlap causes interference
+- **Interference** — other signals competing for airtime
+
+These are supporting fundamentals, not separate syllabus topics.
+
+### F. Bandwidth vs Latency vs Throughput
+
+The three most-misused terms in production discussions.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Road analogy                                            │
+│                                                          │
+│  Bandwidth  = how many lanes the highway has             │
+│  Latency    = how long one car takes end to end          │
+│  Throughput = how many cars per hour actually arrive     │
+└──────────────────────────────────────────────────────────┘
+```
+
+| Term | Meaning | Example |
+|---|---|---|
+| **Bandwidth** | Maximum theoretical capacity | 1 Gbps |
+| **Latency** | Time for one packet to travel end-to-end | 100 ms |
+| **Throughput** | Actual data delivered per second (≤ bandwidth) | 300 Mbps |
+
+**These are independent.** A satellite link can have **high bandwidth** (hundreds of Mbps) and **terrible latency** (~600 ms round-trip). A local Ethernet has **high bandwidth** and **sub-millisecond latency**.
+
+**Which matters when:**
+- For **many small API requests** (trading, chat) → **latency dominates**. More bandwidth doesn't help.
+- For **bulk transfer** (market-data files, video) → **throughput/bandwidth dominate**. Latency matters less.
+
+A Principal engineer measures **p50/p95/p99 latency**, not averages — averages hide the outliers that cause incidents.
+
+### G. Packets — how data actually travels
+
+Suppose you send this message over the wire:
+
+```
+Transfer ₹10,000
+```
+
+The network does **not** send that as one magical object. Data is framed and divided according to protocol.
+
+```
+Application data
+       |
+       v
+Transport layer (TCP / UDP)       ← segments / datagrams
+       |
+       v
+IP layer                          ← packets
+       |
+       v
+Link layer (Ethernet / Wi-Fi)     ← frames
+       |
+       v
+Physical transmission             ← bits
+```
+
+**A packet** is the unit of data carried by a network-layer protocol such as IP. At the link layer, IP packets are carried inside **frames**.
+
+**Why packets?**
+- **Sharing** — many flows can multiplex over one link.
+- **Fault tolerance** — routers forward independently; a broken path can be replaced.
+- **Granular recovery** — only lost packets need retransmission (TCP).
+- **Bounded buffers** — small units fit in router queues; one huge message would block everything.
+
+**Important caveat:** not every protocol behaves identically. **TCP presents an ordered byte stream** to applications; **UDP sends individual datagrams** with no ordering, delivery, or retransmission guarantees. We'll explore this in detail at Topic 8.
+
+---
+
+## 6. COMPARISON — Putting concepts together
+
+**Components by responsibility:**
+
+| Component | Responsibility |
+|---|---|
+| Switch | Connect devices inside a LAN |
+| Router | Connect different IP networks |
+| Hub | Repeat signal to all ports (obsolete) |
+| Modem | Adapt signal to access medium |
+| Access Point | Bridge wireless clients into a LAN |
+| Firewall | Enforce traffic security rules |
+
+**Metrics by question:**
+
+| Metric | Question it answers |
+|---|---|
+| Bandwidth | How much capacity is available? |
+| Latency | How long does communication take? |
+| Throughput | How much data is actually transferred? |
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### Advantages
+- Centralized access to data and services
+- Collaboration across distributed teams
+- Resource sharing (printers, storage, compute)
+- Centralized monitoring and management
+- Horizontally scalable distributed applications
+- Remote access
+
+### Disadvantages and new complexities
+- **Network failures** interrupt applications
+- **Security surface** expands enormously
+- **Congestion** affects performance unpredictably
+- **Troubleshooting** becomes multi-layered
+- **Infrastructure and operational cost** rises
+- **Partial failures** and **distributed-systems limits** appear — problems that don't exist in a local function call
+
+### When the old approach is still better
+- **Air-gapped systems** — classified networks, safety-critical industrial control
+- **Single-purpose embedded systems** — a pacemaker, an industrial controller
+- **Microsecond-latency workloads** — a trading matching engine's hot path runs in-process, not over the network
+- **Regulatory isolation** — data that legally must not cross a network
+
+A Principal Engineer accepts networking as the default **but knows when to refuse it.**
+
+---
+
+## 8. WHEN — Engineering decisions
+
+| Scenario | Likely choice | Reason |
+|---|---|---|
+| 40 computers in one office | **LAN + switches** | Local device communication |
+| Offices across countries | **WAN** | Geographic connectivity |
+| Laptop → office Wi-Fi | **Wireless AP** | Mobility |
+| API → remote database | **Routed IP network** | Cross-boundary communication |
+| Trading engine matching loop | **In-process**, not network calls | Microsecond latency; network jitter unacceptable |
+
+**A Principal Engineer also asks:**
+- Is this traffic internal or internet-facing?
+- Is it latency-sensitive?
+- How much bandwidth does it require at p99?
+- Does it contain sensitive data, and where is TLS terminated?
+- What happens if the network is unavailable — degraded mode or hard failure?
+- Is the path redundant across AZs / regions?
+- Where should firewall controls be applied — at the edge, per-service, or both?
+- **Where is the boundary between "network problem" and "application problem" — and can I tell?**
+
+---
+
+## 9. HOW — Practical implementation
+
+> **Adaptation note:** "Network basics" is a *concept*, not a language feature. The most useful "implementation" here is **inspecting the network your own machine is on**. Code comes next, as a bridge to later topics.
+
+### A. Practical commands (Windows) — the standard diagnostic toolkit
+
+```powershell
+# 1. Full local network configuration
+ipconfig /all
+#    → IPv4 address, subnet mask, default gateway,
+#      DNS servers, MAC address, DHCP info
+
+# 2. Basic reachability (ICMP)
+ping 8.8.8.8
+#    → Confirms IP-level reachability to a known host
+#    → Failure does NOT prove the host is down; ICMP may be blocked
+
+# 3. DNS resolution
+nslookup google.com
+#    → Asks the configured DNS server to resolve a name
+
+# 4. Path to a destination
+tracert google.com
+#    → Shows each router hop; useful to see WHERE a path breaks
+
+# 5. Active connections and listening ports
+netstat -ano
+#    → Local/remote pairs, state (ESTABLISHED/LISTENING/TIME_WAIT),
+#      and the owning PID
+
+# 6. Targeted port reachability (better than ping for services)
+Test-NetConnection example.com -Port 443
+#    → Confirms TCP connect at Layer 4, which is what the app cares about
+```
+
+**These aren't trivia. They are the four tools you will run every single time an application "can't reach a service."** Note how they map to different diagnostic layers:
+
+| Question | Tool | Layer |
+|---|---|---|
+| Is there a link / can I ping? | `ping` | Layer 3 |
+| Does DNS resolve? | `nslookup` | Application |
+| Where does the path fail? | `tracert` | Layer 3 |
+| Can I open a TCP connection to the port? | `Test-NetConnection -Port` | Layer 4 |
+
+### B. Code — bridging to later topics (optional but recommended)
+
+Two .NET processes on different machines, exchanging data over TCP. **This is the minimum proof that a network exists.**
+
+**Server:**
+
+```csharp
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+
+var listener = new TcpListener(IPAddress.Any, 9000);   // IPAddress.Any = any local interface
+listener.Start();
+Console.WriteLine("Listening on 0.0.0.0:9000");
+
+using var client = await listener.AcceptTcpClientAsync();
+using var stream = client.GetStream();
+
+var buffer = new byte[1024];
+int read = await stream.ReadAsync(buffer);             // blocks until bytes arrive
+var msg = Encoding.UTF8.GetString(buffer, 0, read);
+Console.WriteLine($"Server received: {msg}");
+
+await stream.WriteAsync(Encoding.UTF8.GetBytes("ACK"));
+```
+
+**Client:**
+
+```csharp
+using System.Net.Sockets;
+using System.Text;
+
+using var client = new TcpClient();
+await client.ConnectAsync("192.168.1.20", 9000);       // server's IP + port
+using var stream = client.GetStream();
+
+await stream.WriteAsync(Encoding.UTF8.GetBytes("Hello"));
+var buffer = new byte[1024];
+int read = await stream.ReadAsync(buffer);
+Console.WriteLine($"Client received: {Encoding.UTF8.GetString(buffer, 0, read)}");
+```
+
+**What each line proves:**
+
+| Line | Concept |
+|---|---|
+| `IPAddress.Any, 9000` | A **port** identifies the application on the machine |
+| `ConnectAsync("192.168.1.20", 9000)` | An **IP address** identifies the machine |
+| `TcpListener` / `TcpClient` | A **protocol** (TCP) provides reliable delivery |
+| `ReadAsync` / `WriteAsync` | A **byte stream** flows across the network |
+| Two separate processes | Two **nodes** on a **link** |
+
+**Execution flow:**
+1. Server calls `Start()` — OS binds port 9000.
+2. Client calls `ConnectAsync` — TCP 3-way handshake (SYN → SYN-ACK → ACK).
+3. Client writes bytes — TCP segments them into packets.
+4. Server reads bytes — TCP reassembles in order.
+5. Server writes reply.
+6. Both close — FIN / ACK teardown; sockets enter TIME_WAIT.
+
+That's the entire concept — **two machines, addressed, speaking a protocol, exchanging packets** — in forty lines of code.
+
+---
+
+## 10. INTERNAL WORKING — What happens when you open a website?
+
+You open:
+
+```
+https://www.microsoft.com
+```
+
+The full journey — this is the map for **every later topic in Phase 1**.
+
+| Step | What happens | Detailed in |
+|---|---|---|
+| 1. **Application** | Browser prepares the request | — |
+| 2. **DNS resolution** | Hostname → IP address (possibly cached) | Topic 6 |
+| 3. **Local network** | Packets go to the default gateway via Ethernet/Wi-Fi | Topic 4, Topic 9 |
+| 4. **NAT** | Router rewrites your private IP to its public IP | Topic 5 |
+| 5. **Routing** | Intermediate routers forward by destination IP | Topic 9 |
+| 6. **Destination infrastructure** | WAF, load balancer, app servers | Topics 14–16 |
+| 7. **TLS handshake** | Certificate exchange, key negotiation | Topic 12 |
+| 8. **HTTP** | Request / response over the encrypted channel | Topics 21–24 |
+| 9. **Response return** | Reverse path, NAT rewrites back to your device | Topics 5, 9 |
+
+### Latency budget — realistic numbers
+
+| Hop | Typical latency |
+|---|---|
+| Device → home router (Wi-Fi) | 1–5 ms |
+| Home router → ISP → CDN edge | 5–20 ms |
+| CDN edge → origin | 10–50 ms |
+| App processing + DB | 5–100 ms |
+| Return path | 5–20 ms |
+| **Total round-trip** | **~30–200 ms** |
+
+Every later topic in Phase 1 explains **one slice of this budget**. That's why we're learning it in this order.
+
+---
+
+## 11. FAILURE SCENARIOS
+
+Imagine your ASP.NET Core application cannot connect to a remote service. Multiple failures look identical from inside the app — **the difference is where they break**.
+
+| Symptom | Possible cause | First tool |
+|---|---|---|
+| Name doesn't resolve | DNS issue | `nslookup` |
+| Cannot reach destination | Routing or firewall | `tracert` / `ping` |
+| Intermittent slowness | Congestion or latency | Network metrics, `netstat` |
+| Wi-Fi disconnects | Interference or weak signal | AP logs, channel scan |
+| **Small requests work, large fail** | **MTU / PMTUD blackhole** | Packet capture, MTU check |
+| Some services work, others don't | Port-specific firewall | `Test-NetConnection -Port` |
+| Connection refused | Host up, nothing listening | `netstat -tlnp` on server |
+| TLS handshake errors | Certificate / SNI / clock | `curl -v` or browser dev tools |
+
+**The MTU blackhole deserves a callout** — it's a classic and often misdiagnosed:
+
+> A 2 MB POST fails, but a 2 KB POST succeeds. `ping` works. `Test-NetConnection -Port 443` works. The cause: some hop on the path silently drops packets over ~1400 bytes and blocks the ICMP "fragmentation needed" message. TCP never learns to shrink. Fix: lower the interface MTU on the app server or its container (e.g. 1400).
+
+### Correlating with production telemetry
+
+When a real incident fires, correlate network failures with:
+- Application logs (structured, with correlation IDs)
+- HTTP client timeouts and retries
+- Dependency telemetry (which downstream call is slow/failing?)
+- DNS resolution latency / errors
+- Connection pool metrics (exhaustion?)
+- Distributed traces (Topics 61–62)
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Banking application
+
+```
+                     [ Trading user ]
+                      browser / React
+                            |
+                          HTTPS
+                            |
+                    [ WAF → Load Balancer ]
+                       TLS termination
+                            |
+            +---------------+---------------+
+            |               |               |
+        [ Trading API ] [ Execution API ] [ Data API ]   ← ASP.NET Core
+            |               |               |
+            +-------+-------+-------+
+                    |
+       [ SQL primary + replicas ]  [ Redis cache ]
+                    |
+              [ Kafka brokers ]
+                    |
+          [ downstream workers / core banking ]
+```
+
+**End-to-end flow — a balance request:**
+
+1. **DNS** returns the nearest region (GeoDNS).
+2. **WAF** inspects the request; passes clean traffic.
+3. **Load balancer** picks a healthy app server.
+4. **App server** checks **Redis** first (hit ~1 ms; miss → DB).
+5. On cache miss: read from a **SQL replica**; writes go to primary.
+6. **Business logic** applies authorization and balance rules.
+7. Response returns through the reverse path, encrypted.
+
+**Principal Engineer considerations in this diagram:**
+
+| Concern | Handling |
+|---|---|
+| **Security** | TLS at edge, WAF, mTLS to core banking, OAuth2/OIDC tokens |
+| **Performance** | Redis cache, CDN for static, read replicas |
+| **Consistency** | Read replicas lag; decide per-query whether stale is acceptable |
+| **Reliability** | Multi-AZ, health-checked LBs, circuit breakers (Topic 37) |
+| **Observability** | Distributed tracing spans every hop (Topic 62) |
+| **Compliance** | Encryption at rest and in transit; audit trail |
+
+**Don't assume co-location means reachability.** Because two services run in the same cloud, they are not automatically reachable, trusted, or isolated. Network segmentation, firewall rules, identity, DNS, routing, and TLS all still matter.
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### The most important lesson
+
+> **Network connectivity is not the same as application availability.**
+
+A server may be running, but:
+- DNS may not resolve its hostname.
+- A firewall may block the port.
+- The route may be gone.
+- TLS may fail verification.
+- Latency may exceed the app's timeout.
+- The TCP connection may succeed but the app may hang.
+
+### Three diagnostic layers — memorize this
+
+| Layer | Question | Typical tool |
+|---|---|---|
+| **1. Network reachability** | Can packets reach the destination? | `ping`, `tracert` |
+| **2. Transport connectivity** | Can a connection be established to the port? | `Test-NetConnection -Port`, `curl -v telnet://` |
+| **3. Application availability** | Can the application successfully process the request? | `curl -v https://...`, logs, traces |
+
+**Always climb these three layers in order.** Skipping straight to "the app is broken" wastes hours when the real fault is one layer down.
+
+### Design principles
+- **Minimize hops** on hot paths.
+- **Cache** at edge, app, DB, and client — invalidation is the hard part.
+- **Terminate TLS at the edge** but use mTLS inside (Topics 13–16).
+- **Set timeouts everywhere** — nothing waits forever.
+- **Design for partial failure** — retries, idempotency, circuit breakers (Topics 37–38).
+- **Instrument with traces** from day one (Topic 62).
+
+### Anti-patterns
+- **Chatty microservices** — one user action triggers 200 network calls.
+- **Flat networks** — no segmentation; one breach compromises everything.
+- **No timeouts** — a stuck call exhausts the thread pool.
+- **Caching without invalidation** — stale data served forever.
+- **Hard-coded IPs** — breaks failover and multi-region.
+- **Confusing reachability with availability** — "ping works, so the service should work."
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION
+
+### Basic
+
+**Q1. What is the difference between a switch and a router?**  
+A **switch** (Layer 2) forwards Ethernet frames within a **single LAN** by MAC address. A **router** (Layer 3) forwards IP packets **between different networks** using IP addresses and a routing table. A home "router" bundles a router, switch, AP, and often a modem — but the functions are distinct.
+
+**Q2. If bandwidth is 1 Gbps, does that guarantee low latency for an API request? Why?**  
+**No.** Bandwidth and latency are independent. Bandwidth is capacity (bits/sec); latency is end-to-end travel time (ms). A satellite link can have high bandwidth and ~600 ms latency. A local Ethernet has high bandwidth and sub-millisecond latency. For many small requests, latency dominates user experience regardless of bandwidth.
+
+**Q3. When your React app calls an ASP.NET Core API, why can the API be a server in one exchange and a client in another?**  
+Because **client/server is a role per exchange, not a property of the machine.** The API is a **server** to React (it accepts requests and responds). The same API is a **client** when it calls SQL Server, Redis, or a downstream HTTP API (it initiates the request). Most backend services play both roles continuously.
+
+### Intermediate
+
+**Q4. What is a packet, and why do networks split data into packets?**  
+A self-contained, independently addressed unit of data: header (addresses, sequence, checksum) + payload. Networks split data because **packet switching** allows many flows to share a link, routers to forward independently and reroute around failures, and only lost fragments to be retransmitted. TCP (Topic 8) reassembles them into an ordered stream; UDP (Topic 8) delivers individual datagrams without guarantees.
+
+**Q5. Distinguish network reachability, transport connectivity, and application availability.**  
+Three layers with different tools:
+- **Network reachability** — can packets reach the host? `ping`, `tracert`.
+- **Transport connectivity** — can a TCP connection open to the port? `Test-NetConnection -Port`, `curl -v telnet://host:port`.
+- **Application availability** — can the app process the request and respond? `curl -v https://...`, logs, traces.
+
+Each layer can fail while the layer below it is healthy. Climb them in order when troubleshooting.
+
+### Advanced architecture
+
+**Q6. Your p99 latency is 800 ms while p50 is 40 ms. Where do you look first?**  
+p99 outliers usually come from:
+- Cache misses falling through to DB under contention
+- GC pauses
+- Thread pool starvation from blocking calls
+- A downstream dependency near its timeout
+- DNS re-resolution stalls
+- Network retransmits on a lossy path
+
+Open **traces from p99 requests** (Topic 62) — the slow span identifies the culprit. This is exactly why averages lie.
+
+**Q7. Why can pinging a host succeed while the API times out?**  
+Ping only proves **Layer 3 reachability** — the host is up and responds to ICMP. The API may fail at Layer 4 (nothing listening on the port), Layer 5+ (TLS misconfigured), or Layer 7 (app hanging). **Reachability ≠ availability.** Walk the three layers.
+
+### Scenario-based
+
+**Q8. A customer in Tokyo hits your Frankfurt API with 300 ms RTT; a Berlin customer sees 20 ms. Options?**  
+- **GeoDNS** routes to the nearest region (Topic 20)
+- **Read replicas / CDN edge** close to APAC
+- **Edge compute** for stateless work (Cloudflare Workers, Azure Front Door)
+- **Accept the physics** — 300 ms is set by distance, not code
+- For writes, consider **regional write paths with conflict resolution**
+
+### Production troubleshooting
+
+**Q9. `Test-NetConnection host -Port 443` fails, but `ping host` succeeds. Why?**  
+Ping (ICMP) works at Layer 3 — the host is reachable. `Test-NetConnection -Port 443` attempts a TCP connect at Layer 4 and fails. Causes: (a) service isn't listening on 443, (b) firewall drops TCP but allows ICMP, (c) service is bound to localhost only in a container, (d) a WAF/LB in front returns RST. Verify on the server with `netstat -tlnp` and from the client with `curl -v telnet://host:443`.
+
+**Q10. Your app works in dev but times out in production for large POSTs (2 MB+); small requests succeed. Cause?**  
+Classic **MTU / PMTUD blackhole**. A hop on the path silently drops packets > ~1400 bytes and blocks the ICMP "fragmentation needed" message. Small requests fit in one packet and pass. Fix: lower the MTU on the app host or container (e.g. 1400), or ensure ICMP is not filtered on the path.
+
+---
+
+## Final knowledge check — before Topic 2
+
+Answer these in your own words. **Short answers are fine.** I want to confirm understanding, not memorization.
+
+1. **In one sentence:** what problem did networking solve that standalone computers could not?
+2. **Distinguish:** LAN, WAN, and internet — what is the boundary, and why is the boundary about *scope* rather than *technology*?
+3. **Bandwidth vs latency:** if a user complains "the app is slow," which do you investigate first, and why?
+4. **Diagnostic layers:** `ping` works, `Test-NetConnection -Port 443` fails. What are three likely causes, and what would you check on the server?
+5. **Client/server role:** in a single user request, name one exchange where the ASP.NET Core API acts as a **client** and one where it acts as a **server**.
+6. **Judgment call:** give **one** scenario in which you would deliberately **not** network a system, and explain why.
+
+Once you answer (or say *"skip the check, continue"*), I'll teach **Topic 2 — OSI and TCP/IP Models** using the same structure. Topic 2 is the map for the rest of Phase 1, so I want Topic 1 confirmed before we move.
