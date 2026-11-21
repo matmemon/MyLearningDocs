@@ -1,0 +1,1082 @@
+# Topic 5 — Subnetting and NAT
+
+> **Adaptation note:** Subnetting is math; NAT is stateful rewriting. Where the master prompt asks for code, I show **working subnet calculations** and **packet flows** — the practical skills — and one configuration example (Kestrel / nftables / Azure) to anchor each concept.
+
+> **Boundary note:** DHCP is mentioned because it delivers subnet config; its own mechanics are Topic 10. DNS is mentioned as a parameter; its own mechanics are Topic 6.
+
+> **Gate rule:** No move to Topic 6 until you confirm Topic 5 is solid. Knowledge check at the end.
+
+---
+
+## The practical problem
+
+A bank has 5,000 computers and servers. Initially, all devices sit on one network:
+
+```
+                 Bank Network
+                      │
+        ┌─────────────┼─────────────┐
+        │             │             │
+      Laptop        API          Database
+        │             │             │
+      5,000 devices sharing one network
+```
+
+As the organization grows:
+
+1. Too many devices share one network.
+2. Broadcast traffic affects everyone.
+3. Network security becomes impossible to control.
+4. Departments need different access permissions.
+5. Troubleshooting is harder.
+6. Public IPv4 addresses must be conserved.
+
+Two technologies solve two different parts:
+
+| Problem | Solution |
+|---|---|
+| How do we divide and organize networks? | **Subnetting** |
+| How do we translate addresses between networks? | **NAT** |
+
+And a third question — how does a laptop decide whether a destination is local or remote? — is answered by the **subnet mask**, which we'll calculate explicitly.
+
+---
+
+## 1. WHY — Why were subnetting and NAT required?
+
+### The two pressures
+
+**Pressure A — Classful addresses were wasteful, and routing tables were exploding.**
+
+IPv4 originally used **classful addressing**:
+
+| Class | First bits | Networks | Hosts per network |
+|---|---|---|---|
+| A | `0` | 126 | 16.7M |
+| B | `10` | 16,384 | 65,534 |
+| C | `110` | 2M | 254 |
+
+Every organization got a whole class. A company needing **300 hosts** got a **Class B** — 65,534 addresses — wasting 99.5%. Every classful network also had its own route, so **the internet routing table grew unboundedly**.
+
+**Subnetting** let an organization divide one classful block internally — right-sized subnets, per-subnet policy, broadcast containment. **CIDR** (Classless Inter-Domain Routing, 1993) went further: any prefix length (`/23`, `/27`, `/30`), so blocks could be sized to fit.
+
+**Pressure B — The world ran out of public IPv4 addresses.**
+
+4.3 billion was enough in 1981. Not enough when every PC, phone, and IoT device needs an address. **NAT** was the pragmatic fix: many devices share one public IP via translation at the edge.
+
+### The summary
+
+- **Subnetting/CIDR** = partition and route efficiently within a shared address space.
+- **NAT** = multiplex many private addresses into fewer public addresses.
+
+Different problems, learned together because they meet at the network edge.
+
+---
+
+## 2. BEFORE — What existed previously?
+
+### Before subnetting — one large flat network
+
+An organization with a `192.168.1.0/24` might put every device on it:
+
+- 100 employee laptops.
+- 50 application servers.
+- 30 database servers.
+- 40 test machines.
+
+**One broadcast domain, one policy zone, one failure domain.** This works for a small office. It collapses under growth.
+
+In the older classful world, the mask was implied by the first octet — a `10.x.x.x` was Class A with a fixed `/8`, a `172.16.x.x` was Class B with `/16`, a `192.168.1.x` was Class C with `/24`. **You couldn't subdivide**, and the class dictated the size.
+
+### Before NAT — public IP for every device
+
+Early internet hosts held real, globally unique addresses:
+
+```
+Laptop 1 → Public IP A
+Laptop 2 → Public IP B
+Server 1 → Public IP D
+```
+
+Any two hosts reached each other **end-to-end**. That's the **end-to-end principle** — the network's job is just to deliver; endpoints know how to talk.
+
+As devices exploded, that model became impossible.
+
+### Strengths of the old approaches
+
+- **Flat = simple.** No routing decisions inside the organization.
+- **End-to-end = clean.** Every host directly addressable; no middlebox state.
+- **No translation** — no NAT tables, no NAT traversal problems.
+
+These strengths are real. The modern internet lost them for a reason, but the loss was not free.
+
+---
+
+## 3. PROBLEM — Why were the old approaches insufficient?
+
+### Problem 1 — Large flat networks are unmanageable
+
+| Problem | Real impact |
+|---|---|
+| **Broadcast scale** | 5,000 hosts on one domain — every broadcast hits every device, CPU and bandwidth collapse |
+| **No segmentation** | Engineering, HR, Finance can reach each other — no policy boundary |
+| **Fault propagation** | One misbehaving device degrades the whole network |
+| **Address waste** | One block for everything; no way to allocate precisely |
+| **Routing table growth** | Every classful network = its own route; internet routers strain |
+
+### Problem 2 — Public IPv4 was finite
+
+| Problem | Real impact |
+|---|---|
+| **Exhaustion** | 4.3 billion IPv4 — fewer than the number of devices |
+| **Waste** | A home with 5 devices holding 5 public IPs wastes scarce space |
+| **Security surface** | Every device directly reachable from the internet |
+| **Management** | Every device needs a globally routable, publicly-known IP |
+
+### Problem 3 — How does a computer know where to send a packet?
+
+Your laptop at `192.168.1.20` wants to reach `192.168.1.30` — **local**, send directly. Wants to reach `10.10.5.20` — **remote**, send to gateway. **How does it decide?**
+
+The **subnet mask** makes this decision. The next section explains the mask, CIDR, and the actual calculation.
+
+---
+
+## 4. WHAT — What are subnetting and NAT?
+
+### Part 1 — Subnetting
+
+#### Definition
+
+> **Subnetting** is dividing one IP network into smaller logical networks (subnets), each with its own network address, host range, and broadcast address.
+
+Example: take `192.168.1.0/24` and split into four `/26` subnets:
+
+| Subnet | Network | Usable range | Broadcast |
+|---|---|---|---|
+| 1 | `192.168.1.0` | `.1` – `.62` | `.63` |
+| 2 | `192.168.1.64` | `.65` – `.126` | `.127` |
+| 3 | `192.168.1.128` | `.129` – `.190` | `.191` |
+| 4 | `192.168.1.192` | `.193` – `.254` | `.255` |
+
+Each has 62 usable hosts.
+
+#### Subnet mask and CIDR
+
+An IPv4 address has **two parts**:
+
+```
+ 192.168.1.20
+ └─network─┘└host┘
+```
+
+The **subnet mask** says where the split is. In binary:
+
+```
+Mask /24 = 255.255.255.0 = 11111111.11111111.11111111.00000000
+                            └────── 24 network bits ──────┘└ 8 host bits ┘
+```
+
+**CIDR notation** writes the prefix length directly (`/24`). Key values:
+
+| CIDR | Mask | Total addresses | Usable (typical) |
+|---|---|---|---|
+| `/8` | `255.0.0.0` | 16,777,216 | 16,777,214 |
+| `/16` | `255.255.0.0` | 65,536 | 65,534 |
+| `/24` | `255.255.255.0` | 256 | 254 |
+| `/25` | `255.255.255.128` | 128 | 126 |
+| `/26` | `255.255.255.192` | 64 | 62 |
+| `/27` | `255.255.255.224` | 32 | 30 |
+| `/28` | `255.255.255.240` | 16 | 14 |
+| `/29` | `255.255.255.248` | 8 | 6 |
+| `/30` | `255.255.255.252` | 4 | **2** |
+| `/31` | `255.255.255.254` | 2 | **0** (RFC 3021 — point-to-point) |
+| `/32` | `255.255.255.255` | 1 | **1** (host route) |
+
+**Formula:** usable hosts = **2^(host bits) − 2** (network and broadcast reserved).
+
+**Smaller prefix number = larger network.** `/16` is bigger than `/24`.
+
+#### The three special addresses
+
+| Address | Computed as | Purpose |
+|---|---|---|
+| **Network address** | All host bits = 0 | Identifies the subnet; **not assignable** |
+| **Broadcast address** | All host bits = 1 | Sends to all hosts in subnet; **not assignable** |
+| **Usable range** | Network + 1 → Broadcast − 1 | What can be assigned |
+
+#### VLSM (Variable Length Subnet Masking)
+
+An organization does not need uniform subnets. VLSM allows different-sized subnets from the same block:
+
+```
+10.10.0.0/16  (65,534 addresses)
+
+→ 10.10.0.0/22      1,022 hosts   application network
+→ 10.10.4.0/24        254 hosts   database network
+→ 10.10.5.0/24        254 hosts   messaging network
+→ 10.10.6.0/30          2 hosts   point-to-point link
+→ 10.10.7.0/26         62 hosts   management network
+```
+
+Each subnet fits its purpose exactly.
+
+#### Supernetting / route summarization
+
+The reverse: combine contiguous subnets into one **larger prefix**:
+
+```
+10.10.0.0/24 + 10.10.1.0/24 + 10.10.2.0/24 + 10.10.3.0/24
+                ↓
+              10.10.0.0/22
+```
+
+One route covers four subnets. **Essential for keeping the internet routing table from exploding.** At cloud scale (thousands of subnets), summarization is what keeps routing feasible.
+
+#### Default gateway
+
+> **The default gateway** is the router a host sends traffic to when the destination is **outside its local subnet** and **no more specific route exists**.
+
+```
+Laptop:  IP 192.168.1.20 / mask 255.255.255.0 / gateway 192.168.1.1
+
+192.168.1.30 → local     (same subnet → send directly)
+10.10.5.20   → gateway   (different subnet → send to 192.168.1.1)
+```
+
+Routing itself is Topic 9.
+
+---
+
+### Part 2 — NAT
+
+#### Definition
+
+> **Network Address Translation (NAT)** modifies IP addresses (and often ports) in packets as they pass through a network device — commonly a router or firewall.
+
+The main use: **many private IPv4 devices share one or fewer public IPv4 addresses.**
+
+#### Three variants
+
+| Type | How it works | Typical use |
+|---|---|---|
+| **Static NAT (1:1)** | Fixed one-to-one mapping | Publishing a service with a stable mapping |
+| **Dynamic NAT (N:M)** | Assigns from a pool of public IPs | Organizations with a pool |
+| **PAT / NAT Overload (N:1)** | Many connections share one IP, distinguished by port | Home routers, cloud egress |
+
+**PAT (Port Address Translation)** is what every home router does. It translates both address and port so many sessions share one public IPv4.
+
+#### SNAT vs DNAT
+
+| Variant | Rewrites | Used for |
+|---|---|---|
+| **SNAT** | Source IP | Outbound — many internal hosts → one public IP |
+| **DNAT** | Destination IP | Inbound — port forwarding to internal services |
+
+#### How PAT works — the classic example
+
+Two laptops access the internet through one public IP:
+
+```
+Before NAT:
+  Laptop A: 192.168.1.20:51000
+  Laptop B: 192.168.1.21:51001
+
+After PAT:
+  Laptop A → 203.0.113.10:60001
+  Laptop B → 203.0.113.10:60002
+```
+
+The router keeps a **translation table**:
+
+| Internal | External |
+|---|---|
+| `192.168.1.20:51000` | `203.0.113.10:60001` |
+| `192.168.1.21:51001` | `203.0.113.10:60002` |
+
+When a response comes back to `203.0.113.10:60001`, the router looks up the table and forwards to `192.168.1.20:51000`.
+
+**The NAT table is the memory of the connection.** Lose it and existing connections break.
+
+#### Inbound (DNAT / port forwarding)
+
+```
+Internet client
+      ↓
+203.0.113.10:443    (public IP of NAT device)
+      ↓
+NAT / firewall: DNAT rule
+      ↓
+192.168.1.50:443    (internal server)
+```
+
+Port forwarding must be **explicitly configured** — NAT does not automatically expose any server. Firewall rules must also allow the connection.
+
+#### NAT and IPv6
+
+IPv6 was designed **so NAT isn't needed** — the address space gives every device a global address. In practice:
+
+- **NAT66** exists but is rare.
+- Most IPv6 deployments use **stateful firewalls** instead of NAT for security.
+- **NAT64 / DNS64** translates IPv6↔IPv4 during migration.
+
+---
+
+## 5. FEATURES — What do subnetting and NAT provide?
+
+| Feature | Subnetting | NAT |
+|---|---|---|
+| **Divide networks** | Yes | No |
+| **Separate broadcast domains** | Yes (when routed) | No |
+| **Logical network organization** | Yes | No |
+| **Conserve public IPv4** | Not by itself | Yes |
+| **Translate addresses** | No | Yes |
+| **Control network boundaries** | Helps via routing and firewalls | Combined with firewalls |
+| **Support private networks** | Yes | Commonly used with them |
+| **Address multiplexing** | No | Yes (PAT) |
+| **Topology hiding** | No | Partial (weak security) |
+| **Route summarization** | Yes (supernetting) | No |
+
+### Why subnetting reduces broadcast traffic
+
+An IPv4 broadcast stays in its **local broadcast domain**. If departments are placed in separate IP subnets connected by routers, a broadcast in one subnet **is not forwarded** into another. This contains broadcast traffic.
+
+**But: subnetting alone is not security.** You still need routing and firewall rules to restrict communication between subnets.
+
+---
+
+## 6. COMPARISON — Before vs after (10 dimensions)
+
+### Subnetting comparison
+
+| Dimension | Flat classful (before) | Subnetted CIDR (after) |
+|---|---|---|
+| **Architecture** | One flat block per organization | Hierarchical partitions |
+| **Working mechanism** | Class determines mask; no internal routing | Prefix length defines split; internal routers |
+| **Performance** | Single broadcast domain; degrades with hosts | Broadcast contained per subnet; scales |
+| **Scalability** | 65K hosts on one segment collapses | Subnets scale to millions via hierarchy |
+| **Reliability** | One broadcast storm affects everything | Fault isolation per subnet |
+| **Security** | Everyone can reach everyone | Firewall rules at subnet boundaries |
+| **Complexity** | Simple — no decisions | Higher — must plan masks and routes |
+| **Maintenance** | Fixed to the class | Designed |
+| **Cost** | Whole classes consumed wastefully | Right-sized subnets |
+| **Failure handling** | One node degrades all | Contained within subnet |
+
+### NAT comparison
+
+| Dimension | Public IP for everyone (before) | NAT (after) |
+|---|---|---|
+| **Architecture** | End-to-end addressing | Stateful middlebox translation |
+| **Working mechanism** | Router forwards unchanged | Rewrites source/dest (and port) |
+| **Performance** | Minimal per-packet processing | Table lookup and rewrite |
+| **Scalability** | Address-limited | Millions of internal hosts per public IP |
+| **Reliability** | No NAT state to lose | State loss breaks connections |
+| **Security** | Every host directly exposed | Inbound requires explicit forwarding |
+| **Complexity** | Simple | Higher — stateful, protocol-specific |
+| **Maintenance** | Every device needs an IP | One public IP per NAT device |
+| **Cost** | Scarce IPs are expensive | NAT is free |
+| **Failure handling** | No stateful failures | Table overflow, state loss break traffic |
+
+### Subnetting vs NAT vs Routing vs Firewall
+
+| Concept | Question it answers | Example |
+|---|---|---|
+| **Subnetting** | How is a network divided? | `/24` split into four `/26`s |
+| **Routing** | Where should this packet go next? | Forward to another subnet |
+| **NAT** | Does an address need translating? | Private source → public IP |
+| **Firewall** | Is this traffic allowed? | Permit API→SQL on 1433 |
+
+**A common mistake:** treating NAT as routing. **A NAT device usually routes too, but NAT and routing are separate functions.** A router can route without NAT.
+
+**Why NAT won despite breaking end-to-end:** address exhaustion was acute; NAT bought 20+ years for IPv6; topology hiding was a bonus. The cost was deferred — protocols that break through NAT needed per-protocol workarounds.
+
+**Trade honestly:** NAT is a hack that worked. It broke the end-to-end principle. Without it, IPv4 would have died long before IPv6 could replace it.
+
+---
+
+## 7. ADVANTAGES AND DISADVANTAGES
+
+### Subnetting advantages
+- Organizes large networks
+- Limits broadcast scope
+- Supports segmentation and per-subnet policy
+- Enables route summarization
+- Efficient address allocation
+- Boundary for firewalls and NSGs
+
+### Subnetting disadvantages
+- Requires planning (masks, ranges, overlaps)
+- Incorrect masks cause communication failures
+- Too many small subnets add routing/operations complexity
+- Overlapping ranges break connectivity
+- Re-IP is painful if you got it wrong
+
+### NAT advantages
+- Conserves public IPv4 addresses
+- Allows private topologies behind one public IP
+- Hides internal addressing (partial)
+- Supports controlled ingress via port forwarding
+- Enables load balancing / failover via DNAT
+
+### NAT disadvantages
+- Complicates inbound connectivity
+- Requires translation state (PAT)
+- Protocol breakage (FTP active, SIP, IPsec AH, P2P — see §11)
+- Can become a bottleneck or single point of failure
+- Audit difficulty — many users appear from one IP
+- Not a security control
+- Delays IPv6 adoption because it's convenient
+
+### When the old approach is still correct
+- **Small network** — a home LAN with 5 devices is fine on one flat `/24`.
+- **IPv6-only network** — no NAT needed; stateful firewalls for security.
+- **Internal east–west** — routable private addressing without NAT for observability and policy.
+- **Data center with routable space** — NAT adds complexity without benefit.
+
+---
+
+## 8. WHEN — When to use subnetting and NAT?
+
+### When to use subnetting
+
+- Separate application, database, user, and management networks
+- Isolated dev / QA / UAT / prod environments
+- Controlled inter-service communication
+- Efficient IP allocation with headroom
+- Different security policies per workload
+
+Example:
+
+```
+Bank VNet: 10.10.0.0/16
+
+User subnet:        10.10.1.0/24
+Application subnet: 10.10.2.0/24
+Database subnet:    10.10.3.0/24
+Management subnet:  10.10.4.0/24
+```
+
+### When to use NAT
+
+- Private devices need outbound internet access
+- Many devices share a public IPv4
+- A service needs a stable public→private mapping
+- A partner allow-lists a specific source IP
+
+### When to avoid unnecessary NAT
+
+For internal service-to-service, **direct private routing** is usually preferable when policy permits:
+
+- **Observability** — real internal IPs in traces
+- **Protocol support** — no NAT traversal issues for gRPC, WebSockets, Kafka internals
+- **Troubleshooting** — failures are routing problems, not NAT-table problems
+- **Security** — subnet-boundary firewalls, not NAT-based hiding
+
+```
+✅ .NET API → SQL private endpoint       (no NAT)
+❌ .NET API → NAT → SQL                  (NAT unnecessary complexity)
+```
+
+**NAT at the edge is pragmatic. NAT everywhere is technical debt.**
+
+### IPv6 note
+
+IPv6 has effectively unlimited addresses — **NAT is not required for connectivity**. IPv6 firewalls and access policies are still essential.
+
+---
+
+## 9. HOW — Subnetting and NAT in practice
+
+### A. Calculate a `/24`
+
+```
+Network: 192.168.1.0/24
+Host bits: 8 → 2^8 = 256 total addresses
+
+Network address: 192.168.1.0       (not assignable)
+Usable:          192.168.1.1–.254  (254 addresses)
+Broadcast:       192.168.1.255     (not assignable)
+```
+
+### B. Divide a `/24` into four `/26` subnets
+
+Two bits borrowed from host → `24 + 2 = 26`. Each `/26` has `2^6 = 64` total addresses (62 usable).
+
+| Subnet | Network | Usable | Broadcast |
+|---|---|---|---|
+| 1 | `192.168.1.0` | `.1` – `.62` | `.63` |
+| 2 | `192.168.1.64` | `.65` – `.126` | `.127` |
+| 3 | `192.168.1.128` | `.129` – `.190` | `.191` |
+| 4 | `192.168.1.192` | `.193` – `.254` | `.255` |
+
+### C. Local vs remote — the AND calculation
+
+**Every OS runs this algorithm:**
+
+```
+if (dest_ip AND mask) == (my_ip AND mask):
+    destination is local → send directly (ARP for dest MAC)
+else:
+    destination is remote → send to default gateway
+```
+
+**Example 1 — local:**
+
+```
+Laptop:      192.168.1.20    = 11000000.10101000.00000001.00010100
+Mask /24:    255.255.255.0   = 11111111.11111111.11111111.00000000
+Network:     192.168.1.0     = 11000000.10101000.00000001.00000000
+
+Destination: 192.168.1.30    = 11000000.10101000.00000001.00011110
+AND mask:    192.168.1.0     ← SAME → local delivery
+```
+
+**Example 2 — remote:**
+
+```
+Destination: 10.10.5.20      AND 255.255.255.0 = 10.10.5.0
+My network:                = 192.168.1.0
+                            ← DIFFERENT → send to gateway (192.168.1.1)
+```
+
+For local IPv4, the host uses **ARP** to find the destination's MAC. For remote, it uses ARP to find the **gateway's MAC**. ARP is Topic 12.
+
+### D. NAT/PAT translation table
+
+Two laptops accessing an external site:
+
+| Internal | External mapping |
+|---|---|
+| `192.168.1.20:51000` | `203.0.113.10:60001` |
+| `192.168.1.21:51001` | `203.0.113.10:60002` |
+
+Return packet to `203.0.113.10:60001` → router looks up table → forwards to `192.168.1.20:51000`.
+
+### E. Inbound (DNAT / port forwarding)
+
+```
+Internet client
+      ↓
+203.0.113.10:443
+      ↓ NAT / firewall DNAT rule
+192.168.1.50:443
+```
+
+Explicit configuration required. Firewall must also allow the traffic. **NAT does not automatically expose any server.**
+
+### F. Configuration examples
+
+**Kestrel binding (ASP.NET Core):**
+
+```csharp
+builder.WebHost.ConfigureKestrel(options =>
+{
+    // Bind to a specific IP and port
+    options.Listen(IPAddress.Parse("10.10.2.20"), 443, listen => listen.UseHttps());
+    // In containers, bind 0.0.0.0:
+    // options.ListenAnyIP(443, listen => listen.UseHttps());
+});
+```
+
+If the host's IP or subnet changes, the bind address must match — **another reason not to hardcode IPs** (Topic 4).
+
+**Linux NAT (nftables):**
+
+```bash
+# Outbound PAT via masquerade
+nft add table nat
+nft add chain nat postrouting { type nat hook postrouting priority 100 \; }
+nft add rule nat postrouting ip saddr 192.168.1.0/24 oifname "eth1" masquerade
+
+# Inbound DNAT (port forwarding)
+nft add rule nat prerouting tcp dport 8080 dnat to 192.168.1.20:80
+```
+
+**Azure VNet / subnet (JSON snippet):**
+
+```json
+{
+  "vnet": "trading-vnet",
+  "addressSpace": ["10.10.0.0/16"],
+  "subnets": [
+    { "name": "app",       "prefix": "10.10.2.0/24"  },
+    { "name": "data",      "prefix": "10.10.3.0/24"  },
+    { "name": "messaging", "prefix": "10.10.4.0/24"  },
+    { "name": "GatewaySubnet", "prefix": "10.10.250.0/27" }
+  ]
+}
+```
+
+**Azure reserved addresses:** Azure reserves **5 IPv4 addresses per subnet** (network, gateway, two Azure DNS, broadcast) — different from the standard 2. A `/24` has 256 total and **251 Azure-assignable**. A `/29` has **3 usable** in Azure, not 6. **`/29` is the minimum subnet size; `/31` and `/32` are not allowed.**
+
+**Azure NAT Gateway:**
+
+```json
+{
+  "type": "Microsoft.Network/natGateways",
+  "name": "app-nat",
+  "properties": {
+    "publicIpAddresses": [ "pip-app-nat" ],
+    "idleTimeoutInMinutes": 10
+  }
+}
+```
+
+Associate with a subnet — outbound traffic from that subnet SNATs through a **stable public IP**. Critical for partner allow-listing.
+
+---
+
+## 10. INTERNAL WORKING — Complete packet journey
+
+**Scenario:**
+
+```
+Laptop:       192.168.1.20 / 24, gateway 192.168.1.1
+Router public: 203.0.113.10
+Destination:   198.51.100.20:443
+```
+
+**Outbound:**
+
+1. **Application** creates a request to `198.51.100.20:443`.
+2. **Subnet check** — the laptop ANDs its IP and destination against `/24`. Different → remote.
+3. **Default gateway** — the packet goes to `192.168.1.1` (router's MAC, via ARP).
+4. **Router does PAT** — rewrites source `192.168.1.20:51000` → `203.0.113.10:60001`. Stores in the NAT table.
+5. **Internet routing** — routers forward to `198.51.100.20` (destination IP unchanged end-to-end).
+6. **Destination responds** — sends back to `203.0.113.10:60001`.
+7. **NAT reversal** — router looks up its table, rewrites destination back to `192.168.1.20:51000`, forwards.
+8. **Client receives** the response.
+
+**The essential summary:**
+
+> **Subnetting determines the local network boundary. Routing determines the next hop. NAT translates addresses when required.**
+
+### Why routers do longest-prefix match
+
+A router's table is a list of **prefixes**, and every forwarding decision is **longest-prefix match**:
+
+```
+Incoming: 10.10.5.22 → ?
+
+Table:
+  0.0.0.0/0     via default      (matches everything)
+  10.10.0.0/16  via 10.10.0.1
+  10.10.5.0/24  via 10.10.5.1    ← longest match wins
+  10.10.5.20/32 via 10.10.5.22
+```
+
+The `/32` (host route) wins because it's most specific. **This is why subnetting matters at scale** — routers store "where is 10.10.5.0/24", not "where is 10.10.5.22."
+
+### NAT statefulness — timeouts matter
+
+The NAT device keeps state per session:
+
+| Session type | Typical timeout |
+|---|---|
+| TCP established | ~2 hours (varies; some devices much shorter) |
+| TCP TIME_WAIT | ~2 min |
+| UDP | 30s – 5 min |
+| ICMP | ~30 s |
+
+**Consequence:** a long-idle TCP connection may be **dropped from the NAT table** while the client and server both believe it's alive. **First packet after idle fails.** This is why long-lived connections (WebSockets, SignalR, gRPC streams) need **TCP keep-alive** or application-level heartbeats (Topic 36).
+
+---
+
+## 11. FAILURE SCENARIOS
+
+| Failure | Symptoms | Investigate |
+|---|---|---|
+| **Wrong mask** | Devices appear unreachable or take wrong path | `ipconfig`, IP config |
+| **Wrong gateway** | Local works, remote fails | `route print` / `ip route` |
+| **Overlapping subnets** | VPN/cloud cannot route | Address-space audit |
+| **NAT translation exhaustion** | New outbound connections fail | NAT capacity, port count |
+| **Missing port forwarding** | External clients cannot reach internal service | NAT mapping, firewall |
+| **Asymmetric routing** | State checks fail; connections hang | Forward and return paths |
+| **Double NAT** | Complex port forwarding; MTU issues | Multiple translation devices |
+| **Excessive subnet fragmentation** | Operational complexity, wasted addresses | Network plan |
+| **Firewall rule missing** | Route exists, connection blocked | NSG/firewall rules |
+| **Broadcast address assigned** | Hosts at `.255` on `/24` cannot connect | Configs show `.255` |
+| **Hairpin NAT missing** | Internal clients cannot reach company's public IP | Split-horizon DNS or hairpin rule |
+| **Long-lived connection dropped** | WebSocket dies after idle | NAT timeout vs heartbeat interval |
+
+### Production scenario 1 — API cannot connect to SQL Server
+
+```
+.NET API: 10.10.2.20/24
+SQL:      10.10.3.30/24
+```
+
+Check in order:
+
+1. Is the API's subnet config correct?
+2. Is the SQL subnet reachable via routing?
+3. Is the route/gateway correct?
+4. Does the firewall allow the SQL port (1433)?
+5. Is SQL listening on the expected endpoint?
+
+**Common mistake:** assuming two services with private IPs can automatically communicate. **They still need routes and allowed traffic.**
+
+### Production scenario 2 — Overlapping CIDRs
+
+```
+Corporate network: 10.10.0.0/16
+Cloud VNet:        10.10.0.0/16
+```
+
+VPN connects them — the router cannot distinguish which `10.10.x.x` belongs where. This is **overlapping CIDR**. The long-term fix is address-space planning; short-term mitigations include network translation or redesign.
+
+### Production scenario 3 — NAT port exhaustion
+
+Thousands of clients open connections through one NAT gateway. Available translation ports run out. New connections fail even though the internet connection is up.
+
+Mitigations:
+- Scale NAT capacity (more public IPs, more NAT gateways)
+- Reuse connections (`IHttpClientFactory`, connection pools)
+- Avoid unnecessary connection creation
+- Monitor connection/port utilization
+- Redundant egress paths
+
+**This is why connection pooling matters in backend engineering** — see §13.
+
+### Scenario 4 — Internal user cannot reach company's public load balancer
+
+External users reach it fine; internal users don't. **Hairpin NAT (NAT loopback) missing.** The router DNATs to an internal LB, but the source is now the router's own IP, and the LB has no return path.
+
+**Fixes:**
+- Add hairpin NAT (rewrite both source and destination so return traffic flows through the router).
+- **Better:** use **split-horizon DNS** so internal clients resolve `api.company.com` to the internal LB IP directly — shorter path, no NAT needed.
+
+### Diagnostic toolkit
+
+```powershell
+# Windows
+ipconfig /all
+route print
+arp -a
+Test-NetConnection 10.10.5.20 -Port 443
+tracert 10.10.5.20
+```
+
+```bash
+# Linux
+ip -4 addr
+ip route
+ip neigh
+ss -tn state established
+traceroute 10.10.5.20
+conntrack -L      # active NAT sessions
+```
+
+```powershell
+# Azure
+Get-AzVirtualNetwork
+Get-AzNetworkSecurityGroup
+Get-AzEffectiveRouteTable
+```
+
+---
+
+## 12. REAL-WORLD ARCHITECTURE — Banking and Azure
+
+```
+                    PUBLIC INTERNET
+                          │
+                          ▼
+                 ┌─────────────────────┐
+                 │  Public IP (ELB)    │
+                 │  52.168.x.x         │
+                 └─────────┬───────────┘
+                           │ DNAT 443 → LB pool
+                           ▼
+              ┌────────────────────────────┐
+              │ Application subnet         │
+              │ 10.10.2.0/24               │
+              │   [API 1] 10.10.2.20       │
+              │   [API 2] 10.10.2.21       │
+              └────────┬───────────────────┘
+                       │
+                       ▼
+              ┌────────────────────────────┐
+              │ Database subnet            │
+              │ 10.10.3.0/24               │
+              │   [SQL primary + replica]  │
+              └────────────────────────────┘
+
+              ┌────────────────────────────┐
+              │ Messaging subnet           │
+              │ 10.10.4.0/24               │
+              │   [Kafka brokers 1-3]      │
+              └────────────────────────────┘
+
+              ┌────────────────────────────┐
+              │ Management subnet          │
+              │ 10.10.5.0/24               │
+              └────────────────────────────┘
+
+Egress: API → NAT Gateway (stable public IP) → partner allow-list
+```
+
+*(Illustrative architecture. Real Azure subnet sizing depends on deployment requirements.)*
+
+### End-to-end flow
+
+**Scenario A — API → SQL Server:**
+
+```
+API 10.10.2.20 → SQL 10.10.3.30   (private routed; no NAT)
+```
+
+**Scenario B — API → external payment provider:**
+
+```
+API 10.10.2.20 → NAT Gateway → 20.x.x.x (stable public IP) → partner
+```
+
+**Scenario C — API → another microservice:**
+
+```
+Order API → internal DNS (account-service) → Account API
+```
+
+### Azure components you must recognize
+
+| Azure component | Purpose |
+|---|---|
+| **VNet** | Private network boundary |
+| **Subnet** | Divides VNet into segments |
+| **NSG** | Inbound/outbound traffic rules |
+| **Route table** | Custom routing |
+| **NAT Gateway** | Scalable outbound SNAT with **stable public IP** |
+| **Private Endpoint** | Private IP for supported Azure PaaS (SQL, Storage, Service Bus) |
+| **VPN Gateway** | Site-to-site / point-to-site VPN |
+| **Azure Firewall** | Centralized filtering |
+
+**Azure-specific numbers:**
+- **5 IPv4 addresses reserved per subnet** (network + gateway + two DNS + broadcast).
+- `/24` = **251** Azure-assignable, not 254.
+- `/29` = **3** usable in Azure, not 6.
+- `/31` and `/32` are **not allowed**.
+- **VNets that must peer cannot have overlapping CIDR.** Plan globally.
+- **Private Endpoints consume a subnet IP** and **require DNS forwarding** to resolve the PaaS hostname to the private IP — a common operational failure when overlooked.
+
+---
+
+## 13. PRINCIPAL ENGINEER PERSPECTIVE
+
+### A. Plan address spaces before deploying
+
+Suppose you have dev, QA, UAT, prod, DR. Avoid overlapping ranges — the moment they peer or VPN, you're stuck.
+
+**Consider:**
+- Current workload size
+- Growth for 3–5 years
+- Kubernetes pod/service/node CIDR
+- Future acquisitions or connections
+- DR and regional connectivity
+- Private endpoint needs
+
+**Design principle:** treat the address space like a database schema — **decisions are hard to reverse** and affect everything downstream.
+
+### B. Size subnets for capacity, not today
+
+A subnet that's sufficient today becomes insufficient after Kubernetes scaling, new services, or private endpoints. But making every subnet oversized wastes address space and blurs segmentation.
+
+**Size for:** capacity + service reservations + growth + operational boundaries. Typically `/24` minimum; larger for app subnets.
+
+### C. Minimize NAT inside the enterprise
+
+```
+❌ Order API → NAT → Account API
+✅ Order API → Account API (private routed, firewall-controlled)
+```
+
+NAT should solve a **genuine addressing or connectivity requirement**, not become a default hop between services.
+
+### D. Understand the security boundary
+
+**Subnetting does not equal security.** A private IP is **not trusted** — an attacker inside the network is just as internal as your app.
+
+You must still define:
+- Firewall / NSG rules per boundary
+- Identity (OAuth2/OIDC, mTLS, managed identities)
+- Resource-level authorization
+- Encryption
+- Audit logging
+
+**"It has a private IP" is never a security argument.**
+
+### E. Connection pooling and NAT capacity
+
+Opening a new outbound connection per operation increases **NAT translation churn**. Mitigations:
+
+```csharp
+// Use IHttpClientFactory — pools connections, reduces churn
+builder.Services.AddHttpClient<PaymentClient>(client =>
+{
+    client.BaseAddress = new Uri(config["Payment:BaseUrl"]!);
+});
+```
+
+Plus:
+- Appropriate connection lifetimes
+- Database connection pooling
+- Monitoring outbound connection counts
+- Planning NAT capacity for peak workloads
+
+`IHttpClientFactory` doesn't eliminate NAT constraints, but it **dramatically reduces avoidable connection creation** — which is what causes NAT port exhaustion at scale.
+
+### F. NAT source-IP visibility
+
+Many users share one public NAT IP — external services see **one source** for thousands of users. **Do not use source IP for user identity.** Use:
+- OAuth2/OIDC tokens
+- Correlation IDs
+- Audit records with business identity
+
+### G. Anti-patterns
+
+| Anti-pattern | Problem |
+|---|---|
+| **Flat `10.0.0.0/8` everywhere** | Millions of orgs use it; any merge/VPN collides |
+| **NAT everywhere for "security"** | Breaks protocols; hides issues; not security |
+| **Subnets sized to today's needs** | Resize in 18 months — often means re-IP |
+| **Undocumented `192.168.x.x`** | Same range appears in 10,000 homes and every VPN endpoint |
+| **DHCP scope overlaps static assignments** | Invisible conflicts |
+| **Hardcoded IPs in app config** | Breaks on failover/scale-out |
+| **No hairpin NAT + no split-horizon DNS** | Internal clients can't reach company's public endpoint |
+| **No stable egress IP** | Partner allow-lists break silently |
+
+### H. Trade-offs
+
+| Choose | Get | Pay |
+|---|---|---|
+| **Larger subnets** | Room to grow | Fewer subnets; coarser policy |
+| **Smaller subnets** | Tighter policy | Wasted addresses; more routes |
+| **Minimal NAT** | Clean protocols, observability | More IPs consumed; planning |
+| **NAT everywhere** | Address efficiency | Protocol breakage, opaque debugging |
+| **One big flat subnet** | Simple | No policy, no scale, no isolation |
+
+### I. Production best practices
+- **Document every CIDR** — IPAM tool or spreadsheet, but documented
+- **Never reuse private space across environments** that may later connect
+- **Test firewall policy with real packets** — a "deny all" with subtle exceptions is worse than wide rules
+- **Monitor NAT session count** — exhaustion is a silent failure
+- **Set NAT idle timeouts** to match protocol needs (heartbeats for long-lived connections)
+- **Enable flow logs** — without them, you can't see what traffic is allowed
+- **Pin outbound IPs** — NAT Gateway with reserved IPs for partner integrations
+- **Use split-horizon DNS** — internal clients reach internal LBs directly
+
+---
+
+## 14. INTERVIEW AND KNOWLEDGE VALIDATION — with explanations
+
+### Basic
+
+**Q1. What is subnetting?**  
+Dividing one IP network into smaller logical networks (**subnets**) — each with its own network address, host range, and broadcast address. Purpose: organize address space, control broadcast scope, apply per-subnet policy, and enable route summarization. A host uses its subnet mask to decide whether a destination is **local** (send directly) or **remote** (send via gateway).
+
+**Q2. What does `/24` mean?**  
+The first **24 bits** of the IPv4 address are the **network prefix**; the last **8 bits** are the **host portion**. `/24` = mask `255.255.255.0`. Total addresses: `2^8 = 256`; usable: **254** (network `.0` and broadcast `.255` reserved).
+
+**Q3. How many total addresses are in a `/26`? How many usable?**  
+**Total: 64** (`2^(32−26) = 2^6 = 64`). **Usable: 62** (network and broadcast reserved). In Azure, a `/26` has **59 usable** because 5 addresses are reserved by the platform.
+
+**Q4. What is a default gateway?**  
+The router a host sends traffic to when the destination is **outside its local subnet** and **no more specific route exists**. It's the "exit door" from the local network. Every host on a subnet that needs to reach anything external must have one configured.
+
+### Intermediate
+
+**Q5. What is NAT?**  
+**Network Address Translation** — a **stateful rewriting** of IP addresses (and usually ports) in packets as they pass through a router or firewall. Main use: **many private IPv4 devices share one or fewer public IPv4 addresses**. Variants: **SNAT** (rewrites source, for outbound), **DNAT** (rewrites destination, for inbound), **PAT** (many-to-one, uses ports to distinguish). NAT breaks the end-to-end principle — it's why IPv6 was designed to eliminate it.
+
+**Q6. What is PAT?**  
+**Port Address Translation** — a many-to-one NAT variant where many internal devices **share one public IP**, distinguished by **translated port numbers**. The NAT device keeps a translation table (internal IP:port ↔ public IP:port ↔ remote). Without port rewriting, two internal hosts using port 50000 would collide — PAT assigns distinct public ports (`60001`, `60002`) and reverses them on return traffic.
+
+**Q7. What is the difference between subnetting and NAT?**  
+They solve **different problems**:
+- **Subnetting** — divides one block into logical networks; enables routing, policy, broadcast containment. Internal organization.
+- **NAT** — translates addresses between networks; enables many private devices to share scarce public IPs. Edge function.
+
+You can have both (subnetted private network, NATed to one public IP), but neither replaces the other. Subnetting without NAT still consumes public IPs. NAT without subnetting still can't route internally.
+
+**Q8. Why do devices need a default gateway?**  
+Without one, a host can reach only its **own subnet**. Anything else requires the packet to leave the local link — that's the gateway's job. The gateway is where "remote traffic exits." Without it, external connectivity is impossible.
+
+### Advanced
+
+**Q9. Given `10.10.5.20/26`, what are the network address, broadcast, and usable range?**  
+- **Mask `/26`:** `255.255.255.192` = `...11000000`
+- **IP `.20`:** `...00010100`
+- **AND:** `00010100 & 11000000` = `00000000` → **Network = `10.10.5.0`**
+- **Broadcast:** all 6 host bits set = `00111111` = 63 → **`10.10.5.63`**
+- **Usable:** `10.10.5.1` – `10.10.5.62` → **62 hosts**
+
+**Q10. Why do overlapping CIDRs cause problems when connecting two Azure VNets?**  
+The **same destination prefix exists in both networks**. When a router on one side sees `10.10.5.20`, it can't tell which network owns it. Routes become **ambiguous** — traffic blackholes or goes to the wrong host. **VNets that must peer cannot have overlapping CIDR.** Planning must be global across all networks that may ever connect.
+
+**Q11. Does NAT provide security?**  
+**No.** NAT hides internal addresses by accident — but that's not authentication or authorization. An attacker inside the NAT still reaches private services directly. Anyone reaching a port-forwarded port reaches the service. **Real security requires stateful firewalls, identity, authorization, encryption, and audit logging.** This is the most common Principal-level misconception — "private IP + NAT = secure" is **wrong**.
+
+**Q12. Why can NAT port exhaustion affect .NET applications, and how do you mitigate it?**  
+Thousands of short-lived outbound connections consume NAT **translation ports**. When they run out, new connections fail even though the network is fine. Causes:
+- Creating a new `HttpClient` per request (socket leak + port churn)
+- Not reusing connections
+- No connection pooling
+
+**Mitigations:**
+- Use `IHttpClientFactory` (pools and recycles `HttpClient` / `SocketsHttpHandler`)
+- Set appropriate `PooledConnectionLifetime`
+- Database connection pooling
+- Monitor NAT session counts
+- Scale NAT capacity for peak loads
+- Prefer long-lived connections where protocol allows
+
+**Why this is a .NET-specific concern:** `HttpClient` is designed for reuse. `using var client = new HttpClient()` per request — a common anti-pattern — creates a TCP connection per call, amplifies NAT port usage, and exhausts translation tables under load.
+
+**Q13. In Azure, why does a `/29` subnet have only 3 usable IPs when standard math gives 6?**  
+Standard math: `/29` = 8 addresses − 2 (network + broadcast) = **6 usable**. **Azure reserves 5 addresses** per subnet:
+1. Network address
+2. Default gateway
+3. First Azure DNS
+4. Second Azure DNS
+5. Broadcast
+
+So `/29` = 8 − 5 = **3 usable**. **This is why Azure recommends `/24` or larger** — the overhead is small but compounds on tiny subnets. `/31` and `/32` are **not allowed** in Azure VNets; `/29` is the minimum.
+
+### Scenario-based
+
+**Q14. Two office locations both use `192.168.1.0/24`. You need a VPN. What's the problem and fix?**  
+**Overlapping subnets.** The VPN router cannot distinguish "internal 192.168.1.20" from "remote 192.168.1.20" — routes are ambiguous.
+
+**Fix:** Re-IP one or both sites:
+- Site A: `192.168.1.0/24`
+- Site B: `192.168.2.0/24`
+
+**Better going forward:** allocate unique private ranges per site from the start. Mergers, acquisitions, and VPNs are the most common sources of this failure.
+
+**Q15. An internal user can't reach the company's public load balancer from inside the office. External users reach it fine. What's wrong?**  
+**Hairpin NAT (NAT loopback) is missing.** The flow:
+1. Internal user sends to `52.x.x.x` (public IP).
+2. Packet goes to the gateway.
+3. Gateway DNATs to internal LB — but the **source is now the gateway's own IP**, and the LB has no return path.
+
+**Fix:**
+- Add **hairpin NAT** (rewrite both source and destination).
+- **Better:** use **split-horizon DNS** so internal clients resolve `api.company.com` to the internal LB IP directly — shorter path, no NAT needed.
+
+**Q16. Your outbound API calls to a partner suddenly start getting 403s. Logs show the partner sees a different source IP. Why?**  
+**NAT IP changed.** If your outbound traffic was going through an auto-assigned NAT (or VM instance) and the VM/IP changed, the partner's allow-list no longer matches.
+
+**Fix:** Use a **NAT Gateway** with a **reserved public IP** (Azure), or a **static IP** on your egress NAT device. **Always pin the outbound IP** — one of the most common cloud-integration operational issues.
+
+**Q17. Two traders submit an order that requires margin. Both pass validation; the account is now overdrawn. Is this a subnetting or NAT problem?**  
+**Neither.** This is an **application concurrency problem** — a check-then-act race condition. Subnetting determines **where** the client can reach the server; NAT determines **what IP the server sees**. Neither affects transaction correctness.
+
+**Correct tools:**
+- Database transactions with appropriate isolation
+- Optimistic concurrency (row versions)
+- Pessimistic locking
+- Atomic conditional updates (`UPDATE ... WHERE margin >= @x`)
+
+**Network-layer correctness and application-layer correctness are independent.** (Topic 3 covered concurrency in depth.)
+
+---
+
