@@ -1,0 +1,1087 @@
+Azure App Service: Beginner's Guide (Merged)
+Azure App Service lets you put a web app or API on the internet without running any servers yourself: you bring the code, and Microsoft runs the machines, operating system and web server. This tab teaches it from zero, in plain words, with one running example.
+Start here
+Running example: a bank called BankingPlatform with five ASP.NET Core APIs: Customer, Account, Payment, Notification and Audit.
+By the end you will be able to:
+1.  Explain why App Service exists and what it replaces.
+2.  Tell apart an App Service plan, an app and an instance.
+3.  Choose between scale up, scale out and autoscale.
+4.  Deploy with almost no downtime using deployment slots.
+5.  Keep secrets safe with managed identity and Key Vault.
+6.  Understand Always On, health checks, WebJobs and built-in sign-in.
+7.  Connect an app privately to a database (VNet integration and private endpoints).
+8.  Decide when to use App Service, Functions, Container Apps, AKS or a virtual machine.
+Version note: the code uses ASP.NET Core on .NET 10 (a long-term-support release). Many older tutorials use .NET 8 or .NET 9, and both reached end of support on 10 November 2026, so start new work on .NET 10 (supported until November 2028) and check current versions before you build. Limits and prices below are approximate; confirm them on the Azure documentation pages.
+How to read: Part 0 gives interview-ready answers you can speak aloud. Part 1 is the story of why App Service exists. Part 2 covers the features. Part 3 covers how it works inside, how it fails, and how to design with it. Part 4 adds interview practice, production readiness, migration, cost, versions, labs and a mastery check. Each part ends with a short check.
+Part 0: Interview-ready answers (read this first)
+Use this part to practise speaking out loud. The detailed teaching follows in Parts 1 to 4.
+0A. Your 1-minute answer (about 130 words)
+Azure App Service is Microsoft's managed platform for hosting web apps and APIs. Before, we ran VMs and looked after the operating system, IIS, patching, load balancing and scaling ourselves. With App Service, I deploy my code and settings, and Azure runs the servers. It has three parts: the App Service plan, which is the compute I rent and pay for; the app, which is my code and configuration; and the instances, which are the VMs in the plan that run the app. It gives me autoscale, deployment slots for zero-downtime releases, managed identity for secrets, private networking, and monitoring with Application Insights. The main trade-off is control: I can't change the operating system and I'm mostly limited to web traffic, so for those needs I would choose a VM or containers.
+Shorter (15 seconds): App Service is managed hosting for web apps. I bring the code and config, Azure runs the servers, OS and scaling. I pay for the plan, scale up or out as needed, and use slots for zero-downtime releases.
+0B. Scenario answers (about 1 minute each when spoken)
+1. Happy path: "Walk me through a request." The customer calls the app's URL. DNS and HTTPS lead to Azure's shared front ends, which find the app by host name and pick a healthy instance in my plan. My ASP.NET Core app runs its middleware and controller, calls Azure SQL using a managed identity, and returns the response. Application Insights records the request. Trade-off: the front end is shared, so I cannot tune the web server itself. Follow-ups: What is ARR affinity? How does Azure know an instance is healthy?
+2. Failure path: "What if something fails?" If an instance dies, health checks take it out of rotation and Azure restarts or replaces it, while the other instances keep serving (so I run at least two). If SQL or another dependency fails, my code uses timeouts, retries with backoff and a circuit breaker. A zone failure is covered by a zone-redundant Premium plan. A region failure is covered only if I built a second region behind Front Door. Trade-off: a second region costs more and needs data replication. Follow-ups: What are RPO and RTO? Why should the health check not test the database?
+3. Scalability: "Traffic grows 10 times." First I confirm the app is stateless. Then I scale out with autoscale, and use a schedule or a higher minimum before known peaks, because autoscale reacts in minutes. Then I look for the real bottleneck, which is usually the database, connection pools, SNAT ports or a downstream API, and add caching with Redis and queues for slow work. A dominant app gets its own plan. Trade-off: cost, and the database may not scale as easily. Follow-ups: Why does autoscale lag? How do you avoid flapping?
+4. Security: "How do you secure it?" HTTPS only with TLS 1.2 or higher; no secrets in code, using managed identity and Key Vault references; Entra ID sign-in; a private endpoint for inbound with Front Door and WAF in front; VNet integration plus private endpoints for outbound access to data; FTP and basic authentication off; Azure Policy and Defender for Cloud to enforce and watch it. Trade-off: private networking adds cost and DNS complexity. Follow-ups: VNet integration vs private endpoint? How do you stop people bypassing Front Door?
+5. Performance: "How do you optimize it?" Measure first with Application Insights. Then use Always On and warm-up to avoid cold starts, async code and reused connections, caching, a CDN or Front Door for static content, and the right tier and size. Turn off ARR affinity if the app is stateless. Scale out for concurrency, scale up for memory-heavy work. Trade-off: caching brings stale-data problems. Follow-ups: How do you find the slow dependency? When does scale up beat scale out?
+6. Cost: "How do you justify the cost?" Compare total cost, not only compute: App Service removes patching, load balancer and deployment effort. I control cost by sharing plans for small apps, right-sizing, autoscale in, scaling down non-production, deleting empty plans, and buying reservations or savings plans for steady production. Trade-off: the per-instance price includes the management premium; VMs or Container Apps can win at very large steady scale or for spiky scale-to-zero loads. Follow-ups: When is a VM cheaper? Why did the bill double?
+7. Migration: "Move an IIS app to App Service." Assess first for blockers: Windows services, COM, registry use, local file writes, machine-specific config, non-HTTP ports. Move config to app settings and secrets to Key Vault, deploy to a staging slot, run in parallel, shift traffic gradually (Front Door or slot traffic routing), keep the old system ready for rollback, then decommission. Trade-off: refactoring effort. Follow-ups: What if the app needs a Windows service? How do you migrate the data?
+8. Troubleshooting: "Users report 502 errors." Start with Diagnose and solve problems, then metrics (5xx, response time, plan CPU and memory), then Application Insights for failed requests and slow dependencies, then log stream and Kudu. Usual causes: requests over about 230 seconds, a crashing process, SNAT exhaustion, plan CPU saturation, or a dependency timeout. Trade-off: less OS-level access than a VM. Follow-ups: How do you capture a memory dump? How do you tell app problems from platform problems?
+9. Alternatives: "Why not AKS?" For a standard HTTP API with a small team, App Service gives deployment, scaling, TLS and identity without running a cluster. AKS gives more control and ecosystem but needs Kubernetes skills and operations. Functions suit short event-driven code, Container Apps suit containerised microservices with scale to zero, and VMs suit OS-level needs. Trade-off: less control. Follow-ups: When would you outgrow App Service?
+10. Architecture: "Design a banking portal." Front Door with WAF; zone-redundant Premium plan behind a private endpoint; VNet integration to Azure SQL, Redis and Key Vault over private endpoints; Service Bus for asynchronous payment processing; managed identity everywhere; slots and pipelines for releases; Application Insights; a second region for disaster recovery. Idempotency keys and the outbox pattern protect payments. Trade-off: cost and complexity in return for security and availability. Follow-ups: Active-active or active-passive? What is your RPO?
+0C. Follow-up question trees
+Tree 1: Concept
+1.  What is App Service? Then: is it IaaS or PaaS?
+2.  Why was it introduced? Then: what pain did VMs cause?
+3.  What existed before? Then: IIS on servers, VMs, Cloud Services.
+4.  What problem does it solve? Then: what responsibilities moved to Azure?
+5.  What are its limits? Then: no OS control, about 230-second timeout, web traffic only. Then: what would you use instead?
+Tree 2: Technical
+1.  How does a request flow? Then: front end, instance, your app.
+2.  What are the plan, app and instance? Then: who pays for what?
+3.  How do you deploy? Then: pipeline, slot, smoke test, swap. Then: what happens inside a swap?
+4.  How do you handle secrets? Then: managed identity and Key Vault reference.
+5.  How do you troubleshoot? Then: metrics, Application Insights, log stream, Kudu.
+Tree 3: Architecture and production
+1.  When would you use it? Then: when would you not?
+2.  What are the alternatives? Then: choose between VM, Functions, Container Apps, AKS.
+3.  What happens in a failure? Then: instance, zone, region.
+4.  How do you scale it 10 times? Then: where is the next bottleneck?
+5.  How do you justify the architecture? Then: cost, security, operations, exit plan.
+0D. Seven points to rebuild the answer
+1.  Managed PaaS for web apps and APIs.
+2.  Replaces the VM, OS and IIS work; Azure runs the platform.
+3.  Plan = compute you pay for; app = your code; instance = a VM in the plan.
+4.  Scale up (bigger) and out (more), with autoscale; the app must be stateless.
+5.  Slots: staging copy, swap, instant rollback.
+6.  Security: managed identity, Key Vault, private endpoint (in), VNet integration (out).
+7.  Trade-offs: no OS control, about 230-second request limit, region disaster recovery is yours to design.
+0E. Likely follow-up questions by type
+• Clarifying: Is it IaaS or PaaS? Which languages? Is the plan or the app billed?
+• Technical probing: What does a swap do to settings? What is ARR affinity? What does Always On do?
+• Advanced: How do you release with a database schema change and no downtime? Why does SNAT exhaustion happen? How is zone redundancy different from multi-region?
+• Challenging: Why not AKS? Your bill doubled: why? A partner needs a fixed outbound IP: how?
+• Scenario: Salary day brings 20 times the traffic. A whole region goes down. A secret must be rotated without a redeploy.
+0F. What interviewers expect at each level
+Level
+They expect you to
+Senior Software Engineer
+Explain it clearly, deploy with slots, configure settings and identity, do basic troubleshooting
+Tech Lead / Staff Engineer
+Choose plan layout and tiers, own the CI/CD design, set team standards, control cost, lead an incident
+Principal Engineer
+Make cross-team trade-offs, design disaster recovery, apply governance (Azure Policy, landing zones), plan migrations, defend risk and cost
+Solution Architect
+Design the whole solution across services against non-functional requirements and compliance, compare alternatives with total cost, and set the roadmap
+0G. Interview traps
+1.  "App Service is serverless." It is not scale-to-zero: you pay for the plan even when idle. Functions on a consumption model are closer to serverless.
+2.  "We stopped the app, so we are not paying." The plan keeps billing.
+3.  "Autoscale handles everything automatically." You must choose a tier that supports it and write the rules (or use automatic scaling on Premium), and it reacts in minutes.
+4.  "VNet Integration makes the app private." It only controls outbound traffic. Inbound privacy needs a private endpoint or access restrictions.
+5.  "A slot swap is risk-free." Sticky settings, shared plan resources and incompatible database changes can still hurt.
+6.  "Azure gives me disaster recovery automatically." Zone failures can be automatic; region failover is your design.
+Part 1: The basics
+1. WHY: Your app works on your laptop. Now what?
+You wrote an Account API:
+[ApiController]
+[Route("api/[controller]")]
+public class AccountController : ControllerBase
+{
+    [HttpGet("{accountId}")]
+    public IActionResult GetAccount(string accountId) =>
+        Ok(new { AccountId = accountId, Balance = 50000 });
+}
+It works at https://localhost:7001/api/account/123. The bank wants customers to reach it from anywhere, for example at https://api.mybank.com/api/account/123. Your laptop cannot do that, so the app needs a hosting environment: a place that provides everything the app needs to run and be reachable.
+An app needs
+Why
+Compute (CPU)
+Runs your code
+Memory (RAM)
+Holds data while the app runs
+Operating system
+Windows or Linux
+Runtime
+The .NET runtime that executes .NET code
+Web server
+Accepts HTTP requests
+Networking
+Lets users and databases reach the app
+Storage
+Holds the app's files
+Availability
+Keeps the app up when something breaks
+Security
+Protects the app and its data
+Monitoring
+Shows failures and slowness
+Someone has to set all of this up and keep it running. That someone can be your infrastructure team, your cloud provider, or a managed platform. App Service is the third option.
+The real industry problem. Picture a bank with 20 ASP.NET apps. Its infrastructure team had to buy or create servers, install Windows, set up IIS, create certificates, open firewall ports, build load balancers, patch the operating system, add monitoring, and add more servers when traffic grew. The developers wanted to build banking features, but a large share of the effort went into looking after servers. The industry needed a way to run apps without managing the servers underneath. That is the problem App Service solves.
+2. BEFORE: How apps were hosted before App Service
+Hosting on a Windows server with IIS. The infrastructure team would:
+1.  Provision a Windows Server.
+2.  Install IIS (Internet Information Services), Microsoft's web server for Windows.
+3.  Install the .NET hosting components.
+4.  Create an IIS website and an application pool.
+5.  Copy the published app to the server.
+6.  Add the HTTPS certificate and open the firewall ports.
+7.  Point the bank's domain name at the server.
+Words to know:
+• Kestrel is the web server built into ASP.NET Core. On IIS, IIS receives the request and forwards it to your app running on Kestrel.
+• Reverse proxy means a server that accepts requests and passes them on to another server.
+• Application pool is a box inside IIS that isolates apps from each other. If the Payment API leaks memory in its own pool, the Account API in another pool keeps running. Pools still share the same operating system and hardware, so the isolation is partial.
+How deployment worked: a developer ran dotnet publish -c Release -o ./publish, then the operations team copied the output to the server, changed IIS settings if needed, restarted the app pool and tested by hand.
+What if traffic grows? Say normal traffic is 100 requests per second, a peak is 2,000, and one server handles 500. You have two options:
+• Scale up (vertical): replace the server with a bigger one (for example 4 cores and 16 GB of RAM becomes 16 cores and 64 GB).
+• Scale out (horizontal): add more servers behind a load balancer, which spreads incoming requests across them.
+Customers --> Load Balancer --> Server 1 (Account API)
+                           \--> Server 2 (Account API)
+                           \--> Server 3 (Account API)
+Scaling out works, but your team must now manage the extra servers, the load balancer, health monitoring, failures, keeping every server identical, and security on each one.
+The hosting evolution in three steps:
+Step
+Who runs what
+On-premises server
+You manage hardware, OS, IIS, deployment, networking and availability
+IaaS (an Azure Virtual Machine)
+Microsoft manages hardware and virtualization; you still manage the VM, OS, IIS, runtime and app
+PaaS (Azure App Service)
+Microsoft manages the hosting platform; you manage your code and its settings
+Strengths of the older ways (be fair to them): full control over the machine, any software can be installed, old apps run unchanged, and behaviour is predictable.
+3. PROBLEM: Why that was not enough
+Area
+Problem
+Impact
+Setup
+Servers must be created and configured by hand
+Slow delivery
+Scaling
+Adding or resizing servers takes time
+Slow reaction to traffic
+Availability
+A failed server needs someone to recover it
+Downtime
+Deployment
+Manual copying and configuration
+Risky releases
+Patching
+The OS and web server need constant updates
+Ongoing effort
+Security
+Firewall, TLS certificates and hardening are yours
+Larger attack surface to look after
+Monitoring
+Needs its own tooling
+Harder troubleshooting
+Capacity
+You must guess future needs
+Waste or shortage
+Cost
+Hardware plus people time
+High total cost
+Banking story. The Payment API normally handles 10,000 requests a minute. On salary day it jumps to 50,000. CPU hits 95%, requests slow down, some time out, customers retry, which adds even more requests, and the app collapses. Your team needs more servers, but ordering and configuring them takes longer than the traffic spike takes to arrive. Provisioning is slower than demand. That is the gap cloud platforms were built to close.
+4. WHAT: What is Azure App Service?
+Simple definition: Azure App Service is a Platform as a Service (PaaS) product that hosts web apps, REST APIs and backends. Microsoft runs the servers, the operating system and the web hosting platform; you manage your app and its settings.
+Analogy: renting an office. Building your own office means buying land, constructing it, wiring electricity and internet, installing security and hiring maintenance staff. That is like running your own servers or VMs. Renting a desk in a managed business centre means the owner provides the building, power, internet, security and cleaning, and you bring your people and your work. App Service is the managed business centre: you bring the ASP.NET Core app, Azure provides the place it runs in. You are still responsible for your business logic, security settings, database design and how much resource your app uses.
+Who is responsible for what:
+Responsibility
+Your own server
+Azure VM
+Azure App Service
+Physical hardware
+You or your provider
+Microsoft
+Microsoft
+Virtualization
+You or your provider
+Microsoft
+Microsoft
+Operating system
+You
+You
+Microsoft
+Web server platform
+You
+You
+Microsoft
+Runtime setup
+You
+You
+Shared with the platform
+Your code and business logic
+You
+You
+You
+Application security and identity
+You
+You
+You
+The exact line depends on the feature, but the rule holds: the more managed the service, the less infrastructure you run. PaaS does not mean zero responsibility. You still own app settings, identity, network design, scaling choices, availability design and monitoring.
+5. The three building blocks
+These three ideas explain most of App Service. Learn them well.
+A. App Service plan: the compute you rent. It decides the operating system (Windows or Linux), the Azure region, the pricing tier, the size of each machine and how many machines you get. You pay for the plan.
+Plan: Banking-Production
+  OS: Windows | Region: Central India | Tier: Premium v3 (P1v3) | Instances: 3
+B. App (also called a web app): your actual application. Each API can be its own app with its own URL, settings, sign-in rules, deployment setup and monitoring, for example https://banking-account.azurewebsites.net.
+C. Instance (also called a worker): the machine that runs your code. A plan with 3 instances means 3 virtual machines that Azure manages for you. By default every app in the plan runs on every instance:
+Plan: Banking-Production (3 instances)
+  Instance 1: Account API | Customer API | Payment API
+  Instance 2: Account API | Customer API | Payment API
+  Instance 3: Account API | Customer API | Payment API
+So the three APIs do not get one machine each. They share all three. A stopped app still costs money because you pay for the plan, not for each app.
+The noisy neighbour problem. Suppose the Account API uses 20% of CPU, the Customer API 15%, and the Payment API 60% (illustrative numbers, not Azure guarantees). If the Payment API starts a big batch job, its CPU use rises, and the Account API becomes slower even though nobody changed it. Apps in one plan compete for the same CPU and memory.
+Choice
+Pros
+Cons
+All apps in one plan
+Cheaper, simpler to manage
+Apps compete for resources; scaling the plan scales every app
+One plan per app (or per critical group)
+Independent resources and scaling, better isolation
+Costs more, more to manage
+A good engineer decides which apps can safely share a plan. A common approach is to put the busy, critical Payment API in its own plan and let small, quiet apps share one.
+6. What happens when a customer calls the API
+1.  The customer's app sends GET /api/accounts/123 to banking-account.azurewebsites.net (or your custom domain).
+2.  DNS turns the name into an address, and the connection is secured with HTTPS.
+3.  Azure's shared front-end servers receive the request and work out which app it is for.
+4.  They pick one of your plan's instances and pass the request to it.
+5.  On that instance, your ASP.NET Core app handles it: middleware (logging, sign-in, routing), then the controller.
+6.  The controller asks Azure SQL for the data.
+7.  The response goes back the same way: 200 OK.
+App Service hosts your application. It is not your database. Your app connects to Azure SQL, Cosmos DB or other services. The exact path differs a little between Windows, Linux and container hosting.
+7. Code or container?
+You can give App Service your code or a container image.
+Code deployment
+Container deployment
+You run dotnet publish and deploy the output
+You package your app and its runtime into a Docker image
+Azure provides the runtime
+You choose and update the base image
+Simplest to start
+More control (native libraries, special OS packages)
+No container knowledge needed
+Needs container knowledge
+Neither is better in general. For a normal .NET Web API, code deployment is usually simpler. Use a container when you need specific OS libraries or a tightly controlled runtime.
+FROM mcr.microsoft.com/dotnet/aspnet:10.0
+WORKDIR /app
+COPY ./publish .
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "Banking.Account.Api.dll"]
+Push the image to a registry such as Azure Container Registry, then point App Service at it.
+Check yourself: Part 1
+1.  What is App Service for? To host apps without managing the servers underneath.
+2.  What does an App Service plan define? The compute: OS, region, tier, machine size and instance count. You pay for it.
+3.  Three APIs share a plan and you scale out. What happens? The plan gets more instances, and by default all three apps run on the new ones.
+4.  Payment API CPU use slows the Account API. Best direct fix? Move the Payment API into its own plan.
+5.  IaaS versus PaaS? In IaaS you manage the VM and OS; in PaaS the platform manages much more of the hosting.
+Part 2: The features
+8. Pricing tiers: what B1, S1 and P1v3 mean
+A plan name has three parts: a letter for the tier (Basic, Standard, Premium), a number for the size (1, 2, 3 = bigger), and sometimes v2, v3, v4 for the hardware generation. So P1v3 is Premium, smallest size, third generation.
+Tier
+What you get
+Use it for
+Free (F1) and Shared (D1)
+Machines shared with other customers, CPU limits, no SLA, no Always On, no slots, no scale out
+Learning and quick tests only
+Basic (B1 to B3)
+Your own machine, custom domain and HTTPS, manual scale out, no slots, no autoscale
+Small dev and test apps
+Standard (S1 to S3)
+Autoscale, deployment slots (about 5), daily backups
+Smaller production apps
+Premium (v3, v4)
+Faster hardware, more memory, more instances and slots, zone redundancy, automatic scaling, pre-warmed instances
+The usual choice for production
+Isolated (v2)
+Runs inside an App Service Environment (ASE), your own private copy of the service inside your network
+Strict isolation and compliance
+For scale: B1 and S1 are about 1 core and under 2 GB of RAM, and P1v3 is about 2 cores and 8 GB (approximate; check the pricing page). Paid tiers carry a 99.95% availability SLA; Free and Shared have none.
+How billing works: you pay for the plan for as long as it exists, no matter how many apps run on it or whether they are stopped. To save money: put small apps together in one plan, delete plans you no longer use, scale down non-production at night, and buy a reservation or savings plan once your usage is steady.
+9. Scaling: scale up, scale out, autoscale
+
+Scale up
+Scale out
+Meaning
+A bigger machine (more CPU and RAM), or a higher tier
+More machines (instances)
+Analogy
+Hire a stronger cashier
+Open more checkout counters
+Helps with
+A single request that needs lots of memory or CPU; unlocking features such as slots
+Many users at once; resilience, since one failure no longer stops everything
+Limit
+The largest size and tier available
+Maximum instances for the tier
+Autoscale adds and removes instances for you using rules (Standard tier and above). A sensible banking rule set for the Payment plan:
+• Scale out by 1 instance when average CPU is above 70% for 10 minutes.
+• Scale in by 1 instance when average CPU is below 30% for 10 minutes.
+• Minimum 3 instances, maximum 10, default 3.
+Always create a scale-in rule next to every scale-out rule, and use a gap between the two thresholds plus a cooldown, otherwise the plan keeps adding and removing instances (called flapping). Rules can use metrics (CPU, memory, request queue length) or a schedule.
+Automatic scaling (Premium) is a simpler option: the platform scales on request load and keeps pre-warmed instances ready, so you write no rules.
+Per-app scaling lets one app in a plan run on only some of the instances.
+Important: scaling out only works well if your app is stateless. A stateless app does not keep important data in its own memory or on its local disk, because the next request may land on a different instance. Keep sessions and data in Azure SQL, Redis or storage.
+Salary-day tip: autoscale reacts in minutes, but a payment spike can be faster. Raise the minimum instance count or use a schedule shortly before the expected peak.
+10. Deployment slots: release without downtime
+A deployment slot is a second, live copy of your app with its own web address, running on the same plan. You deploy the new version to the staging slot, test it there, and then swap it with production. Think of rehearsing on a second stage and then rolling it onto the main stage.
+Step 1  Deploy v2 to staging      (production still serves v1)
+Step 2  Test and warm up staging  (staging runs v2)
+Step 3  Swap                      (production now serves v2)
+Step 4  Problem? Swap again       (production serves v1 again in seconds)
+• Warm-up: before the swap, Azure starts and calls the staging app, so users do not hit a slow cold start.
+• Sticky (slot) settings: a setting marked as a deployment slot setting stays with the slot and does not travel in the swap. Mark things such as the database connection string and environment name this way, so production never ends up pointing at the staging database. Unmarked settings travel with the code.
+• Swap with preview: applies the production settings to staging first so you can check, then completes the swap.
+• Auto swap: swaps automatically after a good deployment to staging.
+• Traffic routing: send a small percentage of real traffic (for example 10%) to a slot to try a new version on a few users first.
+• Limits: slots need Standard or higher. They share the plan's CPU and memory, so heavy load testing on staging can slow production. A slot's managed identity stays with the slot.
+• Database changes: a swap does not protect you from a schema change that the old version cannot handle. Make database changes backward compatible first, and remove old parts in a later release.
+11. Getting your code onto App Service
+• CI/CD pipeline (GitHub Actions or Azure DevOps): build, test, deploy to a slot, smoke test, swap. This is the recommended way.
+• ZIP deploy and Run from Package: upload a ZIP and the app runs straight from it. Deployments are fast and all-or-nothing.
+• Other options: Visual Studio publish, local Git, FTP/FTPS, az webapp deploy, or a container image from Azure Container Registry.
+• Kudu: the advanced tools site at https://<app>.scm.azurewebsites.net (console, process list, logs, environment variables).
+• Good habit: turn off FTP and basic authentication in production, and always deploy from a pipeline, never from a laptop.
+dotnet publish -c Release -o ./publish
+# zip the contents of ./publish into app.zip, then:
+az webapp deploy -g rg-bank -n banking-account --src-path app.zip --type zip --slot staging
+az webapp deployment slot swap -g rg-bank -n banking-account --slot staging --target-slot production
+12. Settings and secrets
+• App settings are key-value pairs you set in Azure. Your app reads them as environment variables, and they override values in appsettings.json. This lets one build run in dev, test and production with different settings.
+• Never put passwords in code or source control. Use Key Vault.
+• Managed identity is an identity Azure gives your app, like an employee badge issued by the company. The app proves who it is to other Azure services without any password. Switch on a system-assigned identity (it lives and dies with the app), or use a user-assigned one (shared by several resources).
+• Key Vault reference: instead of the real secret, you set the app setting to @Microsoft.KeyVault(SecretUri=https://<vault>.vault.azure.net/secrets/DbPassword/). Azure reads the secret using the app's managed identity and hands the value to your app as an environment variable. Your code just reads DB_PASSWORD and never knows where it came from.
+• Steps: enable the identity, give it a role on the vault (for example Key Vault Secrets User), then add the reference setting. If the reference stays unresolved, the usual cause is a missing role or a vault network rule that blocks the app.
+13. Keeping the app healthy
+• Always On: without it, App Service unloads an idle app after roughly 20 minutes, and the next user waits for a slow start. Turn it on for production (not available on Free and Shared).
+• Health check: you give a path such as /healthz. App Service calls it regularly and takes instances that keep failing out of rotation. It only helps if you run 2 or more instances. Keep the check simple; if it tests a shared database, a database blip can remove every instance at once.
+• Auto-heal: rules that restart the app process when it gets slow, returns many errors or uses too much memory.
+• ARR affinity: a cookie that keeps one user on one instance. Turn it off for stateless apps so load spreads evenly.
+• WebJobs: small programs that run alongside your app, either continuously or on a schedule or trigger (for example nightly statement generation). They need Always On. For new work, Azure Functions is usually a better choice, or a queue plus a separate worker app.
+14. Sign-in without writing code (Easy Auth)
+App Service can handle login for you. You turn on Authentication, choose a provider such as Microsoft Entra ID, Google, GitHub or OpenID Connect, and the platform checks the user before the request reaches your code. You can require sign-in for everything or allow anonymous users on some paths. Your app receives the user's details in request headers. It is handy for internal bank tools; for customer-facing apps with complex rules you may prefer to handle authentication in your own code with a customer identity service. Either way, your code still decides what a signed-in user is allowed to do (authorization).
+15. Networking: who can reach the app, and what can it reach?
+There are two directions, and mixing them up is the most common beginner mistake.
+Direction
+Question
+Tool
+Inbound
+Who can call my app?
+Access restrictions, Private Endpoint, Front Door or Application Gateway
+Outbound
+What can my app call?
+VNet Integration, Hybrid Connections, NAT Gateway
+• Access restrictions allow or deny callers by IP address, service tag or subnet.
+• Private Endpoint gives your app a private address inside your own virtual network (VNet), so it can be reached without the public internet. Turn public access off to make it private. This is the standard answer for private inbound traffic.
+• VNet Integration lets your app make outbound calls into your VNet, for example to an Azure SQL database that has a private endpoint. It needs a dedicated subnet and works for outbound traffic only.
+• Front Door or Application Gateway sit in front of the app and add a web application firewall (WAF), HTTPS handling and global routing. Configure the app so only they can reach it.
+• NAT Gateway gives your outbound traffic one fixed public IP. The default outbound IPs are shared and can change, so never give them to a partner for allow-listing.
+• App Service Environment (ASE v3) puts the whole service inside your network, single-tenant, for the strictest isolation.
+Remember: VNet Integration is outbound. Private Endpoint is inbound.
+16. Limits and gotchas
+• Request timeout: the front end gives up on a request after about 230 seconds (roughly 4 minutes). Long jobs must run in the background (queue plus worker) and return 202 Accepted.
+• No operating system control: you cannot install your own software, drivers or Windows services. Use a custom container or a VM for that. Managed Instance on App Service (generally available since August 2026 on Premium v4 plans) is aimed at easing this for some legacy Windows apps; read its documentation to see which OS customizations it allows.
+• Mostly web traffic: HTTP, HTTPS and WebSockets, not arbitrary TCP or UDP ports.
+• Local disk is temporary. Anything you must keep belongs in storage or a database. /home is shared and persistent but slower.
+• Windows and Linux cannot share one plan.
+• Plan limits: instance count, slots, memory and storage vary by tier. Check the current limits page.
+• Outbound connections: each instance has a limited pool of outbound connection ports (SNAT). Reuse connections (for example with HttpClientFactory) so you do not run out.
+• Stopping an app does not stop the bill. Deleting or shrinking the plan stops it. A plan start/stop feature was in public preview for Premium v4 plans when I checked, so verify its current status.
+Check yourself: Part 2
+1.  Which tiers support slots and autoscale? Standard and above.
+2.  After a swap, production calls the staging database. Why? The connection string was not marked as a slot setting.
+3.  What is the difference between VNet Integration and a Private Endpoint? Integration is for outbound calls from the app; a private endpoint is for inbound calls to the app.
+4.  How does an app read a password without storing it? Managed identity plus a Key Vault reference.
+5.  A report export takes 6 minutes and users see errors. Why? It passes the roughly 230-second front-end timeout; run it in the background instead.
+6.  Why run at least 2 instances? Health checks and rolling restarts need somewhere to send traffic while one instance is replaced.
+Part 3: Inside, failures and real design
+17. How it works inside (simplified)
+Customer
+  |  DNS name -> Azure region
+  v
+Front ends (shared Microsoft servers)
+  |  HTTPS handling, find the app by its host name, apply access rules
+  v
+Worker instance (a VM in YOUR plan)
+  |  Windows: IIS runs your app    Linux: a container runs your app
+  v
+Your ASP.NET Core app
+  |  reads files from /home (network storage), calls SQL, Redis, etc.
+  v
+Response returns the same way
+• Stamp: Azure groups front ends, workers and storage into a scale unit called a stamp. Your plan lives in one stamp per region.
+• Life of an instance: the plan gets its VMs, your code is placed on them, the app starts (settings and Key Vault references are resolved at this point), and once it answers it joins the pool that receives traffic. Without Always On an idle app is unloaded after about 20 minutes. The platform also restarts instances for updates, scale events and host maintenance, which is why 2+ instances matter.
+• Slot swap, step by step: (1) apply the production slot's sticky settings to staging, (2) restart staging, (3) warm it up, (4) if every instance is healthy, switch the routing so staging and production trade places. If warm-up fails, the swap stops and production is untouched.
+• Autoscale: an Azure Monitor feature that checks your rules, applies the cooldown and changes the plan's instance count.
+• Storage: /home is shared network storage, durable but slower. The temporary local disk is fast but disappears on restart or move.
+18. What can go wrong
+Problem
+What you see
+What helps
+One instance crashes or is updated
+A few failed requests if you run only one instance
+2+ instances, health check
+Request longer than about 230 seconds
+502 or 504 errors
+Queue plus background worker
+Cold start
+The first request after idle is slow
+Always On, slot warm-up
+Memory leak
+App keeps restarting
+Memory alerts, profiling, auto-heal, bigger size
+One app hogs the plan
+Other apps slow down
+Separate plans, alerts
+Outbound ports run out (SNAT)
+Random timeouts calling other services
+Connection reuse, NAT Gateway, private endpoints
+A dependency is down (SQL, API)
+Errors from your app
+Timeouts, retries with backoff, circuit breaker, caching
+Bad release
+New version is broken
+Test on the slot first; swap back to roll back
+Key Vault reference unresolved
+A secret is missing
+Check identity, role, vault network rules
+Certificate expired
+Browser or client errors
+Managed or Key Vault certificates, expiry alerts
+One availability zone fails
+Some instances lost
+Zone-redundant Premium plan with 3+ instances
+Whole region fails
+Entire app unavailable
+A second region behind Front Door; you must set this up
+What Azure fixes for you and what you must design: Azure replaces a failed instance and (with zone redundancy) survives a zone failure by itself. Surviving a whole-region failure is your design and your responsibility.
+Where to look when something breaks:
+1.  Diagnose and solve problems in the portal: guided checks for downtime, CPU, memory and SNAT.
+2.  Metrics: HTTP 5xx, response time, CPU, memory (at plan and app level).
+3.  Logs: log stream for a live view; Log Analytics for history.
+4.  Application Insights: failed requests, slow dependencies, exceptions, traces.
+5.  Kudu: process list, memory dumps, deployment logs.
+Set alerts for error rate, response time, plan CPU and memory, health check failures, instances at maximum, certificate expiry and failed swaps.
+19. A real banking design
+Customers (web and mobile)
+   |
+Azure Front Door (WAF, HTTPS, health probes)   <- only way in from the internet
+   |
+   v   Private Endpoint (inbound)
++----------------------------------------------------------------+
+| Region A: App Service plan (Premium v3, zone-redundant, 3+)    |
+|   Customer API | Account API | Payment API  (each with a staging slot)
+|        |  VNet Integration (outbound)                          |
+|        v                                                       |
+|   Azure SQL (private endpoint)    Key Vault (secrets)          |
+|   Redis (cache, sessions)         Service Bus (async payments) |
++----------------------------------------------------------------+
+   |  database geo-replication
+   v
+Region B: same design, ready to take over
+
+Everywhere: managed identity, Entra ID sign-in, Application Insights,
+Azure Policy rules, infrastructure as code and pipelines
+A payment, step by step: the customer signs in and calls the Payment API through Front Door; the WAF filters bad traffic; the API checks an idempotency key (a unique ID so a retry never charges twice), saves the payment to the database in one transaction, and puts a message on Service Bus; a separate worker app processes the message (fraud check, core banking, notification) and updates the status; the customer's screen reads the status.
+Why it is built this way: private endpoints and a locked-down origin keep the app off the public internet; managed identity removes passwords; the stateless app tier scales out freely while the database is the single source of truth; the outbox pattern and idempotency keys prevent lost or duplicate payments; two regions limit the damage of a region outage. Know your RPO (how much data you can lose) and RTO (how long recovery may take), because cross-region database replication is usually asynchronous.
+20. App Service or something else?
+You need
+Choose
+A web app or API with the least server work
+App Service
+Full control of the OS, old software, non-web ports
+Virtual Machines
+Small event-driven code, scale to zero, pay per run
+Azure Functions
+Containers and microservices with scale to zero
+Azure Container Apps
+Full Kubernetes control and ecosystem
+AKS
+A static front end plus a small API
+Static Web Apps
+Strict single-tenant isolation for web apps
+App Service Environment v3
+How a principal engineer decides: start from the workload (protocol, state, scaling pattern, compliance), then pick the simplest platform that meets it, because every step toward more control brings more work. Check hard limits (timeouts, instance counts, networking) before committing. Count people time as well as the monthly bill. Keep the app container-ready and the infrastructure in code so you can move later.
+Use App Service when the app is stateless HTTP, the runtime is supported (or containerised), and you want deployment, scaling, TLS and sign-in handled for you. Avoid it when you need OS access, raw TCP/UDP, scale to zero, or complex multi-service orchestration.
+21. Best practices and mistakes to avoid
+Do:
+• Run at least 2 instances (3 with zone redundancy) with a health check, and keep Always On enabled.
+• Use managed identity and Key Vault references; no secrets in code.
+• Define everything as code (Bicep or Terraform) and deploy through a pipeline.
+• Deploy to a slot, test, then swap; mark environment-specific settings as slot settings.
+• Keep production and non-production in separate plans; keep critical apps in their own plans.
+• Force HTTPS, require TLS 1.2 or higher, and disable FTP and basic authentication.
+• Set alerts, and rehearse failover and rollback instead of only writing them down.
+• Keep a calendar of runtime end-of-support dates and upgrade on schedule.
+Avoid:
+• Treating App Service like a VM: saving state on local disk or keeping sessions in memory.
+• Running Free, Shared or Basic tiers (or a single instance) in production.
+• Putting a shared dependency in the health check so an outage removes every instance.
+• Doing long work inside an HTTP request.
+• Giving partners the default outbound IP addresses.
+• Load testing the staging slot while production shares the plan.
+• Assuming Azure gives you cross-region disaster recovery automatically.
+• Mixing manual portal changes with pipeline deployments, which causes configuration drift.
+22. Try it yourself
+Minimal API (Program.cs) with a health endpoint:
+var builder = WebApplication.CreateBuilder(args);
+builder.Services.AddHealthChecks();
+
+var app = builder.Build();
+app.UseHttpsRedirection();
+
+app.MapGet("/api/account/{id}", (string id) =>
+    Results.Ok(new { AccountId = id, Balance = 50000 }));
+
+app.MapHealthChecks("/healthz");   // used by the App Service health check
+app.Run();
+Create and deploy it with the Azure CLI (names are examples; run az webapp list-runtimes to confirm the runtime string):
+az group create -n rg-bank -l centralindia
+az appservice plan create -g rg-bank -n asp-bank --sku P1v3 --is-linux --number-of-workers 2
+az webapp create -g rg-bank -p asp-bank -n banking-account-demo --runtime "DOTNETCORE:10.0"
+az webapp identity assign -g rg-bank -n banking-account-demo
+az webapp update -g rg-bank -n banking-account-demo --https-only true
+az webapp config set -g rg-bank -n banking-account-demo --always-on true --generic-configurations '{"healthCheckPath": "/healthz"}'
+az webapp deployment slot create -g rg-bank -n banking-account-demo --slot staging
+az webapp deploy -g rg-bank -n banking-account-demo --src-path app.zip --type zip --slot staging
+az webapp deployment slot swap -g rg-bank -n banking-account-demo --slot staging --target-slot production
+What each step does: the group holds everything; the plan is the rented compute (2 instances); the web app is your API; the identity is its passwordless badge; HTTPS only, Always On and the health check are the production basics; the slot lets you deploy, test and swap. Delete the resource group when you finish (az group delete -n rg-bank) so the plan stops billing.
+23. Glossary
+Term
+Plain meaning
+PaaS
+Platform as a Service: the provider runs the platform, you bring the app
+IaaS
+Infrastructure as a Service: you rent virtual machines and run everything above them
+App Service plan
+The rented compute (OS, region, tier, size, instance count); what you pay for
+App / web app
+Your deployed application and its settings
+Instance / worker
+One VM in the plan that runs your app
+Scale up / out
+Bigger machine / more machines
+Autoscale
+Rules that add or remove instances automatically
+Stateless
+Keeps no important data on one instance, so any instance can serve any request
+Deployment slot
+A live second copy of the app used to stage and swap releases
+Managed identity
+A passwordless identity Azure gives your app
+Key Vault
+Azure's safe store for secrets and certificates
+VNet
+Your private network in Azure
+Private Endpoint
+A private address for a service inside your VNet (inbound)
+VNet Integration
+Lets an app make outbound calls into a VNet
+ASE
+App Service Environment: a private, single-tenant copy of the service
+Kudu
+The advanced tools site of an app (SCM site)
+SNAT
+Shared outbound connection ports; can run out under heavy calling
+RPO / RTO
+Data you can afford to lose / time you can afford to be down
+Idempotency key
+A unique ID that makes a repeated request safe
+24. Final self-test (answers below each question)
+1.  Why does App Service exist? Running servers was repeated work that did not add business value; PaaS moves OS, web server, patching, load balancing and scaling to the platform.
+2.  What is the difference between a plan, an app and an instance? The plan is the rented compute you pay for, the app is your code and settings, and an instance is one VM in the plan that runs every app by default.
+3.  Your stopped app is still billed. Why? The plan keeps its instances reserved. Delete or shrink the plan.
+4.  When do you scale up and when out? Up for bigger single-request needs or to unlock features; out for more users and resilience, which needs a stateless app.
+5.  How do slots give near-zero-downtime releases and fast rollback? Deploy and warm up the new version in staging, then swap routing; swap back to undo.
+6.  How should the Payment API get its database password? Managed identity plus a Key Vault reference, or better, passwordless access to the database with the identity.
+7.  Private inbound access versus private outbound access? Private Endpoint for inbound; VNet Integration for outbound.
+8.  What must you design yourself for disaster recovery? Cross-region failover: a second region, Front Door or Traffic Manager, replicated data and a tested runbook.
+9.  When would you pick Functions, Container Apps, AKS or a VM instead? Functions for small event-driven code, Container Apps for containerised microservices with scale to zero, AKS for full Kubernetes control, a VM for OS-level control or non-web protocols.
+10.  Name three production settings you always switch on. Any three of: 2+ instances, Always On, health check, HTTPS only, TLS 1.2+, managed identity, slots, alerts, FTP off.
+If you can answer these without looking, you have the foundation. What to learn next: Azure Functions (event-driven code), Azure Container Apps (containers without Kubernetes), Key Vault and managed identity in depth, Azure SQL private connectivity, and monitoring with Application Insights.
+Part 4: Interview practice, production and mastery
+25. Comparison: before vs App Service, and the alternatives
+Before (VM + IIS) vs App Service
+Area
+VM + IIS
+App Service
+Why it changed
+Architecture
+You build OS, web server, load balancer and app
+Azure provides front ends, workers and storage; you provide the app
+Shared work moved to the platform
+How it works
+Request goes to your load balancer, your VM, IIS, then the app
+Request goes to Azure front ends, then an instance in your plan
+Multi-tenant routing replaces per-customer setup
+Performance
+Tune anything, down to the OS
+Tune the app, tier and size only
+Uniform platform trades fine control for consistency
+Scalability
+Build images, scripts or scale sets
+Slider, autoscale or automatic scaling
+The platform already knows how to add a worker
+Reliability
+You design availability and patch windows
+SLA, health checks, auto-heal, zone redundancy
+Azure runs the platform at scale
+Security
+You own OS, ports and certificates
+Azure patches the OS and runtime; you own the app, identity and data
+Shared responsibility moves toward the provider
+Complexity
+Needs OS and infrastructure skills
+Needs platform concepts: plans, slots, limits
+Complexity moved from servers to the platform
+Maintenance
+You patch and rotate everything
+Mostly managed; you track runtime end-of-support dates
+Repeated work centralised
+Cost
+Pay per VM, usually sized for peak
+Pay per plan, with a management premium
+You pay for the operations Azure does
+Failure handling
+You detect and replace failed VMs
+Azure replaces failed instances; region failover is yours
+Instance failure is automated, region failure is still a design choice
+Decision matrix: which compute service?
+Criteria
+App Service
+Virtual Machines
+Functions
+Container Apps
+AKS
+Operations effort
+Low
+High
+Lowest
+Low to medium
+High
+Control
+Medium
+Full
+Low
+Medium
+Full
+Scale to zero
+No (the plan always runs)
+No
+Yes (on consumption-style plans)
+Yes
+Not by default
+Scalability
+Good: instances up to tier limits
+You build it
+Very good, event-driven
+Very good, event-driven (KEDA)
+Very good, you operate it
+Reliability
+Platform SLA, zones
+You design it
+Platform
+Platform
+You design it
+Cost pattern
+Per plan, steady
+Per VM, steady
+Per run
+Per use
+Per node plus operations
+Best use case
+Web apps and APIs
+Legacy or OS-specific software
+Short event-driven code
+Containerised microservices
+Large Kubernetes estates
+26. Advantages, disadvantages and over-engineering
+Advantages: much less operations work; fast and safe releases with slots; built-in autoscale, health checks, backups and sign-in; easy links to Entra ID, Key Vault, Application Insights and pipelines; a good developer experience.
+Disadvantages and hidden costs:
+• No OS control, request timeout of about 230 seconds, limits per tier.
+• An idle plan still bills, and each environment tends to need its own plan.
+• Higher tiers are needed for slots, zones, private networking and scale.
+• Platform concepts (plans, sticky settings, SNAT) have a learning curve.
+• Moderate lock-in to platform features such as slots and Easy Auth.
+When the old way is still better: legacy software that must be installed, non-web protocols, special hardware or OS tuning, very long-running processing.
+Over-engineering signs: Premium zone-redundant multi-region for an internal tool with 50 users; a separate plan for every tiny app; ASE when a private endpoint satisfies the requirement; building Kubernetes for one API.
+27. Feature cheat sheet with interview angles
+Feature
+Problem it solves
+Key limit
+Likely question
+App Service plan
+Separates compute from apps, bills once
+Shared CPU and memory between apps
+Why did the Account API slow down?
+Autoscale
+Follows load without manual work
+Reacts in minutes; needs Standard or higher and stateless apps
+How do you avoid flapping?
+Deployment slots
+Safe release and instant rollback
+Standard or higher; share plan resources; DB changes
+What happens to settings in a swap?
+Managed identity + Key Vault references
+No passwords in code
+Needs a role on the vault and network access
+Why is my reference unresolved?
+Health check
+Removes bad instances
+Needs 2+ instances; bad design can empty the pool
+What should the health endpoint test?
+VNet Integration
+App reaches private resources
+Outbound only; needs a delegated subnet
+Is my app private now?
+Private Endpoint
+Private inbound access
+Adds DNS and cost complexity
+How do you reach a private app?
+Easy Auth
+Sign-in with no code
+Authorization is still yours
+Where do roles get checked?
+WebJobs
+Background tasks beside the app
+Need Always On; Functions often better
+Why not a Function?
+Backup and restore
+Recovery of content and config
+Size limits; not a full DR plan
+Is backup the same as DR?
+Custom containers
+Control of runtime and dependencies
+You patch the image
+When would you use one?
+28. Failure stories: detect, fix, prevent
+Incident
+Cause
+How you detect it
+Fix
+Prevent
+Export returns 502 after 4 minutes
+Request exceeds the front-end limit (about 230 s)
+Long request durations in Application Insights, 5xx spike
+Return 202, process in a background worker
+Design long work as async from the start
+Random outbound timeouts under load
+SNAT ports exhausted by many short connections
+Diagnose and solve problems SNAT detector, dependency failures
+Use HttpClientFactory, connection reuse
+NAT Gateway, private endpoints, load test
+Production uses the staging database after a swap
+Connection string not marked as a slot setting
+Wrong data seen, config diff
+Swap back, fix the setting
+Slot-setting checks in the pipeline, smoke tests
+A customer is charged twice
+Client retried, server processed twice (duplicate request)
+Duplicate payment IDs in logs and database
+Refund, deduplicate
+Idempotency key with a unique database constraint
+Two requests change the same balance
+Concurrency conflict, last write wins
+Wrong balances, reconciliation breaks
+Correct the data
+Optimistic concurrency (row version), transactions
+Whole pool removed during a database blip
+Health check tests the database on every instance
+All instances unhealthy at once, 503s
+Fix the health endpoint, restart
+Health check tests only local liveness
+Site down at 2 AM
+Certificate expired
+Browser errors, no alert
+Renew or rebind
+Managed or Key Vault certificates, expiry alert
+Secret leaked in a repo
+Password in source control
+Secret scanning alert
+Rotate, remove from history
+Managed identity, Key Vault, scanning in CI
+Region outage
+The single region failed
+Availability test fails
+Fail over to region B
+Second region, replicated data, practised runbook
+Chaos experiments worth trying in a test environment: stop one instance, block outbound access to SQL, add latency to a dependency, remove the app's Key Vault role, send a flood of requests, and run a Front Door failover drill. Watch whether alerts fire, whether the app degrades gracefully, and how long recovery takes.
+29. Interview practice: chains, code review, answers and challenges
+Chain A: deployment slots
+1.  Question: What is a deployment slot?
+2.  Follow-up: What happens during a swap?
+3.  Next level: Which settings stay and which move?
+4.  Challenge: "Then why did production break after a swap?"
+5.  Hidden assumptions and edge cases: the schema change was not backward compatible; the slot shares plan resources; a setting was not sticky.
+6.  Defensible answer: "A swap switches routing between two warmed-up copies, so it is fast and reversible, but it does not protect me from incompatible database changes or unmarked settings. I use expand-and-contract migrations, mark environment settings as slot settings, smoke test staging first, and keep the previous version one swap away."
+Chain B: scaling
+1.  Question: Scale up or scale out?
+2.  Follow-up: How does autoscale work?
+3.  Next level: Why can it fail to protect you on salary day?
+4.  Challenge: "You scaled out but latency did not improve."
+5.  Hidden assumptions: the bottleneck is not the app tier; the app keeps state; ARR affinity pins users.
+6.  Defensible answer: "Autoscale reacts over minutes, so I set a higher minimum or a schedule before the peak. If latency stays high, the bottleneck is downstream (database, connections, SNAT), so I profile dependencies, add caching and queues, and make sure the app is stateless."
+Chain C: private networking
+1.  Question: How do you make an app private?
+2.  Follow-up: VNet Integration or Private Endpoint?
+3.  Next level: How does the app reach a private SQL database?
+4.  Challenge: "A partner needs a fixed IP for your outbound calls."
+5.  Hidden assumptions: private DNS must resolve correctly; default outbound IPs can change.
+6.  Defensible answer: "Private Endpoint for inbound with public access disabled, VNet Integration plus a private endpoint on SQL for outbound, and a NAT Gateway on the integration subnet to give the partner one stable outbound IP."
+Troubleshooting question: "The app is slow only after deployments." Check for cold start (Always On, warm-up, slots), JIT and cache warm-up, a restart storm, and plan CPU during the deploy. Use metrics, Application Insights and the deployment logs in Kudu to confirm.
+Code review exercise: what is wrong here?
+public class PaymentService
+{
+    private static List<string> _processed = new();
+
+    public async Task<string> PayAsync(PaymentRequest r)
+    {
+        var client = new HttpClient();
+        var conn = "Server=sql;User=sa;Password=P@ss123";
+        _processed.Add(r.Id);
+        var res = client.GetStringAsync("https://bank/api/pay?id=" + r.Id).Result;
+        return res;
+    }
+}
+Problems: static in-memory state is lost on restart, not shared between instances and not thread-safe; a new HttpClient per call risks SNAT exhaustion; a hard-coded secret; no real idempotency; blocking .Result; no timeout, cancellation, retry or logging; a payment should not be a GET. A better shape:
+public class PaymentService(IHttpClientFactory factory, IPaymentRepository repo,
+                            ILogger<PaymentService> log)
+{
+    public async Task<string> PayAsync(PaymentRequest r, CancellationToken ct)
+    {
+        if (await repo.ExistsAsync(r.Id, ct)) return "duplicate-ignored";
+
+        var client = factory.CreateClient("bank");        // pooled; configured in Program.cs
+        using var res = await client.PostAsJsonAsync("pay", r, ct);
+        res.EnsureSuccessStatusCode();
+
+        await repo.SaveAsync(r, ct);   // back this with a unique constraint on r.Id
+        log.LogInformation("Payment {Id} processed", r.Id);
+        return "ok";
+    }
+}
+The existence check alone still has a race between two requests, so the unique database constraint is what truly guarantees one payment per ID. Secrets and the client's timeout and retry policy live in configuration.
+Answer preparation for important questions
+Question
+30-second answer
+Principal-level addition
+What are deployment slots?
+A live staging copy of the app: deploy and test there, swap into production, swap back to roll back.
+Cover warm-up, sticky settings, shared plan resources, traffic routing for canaries, and backward-compatible database changes.
+Scale up vs scale out?
+Up is a bigger machine, out is more machines; autoscale automates out.
+Cover statelessness, autoscale lag, downstream bottlenecks, per-app scaling and the cost of headroom.
+What is an App Service plan?
+The compute you rent and pay for; apps run on its instances.
+Cover plan topology, noisy neighbours, blast radius and cost sharing.
+Interviewer challenge simulation
+• "Why this and not another service?" Because the workload is stateless HTTP and the team is small, App Service meets the need with the least operations work; I would move if I needed OS access, scale to zero or Kubernetes features.
+• "Traffic grows 10 times?" Stateless app, scale out with schedule plus autoscale, find the next bottleneck (database, connections), add caching and queues.
+• "A dependency is down?" Timeouts, retries with backoff, circuit breaker, cached or degraded responses, and a health check that does not remove every instance.
+• "Two requests update the same record?" Optimistic concurrency with a row version, or a transaction with the right isolation; return a conflict and let the caller retry.
+• "A message is processed twice?" Make the handler idempotent: a unique key and a processed-messages table.
+• "It is too expensive?" Right-size, share plans for small apps, scale in and down off-peak, use reservations or savings plans, delete unused plans, and re-evaluate Container Apps or VMs for the workload shape.
+• "The business requirement changes?" Keep the app stateless and the infrastructure in code, so I can change tier, region or even platform with a contained effort.
+30. Misconceptions and red flags
+Misconception
+Reality
+Why people think it
+"PaaS means no responsibility"
+You still own code, identity, network design, scaling choices and monitoring
+The word "managed" sounds total
+"Each app has its own server"
+Apps in a plan share all its instances by default
+Each app has its own URL
+"A stopped app is free"
+The plan keeps billing
+Stopping feels like switching off
+"Autoscale is on by default"
+You choose a tier and configure it (or use automatic scaling on Premium)
+Marketing says "scales automatically"
+"Slots are free extra servers"
+Slots share the plan's CPU and memory, and need Standard or higher
+They look like separate apps
+"VNet Integration makes the app private"
+It is outbound only
+"VNet" sounds like "private"
+"Azure gives automatic region failover"
+Cross-region failover is your design
+Zone redundancy is automatic, which blurs the two
+Red flags in a design or review: a single instance in production; Free, Shared or Basic tiers for production; secrets in app settings as plain text or in source control; the health check tests a shared database; sessions kept in memory; long work inside HTTP requests; manual portal changes with no infrastructure as code; no alerts; no tested rollback or failover.
+31. Production readiness checklist
+Observability
+[ ] Application Insights connected; requests, dependencies and exceptions visible
+[ ] Diagnostic logs sent to Log Analytics
+[ ] Alerts: 5xx rate, response time, plan CPU and memory, health check failures, instances at maximum, certificate expiry, failed swaps
+[ ] Availability test running from more than one location
+Capacity and scaling
+[ ] Load test done against a production-like environment
+[ ] Autoscale or automatic scaling configured, with scale-in rules and sensible minimum and maximum
+[ ] Headroom checked for database connections, SNAT and downstream limits
+[ ] Quota and limits requested in every region you may use
+Resilience
+[ ] 2+ instances (3 with zone redundancy), Always On, health check
+[ ] Timeouts, retries with backoff and circuit breakers on outbound calls
+[ ] Long work runs in the background, not inside requests
+[ ] Second region and failover runbook, rehearsed, with known RPO and RTO
+Security
+[ ] HTTPS only, TLS 1.2 or higher, FTP and basic authentication disabled
+[ ] Managed identity and Key Vault references; no secrets in code
+[ ] Private endpoint and access restrictions where required; WAF in front
+[ ] Azure Policy and Defender for Cloud enabled
+Data
+[ ] Database backups and point-in-time restore tested
+[ ] Idempotency and concurrency controls for money-moving operations
+[ ] Retention rules for logs and audit data
+Delivery and operations
+[ ] Infrastructure as code and a pipeline (build, test, deploy to slot, smoke test, swap)
+[ ] Environment settings marked as slot settings
+[ ] Rollback steps written and tried
+[ ] Runbooks for common incidents; named owner and on-call rota
+[ ] SLOs and SLIs defined (for example availability and p95 latency)
+[ ] Runtime end-of-support dates tracked
+32. Migration playbook (IIS or VM app to App Service)
+1.  Discovery: list apps, dependencies, databases, certificates, file shares, scheduled jobs, and who owns each. Use assessment tools such as Azure Migrate (check current tooling).
+2.  Assess blockers: Windows services, COM components, registry use, machine-specific paths, local file writes, non-HTTP ports, Windows-integrated authentication, large installed software.
+3.  Choose the strategy: rehost to App Service, containerise, refactor, or keep on a VM when the blockers are too heavy. Consider Managed Instance on App Service for some legacy Windows cases.
+4.  Strangler-fig approach: put a router (Front Door or a reverse proxy) in front, and move one route or one app at a time to the new platform while the old system keeps serving the rest.
+5.  Phased rollout: dev, test, then production with a small share of traffic first.
+6.  Shadow traffic and canary: copy real requests to the new system to compare answers, then send 1%, 10%, 50% of live traffic using Front Door weights or slot traffic routing.
+7.  Data migration and reconciliation: move or replicate the database, then compare counts and balances between old and new.
+8.  Parallel run: keep both live for an agreed period and compare results.
+9.  Rollback: keep the old system ready; switching routing back must take minutes, so keep DNS or routing changes reversible and data changes backward compatible.
+10.  Decommission: switch off the old servers only after the agreed stable period, then remove access, certificates and DNS entries.
+11.  Ownership and documents: update runbooks, diagrams, on-call ownership and cost reports.
+Biggest risks: hidden dependencies, data drift between old and new, and a rollback that is no longer possible once the database has changed.
+33. Cost and operational overhead
+What you pay for: the plan (per instance, by tier and size), outbound data transfer, storage and backups, certificates, monitoring (Application Insights and Log Analytics data volume), Front Door or Application Gateway, private endpoints and NAT Gateway, plus engineering and on-call time.
+Worked example (illustrative units, not Azure prices). Assume one App Service instance costs 100 units a month (A), a comparable VM costs 70 (V), a load balancer costs 20 (L), and the VM route needs 30 hours a month of patching and deployment work at 2 units an hour (H x R = 60). With 3 instances:
+Option
+Calculation
+Total
+App Service
+3 x 100
+300
+VMs
+3 x 70 + 20 + 60
+290
+VMs with 60 hours of work
+3 x 70 + 20 + 120
+350
+The lesson: the compute price alone can favour VMs, and the answer flips as people time rises. Replace these numbers with real prices from the Azure pricing calculator and your own labour cost before deciding.
+Ways to reduce cost: share plans for small apps, right-size using metrics, scale in and down at night for non-production, delete empty plans, use reservations or savings plans for steady load, and keep monitoring data volume under control.
+When a simpler or older approach is cheaper: very large, steady workloads where VM or container prices win, or tiny spiky workloads where Functions or Container Apps with scale to zero cost less than an always-on plan.
+34. Versions and ecosystem (checked November 2026)
+• .NET: .NET 8 and .NET 9 reached end of support on 10 November 2026. .NET 10 is the current long-term-support release (supported until November 2028). A .NET 11 standard-term release is listed on Microsoft's support policy page as released on 10 November 2026, so check it before choosing. Apps on .NET 8 or 9 keep running but get no security fixes.
+• App Service tiers: Premium v4 became generally available on 1 September 2025 for Windows and Linux in select regions, with Microsoft reporting better performance than the previous generation (measure your own workload). Premium v2 and v3 still exist. Isolated v4 for App Service Environments has also been announced as generally available. Check regional availability with the CLI before you design.
+• Managed Instance on App Service: announced generally available on 18 August 2026, billed as a capability on top of Premium v4 compute. Read the docs for what it allows.
+• Plan start/stop for Premium v4: was in public preview when I checked. Treat preview features as not ready for production commitments.
+• Deprecated or changing: classic Azure Cloud Services is retired, and multi-container (Docker Compose) support on App Service is limited; verify the current status before relying on either.
+• Associated tools: Bicep or Terraform, GitHub Actions or Azure DevOps, Azure Front Door, Key Vault, Azure SQL, Redis, Service Bus, Application Insights, Azure Policy, Azure Load Testing.
+• Direction: new apps on .NET 10 or later, deploy by pipeline to slots, passwordless access with managed identity, and infrastructure as code.
+Established practice (plans, slots, scaling concepts, managed identity) changes slowly. Tier names, regional availability, limits and previews change often, so always confirm them on the current Azure documentation.
+35. Hands-on labs
+Project structure for the labs
+Banking.Account.Api/
+  Program.cs
+  Banking.Account.Api.csproj    (TargetFramework: net10.0)
+  appsettings.json
+  infra/ (optional Bicep)
+Lab 1: Reproduce the old way
+• Objective: feel the manual work of IIS hosting.
+• Prerequisites: a Windows machine or VM, IIS enabled, the .NET 10 Hosting Bundle.
+• Steps: dotnet publish -c Release -o ./publish, create an IIS site and app pool, copy the files, bind a port, browse to it. Now copy new files while sending requests.
+• Observe: how many manual steps there were, any errors during the copy, what would repeat on a second server.
+• Troubleshooting: HTTP 500.19 or 502.5 usually means the hosting bundle or app pool settings are wrong.
+• Reflect: what would you automate first?
+Lab 2: The modern way, with a slot
+• Objective: deploy, test and swap without downtime.
+• Prerequisites: an Azure subscription and the Azure CLI.
+• Steps: run the commands in Section 22; deploy a changed version to the staging slot; browse the staging URL; swap; swap back.
+• Observe: production never goes down; rollback takes seconds.
+• Troubleshooting: slot creation fails on Free, Shared or Basic tiers.
+• Reflect: which settings should be slot settings?
+Lab 3: Break it on purpose (test environment only)
+Add these endpoints to Program.cs:
+app.MapGet("/slow", async () =>
+{
+    await Task.Delay(TimeSpan.FromMinutes(5));   // longer than the front-end limit
+    return Results.Ok();
+});
+
+app.MapGet("/crash", () => { Environment.FailFast("test crash"); });
+
+app.MapGet("/leak", () =>
+{
+    Hog.Items.Add(new byte[50_000_000]);         // about 50 MB per call
+    return Results.Ok(Hog.Items.Count);
+});
+
+static class Hog { public static readonly List<byte[]> Items = new(); }
+• Observe: /slow fails around the 230-second mark; /crash makes the platform restart the app and the health check reacts; repeated /leak raises memory until the process is recycled. Also try stopping one instance and removing the app's Key Vault role.
+• Troubleshooting: use Diagnose and solve problems and the log stream to see what Azure reports.
+• Reflect: which alert would have told you first? Delete these endpoints afterwards.
+Lab 4: Logs, metrics and traces
+• Objective: see inside a running app.
+• Steps: add builder.Services.AddApplicationInsightsTelemetry();, set the APPLICATIONINSIGHTS_CONNECTION_STRING app setting, write logs with ILogger, create an alert on failed requests, and run this query in Application Insights Logs:
+requests
+| where timestamp > ago(1h)
+| summarize total = count(), failed = countif(success == false) by bin(timestamp, 5m)
+• Observe: the spike from Lab 3 in the failed column; a trace linking a request to its dependency calls.
+• Reflect: what is your SLI for this API?
+Lab 5: Load test and autoscale
+• Objective: find the real bottleneck.
+• Prerequisites: Azure Load Testing, or a tool such as k6; an autoscale rule on a Standard or higher plan.
+• Steps: load test /api/account/123 with increasing users; watch instance count, CPU, response time, 5xx and database load.
+• Observe: when autoscale adds instances and how long it takes; whether latency improves or the database becomes the limit.
+• Troubleshooting: if instances never increase, check the rule thresholds, the metric window and the cooldown.
+• Reflect: what would you change first: minimum instances, caching, or the database?
+36. Mastery rubric and self-assessment
+Level
+Expected capability
+Evidence that you are there
+Aware
+Explain the concept and give an example
+You can give the 1-minute answer from Part 0 without notes
+Working
+Implement it independently
+You completed Labs 1 and 2 and can explain every CLI step
+Proficient
+Debug and handle failures
+You completed Labs 3 and 4 and can solve the Section 28 incidents
+Advanced
+Design an enterprise solution
+You can draw and defend the Section 19 architecture, including DR
+Principal
+Defend architecture, trade-offs, cost and migration
+You can answer the Section 29 challenges, the cost example and the migration playbook
+Find your gaps: if you stumble on the plan, app and instance, revise Section 5. On slots, Section 10. On scaling, Section 9. On networking, Section 15. On failures, Sections 18 and 28. On choosing a service, Sections 20 and 25. Ask me to "test me" and I will quiz you without showing answers first.
+Glossary additions
+Term
+Plain meaning
+Circuit breaker
+Stops calling a failing service for a while so it can recover and your app stays responsive
+Idempotency
+Doing the same request twice has the same result as doing it once
+Optimistic concurrency
+Detect that someone else changed a record (for example with a row version) and reject the stale update
+Outbox pattern
+Save the data and the message to send in one transaction, then publish the message separately
+Canary release
+Send a small share of real traffic to the new version first
+Strangler-fig migration
+Replace an old system piece by piece behind a router
+Expand and contract
+Change a database in two safe steps so old and new code both work
+Blast radius
+How much breaks when one thing fails
+WAF
+Web application firewall that blocks common attacks
+SLI / SLO
+A measurement of service quality / the target you promise for it
+Chaos engineering
+Breaking things on purpose in a controlled way to learn how the system behaves
+KQL
+Kusto Query Language, used to query Application Insights and Log Analytics
+37. Sources and checks
+• .NET 8 and .NET 9 end of support (.NET Blog, 29 June 2026): opened and read.
+• Seen in search results but not opened in full, so confirm on the pages: the .NET support policy, the Premium v4 general availability announcement, the Premium v4 configuration page, the Managed Instance general availability post and the plan start/stop preview post.
+• Limits, prices and quotas in this guide are approximate and come from general knowledge: check the current App Service documentation and pricing page.
