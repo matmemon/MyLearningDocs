@@ -1,0 +1,2637 @@
+# **H7 — Azure Kubernetes Service (AKS)**
+
+**Profile:** Loaded | **Topic:** Azure Kubernetes Service (AKS) | **Mode:** Full | **Block:** A–H | **Skipped:** Kubernetes fundamentals — introductory concepts assumed known; validate advanced Kubernetes operations, networking, identity and architecture decisions.
+
+
+
+Principal / Architect level
+
+Master
+
+
+
+## **Learning objectives**
+
+By the end of H7, you should be able to:
+
+1. Explain AKS architecture and what Azure manages versus what your team manages.
+2. Design system and user node pools for enterprise workloads.
+3. Choose Azure CNI, Azure CNI Overlay and networking configurations.
+4. Implement secure workload identity and Key Vault integration.
+5. Design ingress, load balancing and internal service communication.
+6. Configure cluster autoscaling and KEDA.
+7. Plan cluster upgrades without unnecessary downtime.
+8. Understand AKS Automatic and when to use it.
+9. Optimize infrastructure and operational costs.
+10. Defend your AKS architecture in a Principal Engineer interview.
+
+### **Your existing project context**
+
+We will use your verified architecture as the primary practical example:
+
+- AutoSys triggers a .NET console application.
+- The console application runs as a Kubernetes Pod.
+- AKS hosts your application.
+- Nexus stores your container artifacts.
+- You have separate UAMIs for the Sync Job and API.
+- Both identities are involved in Azure SQL authentication.
+- Your API has an incoming authentication and routing path.
+- Some UAMI-to-Pod integration details are still to be verified.
+
+We will distinguish your confirmed implementation from hypothetical enterprise enhancements.
+
+# **BLOCK A — Opening answers**
+
+## **A1. Preliminary interview answer — v1**
+
+**Question: What is Azure Kubernetes Service?**
+
+Azure Kubernetes Service (AKS) is Microsoft's managed Kubernetes service on Azure. It allows us to deploy, manage, scale and operate containerized applications without managing the Kubernetes control plane ourselves.
+
+Azure manages the control plane, including the Kubernetes API server and associated management components, while we manage worker node pools, application workloads, networking configuration, security, scaling policies and application operations.
+
+AKS supports multiple node pools, managed identities, ingress, autoscaling, monitoring and integrations with Azure services.
+
+It is particularly useful for running distributed applications and microservices that require container orchestration, scalability, availability and standardized deployment practices.
+
+## **A2. Scenario index**
+
+1. Happy path — deploying a .NET application to AKS.
+2. Failure/recovery — Pod crash, node failure and rescheduling.
+3. 10× scale — handling increased application traffic.
+4. Security/compliance — workload identity, network isolation and Key Vault.
+5. Cost — optimizing node pools and workload utilization.
+6. Migration — moving applications from VMs to AKS.
+7. Monitoring/incident — diagnosing a failing production Pod.
+8. Alternatives — AKS versus App Service and Container Apps.
+9. Enterprise/multi-team — multiple teams sharing an AKS cluster.
+10. Business case — justifying AKS to engineering leadership.
+
+# **BLOCK B — Foundations**
+
+## **B1. WHY does AKS exist?**
+
+Imagine your organization has 20 microservices.
+
+Each service needs:
+
+- A runtime environment.
+- CPU and memory.
+- Networking.
+- Deployment and configuration.
+- Health monitoring.
+- Scaling.
+- Recovery when something crashes.
+
+Initially, teams may deploy applications directly onto virtual machines.
+
+[Implementing and using microservices | Red Hat Developer](https://images.openai.com/static-rsc-4/cOeJ1r1pWL8duZDkm4EaIbEdDSqoHNwZgh7llwD6WGYs0JvW9au39HFNO37KKbh1F6PRdDCYEvqfo8QzxiEA6UsYlNhUBFrChlDKEYwCnKvmZjMgTQHH8SfHjoXJhaSB25yBH4cHIbFHTh3Nafuyo7UaADytLrHv_93uiuzZBNA?purpose=inline)
+
+[developers.redhat.com](https://developers.redhat.com/articles/2022/01/19/monolith-microservices-how-applications-evolve?utm_source=chatgpt.com)
+
+But this becomes difficult as the number of applications grows.
+
+For example:
+
+- Application A needs 2 instances.
+- Application B needs 5 instances.
+- Application C needs 10 instances.
+- Application D needs additional instances during peak traffic.
+
+Managing all these deployments manually becomes operationally expensive.
+
+**The core problem:**
+
+How do we automatically deploy, schedule, scale, restart and manage containers across multiple machines?
+
+That is the problem Kubernetes solves.
+
+AKS provides Kubernetes as an Azure-managed service.
+
+[Container & Kubernetes Guide - Wasil Zafar](https://images.openai.com/static-rsc-4/ERBdXo9LFVBsRYiXmsUtQM7VuqxxQMI8VhsdzDAcLMDObf3RfyPndwjyIn-wRiuI_Ly0h9ws_WNXw9vHvj72KtjxKgbITcom3Qxenpkl5_eK8em5lvHSOt17G7Uw7vFtKr9yUi_q1FicUILDFfUru_k56ZI1YRXJBozEHajcyfE?purpose=inline)
+
+[wasilzafar.com](https://www.wasilzafar.com/pages/series/cloud-computing/cloud-container-kubernetes-guide.html?utm_source=chatgpt.com)
+
+### **Analogy**
+
+Think of Kubernetes as a hotel manager.
+
+- Hotel building = Kubernetes cluster.
+- Floors = Worker nodes.
+- Rooms = Pods.
+- Guests = Containers.
+- Hotel manager = Kubernetes control plane.
+- Reception = Kubernetes API server.
+
+If a room becomes unusable, the manager arranges another room.
+
+Similarly, Kubernetes can recreate a failed Pod on a healthy node, provided the cluster has sufficient capacity and the workload is configured appropriately.
+
+## **B2. BEFORE AKS — previous approaches**
+
+| Approach                | Strength                         | Limitation                                                               |
+| ----------------------- | -------------------------------- | ------------------------------------------------------------------------ |
+| Physical servers        | Full control                     | Expensive infrastructure management                                      |
+| Virtual machines        | Isolation and flexibility        | OS and capacity management                                               |
+| Docker on VMs           | Container packaging              | Manual orchestration                                                     |
+| Docker Swarm            | Basic container orchestration    | Smaller ecosystem                                                        |
+| Self-managed Kubernetes | Full Kubernetes control          | Control-plane operational burden                                         |
+| AKS                     | Managed Kubernetes control plane | Worker infrastructure and workload operations remain your responsibility |
+
+Important distinction:
+
+Docker packages and runs containers.
+
+Kubernetes orchestrates containers across machines.
+
+AKS provides managed Kubernetes on Azure.
+
+## **B3. What problem does AKS solve?**
+
+| Dimension      | Problem                            | AKS solution                  |
+| -------------- | ---------------------------------- | ----------------------------- |
+| Deployment     | Manual deployment                  | Declarative deployments       |
+| Availability   | Application process crashes        | Pod replacement               |
+| Scaling        | Manual instance creation           | HPA and cluster autoscaler    |
+| Scheduling     | Selecting machines manually        | Kubernetes scheduler          |
+| Networking     | Manual service discovery           | Kubernetes Services           |
+| Configuration  | Environment-specific configuration | ConfigMaps and Secrets        |
+| Security       | Managing application identity      | Workload identity integration |
+| Infrastructure | Managing Kubernetes control plane  | Azure-managed control plane   |
+| Operations     | Manual health checks               | Probes and orchestration      |
+| Rollouts       | Risky application replacement      | Rolling deployments           |
+
+## **B4. WHAT exactly is AKS?**
+
+### **Simple definition**
+
+AKS is a managed Kubernetes cluster consisting of a control plane and worker nodes.
+
+### **Technical definition**
+
+AKS is an Azure-managed Kubernetes orchestration platform that provides a managed control plane and integrates with Azure networking, identity, storage, monitoring and security services.
+
+### **AKS architecture**
+
+[Getting Started with Azure Kubernetes Service (AKS)](https://images.openai.com/static-rsc-4/RLotqcvo0LwdUBUeW-v3Y6GW2vClXWRmXqB_QFvspg7byO0Y9NZOoQRrPi2imAxQL7caRQx9XFBLw6ExZFd2uJfYNM6vjYLaEe2Lyqlt11WWrVVRbQauNt05896HrHYv6YYsxfgXkZt2ragRCpkRi_lDxgPG6GBmts8gFeiBovc?purpose=inline)
+
+[refactored.pro](https://www.refactored.pro/blog/2020/8/26/getting-started-with-aks?utm_source=chatgpt.com)
+
+There are two major architectural areas.
+
+**1. Control plane**
+
+This is the brain of Kubernetes.
+
+| Component          | Responsibility                      |
+| ------------------ | ----------------------------------- |
+| API Server         | Receives Kubernetes API requests    |
+| Scheduler          | Selects suitable nodes for Pods     |
+| Controller Manager | Reconciles desired and actual state |
+| etcd               | Stores Kubernetes cluster state     |
+
+In AKS, Azure manages the control-plane infrastructure.
+
+You interact with it using:
+
+```
+kubectl get nodes
+kubectl get pods -A
+kubectl get deployments -A
+```
+
+You don't normally administer its underlying control-plane VMs or etcd infrastructure.
+
+**2. Data plane**
+
+This is where your actual applications run.
+
+It includes:
+
+- Worker nodes.
+- Kubernetes Pods.
+- Containers.
+- Node networking.
+- Kubelet.
+- Container runtime.
+- Storage and application workloads.
+
+You are responsible for the configuration and operation of these workloads and their supporting infrastructure.
+
+### **Request path**
+
+A typical application request flows as follows:
+
+**External client**
+
+**Azure Load Balancer / Ingress**
+
+**Kubernetes Service**
+
+**Application Pod**
+
+**.NET API / business logic**
+
+**Azure SQL using workload identity**
+
+Note: This is a representative request path, not a claim that your current API uses every one of these components.
+
+## **B5. Revised interview answer — v2**
+
+AKS is Azure's managed Kubernetes platform for running containerized workloads.
+
+Architecturally, it separates the control plane from the data plane. Azure manages the Kubernetes control plane, including the API server and cluster state management infrastructure, while the customer configures and operates worker node pools and application workloads.
+
+AKS provides Kubernetes capabilities such as scheduling, declarative deployments, service discovery, self-healing and rolling updates, along with Azure integrations for identity, networking, storage, monitoring and security.
+
+From an architecture perspective, the important decisions are node-pool design, network topology, workload identity, ingress, autoscaling, upgrades and operational cost.
+
+# **BLOCK C — Features and internals**
+
+## **C1. AKS feature catalog**
+
+We will classify the features by engineering importance.
+
+- Fundamental: must understand and implement.
+- Important: production architecture decisions.
+- Advanced: enterprise optimization.
+- Expert: platform engineering and architectural judgment.
+
+## **C1.1 Managed control plane**
+
+Fundamental
+
+**What is it?**
+
+Azure operates the Kubernetes control plane for your AKS cluster.
+
+You manage Kubernetes through the API server, but you do not normally manage the underlying control-plane machines.
+
+**What Azure manages:**
+
+- API server infrastructure.
+- Control-plane availability according to the selected AKS tier and configuration.
+- Control-plane software lifecycle.
+- etcd infrastructure and management.
+
+**What you manage:**
+
+- Worker node pools.
+- Kubernetes workloads.
+- Application availability.
+- Resource configuration.
+- Network and identity design.
+- Cluster upgrades and maintenance planning.
+
+Important: Managed control plane does not mean fully managed Kubernetes operations.
+
+### **AKS pricing tiers**
+
+| Tier     | Purpose                                                                                     |
+| -------- | ------------------------------------------------------------------------------------------- |
+| Free     | Learning, experimentation and smaller workloads                                             |
+| Standard | Production workloads requiring supported availability and service features                  |
+| Premium  | Enterprise requirements including longer Kubernetes support windows and additional features |
+
+The exact support entitlements and availability characteristics depend on the tier and current Azure terms.
+
+**Interview question:** Does Azure manage your worker nodes?
+
+Answer: No. Worker nodes are Azure VMs managed as part of the AKS cluster infrastructure, but their sizing, configuration, scaling and workload operations remain our responsibility.
+
+## **C1.2 System versus user node pools**
+
+Fundamental
+
+This is one of the most important AKS interview topics.
+
+### **What is a node pool?**
+
+A node pool is a group of Kubernetes worker nodes with a common configuration.
+
+For example:
+
+- 3 nodes with 4 vCPUs each.
+- 3 nodes with 8 GB RAM each.
+- Same VM SKU and OS configuration.
+
+Instead of treating every node individually, we manage a group.
+
+### **System node pool**
+
+System node pools run critical Kubernetes system workloads.
+
+Examples:
+
+- CoreDNS.
+- Metrics Server.
+- Kubernetes system components.
+- Other cluster add-ons.
+
+### **User node pool**
+
+User node pools run application workloads.
+
+Examples:
+
+- .NET APIs.
+- Background workers.
+- Microservices.
+- Batch processing.
+- Data processing jobs.
+
+[AKS - Run Kubernetes Pods on Specific VM Types](https://images.openai.com/static-rsc-4/lhDQBbQ7LIVH7OghZsa_OuaSHk-_mfNunA1jZ42eIcePpGNAjd1qazsioLlLASyI0843FKwJCtTcKRg5qj7J30hqd7JAWW4ZD8AaFSpsaqqUYblusFYRRG_9L9Xp7zFPZ7rfSaiI-r0GQlur41z86Kq9rUyJcN3YrQcDOBUrCAw?purpose=inline)
+
+[caoluc.hashnode.dev](https://caoluc.hashnode.dev/aks-run-kubernetes-pods-on-specific-vm-types?utm_source=chatgpt.com)
+
+### **Example architecture**
+
+| Node pool  | VM size  | Nodes | Workloads                   |
+| ---------- | -------- | ----- | --------------------------- |
+| System     | D4 class | 3     | Kubernetes system workloads |
+| API        | D4 class | 3     | .NET APIs                   |
+| Background | D8 class | 2     | Background processing       |
+
+Illustrative configuration, not an actual sizing recommendation.
+
+### **Why separate them?**
+
+Suppose your background processing suddenly consumes 100% CPU.
+
+If system and application workloads are mixed without adequate isolation, critical cluster services may experience resource pressure.
+
+Separating workloads helps establish:
+
+- Resource isolation.
+- Independent scaling.
+- Different VM sizes.
+- Different availability requirements.
+- Different maintenance and scheduling policies.
+
+But remember: separate pools alone do not guarantee isolation. Use taints, tolerations, node selectors, affinity and resource requests/limits where appropriate.
+
+### **Example: Create a system pool**
+
+```
+az aks nodepool add \
+  --resource-group rg-production \
+  --cluster-name aks-production \
+  --name systempool \
+  --mode System \
+  --node-count 3 \
+  --node-vm-size Standard_D4s_v5
+```
+
+### **Example: Create a user pool**
+
+```
+az aks nodepool add \
+  --resource-group rg-production \
+  --cluster-name aks-production \
+  --name apipool \
+  --mode User \
+  --node-count 3 \
+  --node-vm-size Standard_D4s_v5
+```
+
+### **Important interview detail**
+
+AKS system node pools must meet certain minimum requirements, including a supported VM size and sufficient capacity. Current AKS requirements should be checked before designing the pool.
+
+**Principal-level question:** Should we run all application workloads in a system node pool?
+
+No. System pools should be reserved for system workloads wherever practical. Application workloads belong in user pools, with appropriate scheduling and resource isolation.
+
+## **C1.3 Networking models**
+
+Fundamental
+
+Networking is one of the most important AKS architectural decisions.
+
+Before understanding Azure CNI, understand this:
+
+Every Pod needs network connectivity to:
+
+- Other Pods.
+- Kubernetes Services.
+- External services.
+- Azure resources.
+- Sometimes on-premises resources.
+
+The question is:
+
+**How does a Pod get its IP address and communicate with other networks?**
+
+### **Option 1: Azure CNI**
+
+Azure CNI integrates Kubernetes networking with Azure virtual networking.
+
+Pods receive IP addresses from the Azure VNet address space, depending on the selected Azure CNI configuration.
+
+Advantages:
+
+- Direct integration with Azure networking.
+- Pod-level IP addressing.
+- Easier integration with network appliances and VNet routing.
+- Useful where enterprise network controls require direct Pod addressing.
+
+Disadvantages:
+
+- Address-space consumption.
+- IP planning complexity.
+- Potential subnet exhaustion.
+
+### **Option 2: Azure CNI Overlay**
+
+Important
+
+Azure CNI Overlay uses a separate Pod address range, distinct from the VNet subnet address space.
+
+The nodes receive VNet IP addresses, while Pods receive IP addresses from the Pod CIDR.
+
+[Exploring AKS networking options](https://images.openai.com/static-rsc-4/iuhpxUZ05_9GKmV9qDYzKWntS4SqvZUFb_q8EuFs9YWcTDUuwMhaLp26Rc1n_ou1qMerySQ_-51tLL70nULC6lMMCDROsGvvYtFU8mnlH08I1aOsBvbEEXJHslsu_CG4YWrM5axW7IqqNScxa24lzJVe43p9rR4dfSnosNo_oEw?purpose=inline)
+
+[tigera.io](https://www.tigera.io/blog/exploring-aks-networking-options/?utm_source=chatgpt.com)
+
+This reduces VNet IP consumption.
+
+Advantages:
+
+- More efficient VNet IP allocation.
+- Suitable for larger Pod counts.
+- Simplified subnet planning.
+
+Limitations:
+
+- Pod IPs are not directly routable from external networks in the same way as VNet-assigned Pod IPs.
+- NAT and routing behavior must be understood.
+- Network policy and connectivity requirements must be checked.
+
+### **Compare Azure CNI and Overlay**
+
+| Dimension                   | Azure CNI Pod subnet                              | Azure CNI Overlay                |
+| --------------------------- | ------------------------------------------------- | -------------------------------- |
+| Pod IP                      | VNet address space                                | Separate Pod CIDR                |
+| VNet IP consumption         | Higher                                            | Lower                            |
+| External Pod routing        | Directly addressable, subject to network controls | Requires appropriate routing/NAT |
+| IP planning                 | More demanding                                    | More efficient                   |
+| Enterprise VNet integration | Strong                                            | Strong, with overlay limitations |
+| Preferred when              | Direct Pod addressability is needed               | VNet IP conservation matters     |
+
+Important: Azure CNI also supports other configurations, including CNI Powered by Cilium and newer networking capabilities. Do not treat Azure CNI as one single networking implementation.
+
+### **Interview scenario**
+
+Your organization has a VNet with limited IP addresses and expects thousands of Pods.
+
+Which networking model would you consider?
+
+Answer: Azure CNI Overlay, because it uses a separate Pod CIDR and conserves VNet subnet IPs. I would validate connectivity, egress, network policy, private connectivity and address-range requirements before choosing it.
+
+## **C1.4 Workload Identity**
+
+Fundamental
+
+This is particularly important for your existing project.
+
+### **First understand the problem**
+
+Suppose your .NET application needs to connect to Azure SQL.
+
+One approach is to keep a username and password in configuration.
+
+```
+{
+  "ConnectionStrings": {
+    "Default": "Server=...;User ID=...;Password=..."
+  }
+}
+```
+
+Problems:
+
+- Secrets can leak.
+- Password rotation is difficult.
+- Credentials may be reused.
+- Applications become dependent on manually maintained credentials.
+
+A better approach is Microsoft Entra Workload ID.
+
+### **What is Workload Identity?**
+
+AKS Workload Identity allows a Kubernetes workload to authenticate to Microsoft Entra ID and obtain tokens for Azure resources without storing a long-lived client secret.
+
+It uses:
+
+- AKS OIDC issuer.
+- Federated identity credentials.
+- Kubernetes Service Account.
+- Microsoft Entra managed identity.
+- Token exchange.
+
+[Lab - Workload Identity | AKS DevSecOps Workshop](https://images.openai.com/static-rsc-4/Dw9VcdCyNYkwbve9WdXsXNsSiwoUtNF3VVvQ-HIc9hK00j_oT4RMcTWaTPgel-997SA5JxZ9uKA0b_GVzrCN3CJcxj9G9HoLsXJQhRIDT4P2JWnyCAUO6EEd1YUCz_Jo8vzhq6TX2Q-__bSVA49T8q13WcrUWcn10vBK-gsv8cY?purpose=inline)
+
+[azure.github.io](https://azure.github.io/AKS-DevSecOps-Workshop/modules/Module1/lab-workloadidentity.html?utm_source=chatgpt.com)
+
+### **How does it work?**
+
+Let's say your application runs in a Pod.
+
+1. You create a User Assigned Managed Identity.
+2. You configure the AKS OIDC issuer.
+3. You establish a federated identity credential connecting the identity to a Kubernetes Service Account.
+4. Your Pod runs with that Service Account.
+5. The Azure Workload Identity webhook injects the required environment configuration and projected token volume.
+6. The Azure Identity SDK uses the projected token.
+7. Entra ID validates the federation and issues an access token.
+8. The application accesses Azure SQL or Key Vault, subject to authorization.
+
+### **Important distinction**
+
+UAMI and Workload Identity are not the same thing.
+
+| Component                 | Purpose                                                          |
+| ------------------------- | ---------------------------------------------------------------- |
+| UAMI                      | Azure identity with assigned permissions                         |
+| OIDC issuer               | Provides a trusted token issuer                                  |
+| Federated credential      | Establishes trust between Kubernetes identity and Entra identity |
+| Service Account           | Represents the Kubernetes workload identity                      |
+| Workload Identity webhook | Configures the Pod for token federation                          |
+| Azure Identity SDK        | Obtains Azure access tokens                                      |
+
+### **Example: Enable Workload Identity**
+
+```
+az aks update \
+  --resource-group rg-production \
+  --name aks-production \
+  --enable-oidc-issuer \
+  --enable-workload-identity
+```
+
+### **Create a federated credential**
+
+```
+az identity federated-credential create \
+  --name fic-api \
+  --identity-name api-uami \
+  --resource-group rg-production \
+  --issuer "$OIDC_ISSUER" \
+  --subject "system:serviceaccount:production:api-sa" \
+  --audiences "api://AzureADTokenExchange"
+```
+
+### **Kubernetes Service Account**
+
+```
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-sa
+  namespace: production
+  annotations:
+    azure.workload.identity/client-id: "<UAMI_CLIENT_ID>"
+```
+
+### **Deployment**
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-api
+  namespace: production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: customer-api
+  template:
+    metadata:
+      labels:
+        app: customer-api
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: api-sa
+      containers:
+        - name: api
+          image: nexus.example.com/customer-api:1.0
+          ports:
+            - containerPort: 8080
+```
+
+### **.NET implementation**
+
+Install:
+
+```
+dotnet add package Azure.Identity
+dotnet add package Microsoft.Data.SqlClient
+```
+
+Example:
+
+```
+using Azure.Core;
+using Azure.Identity;
+using Microsoft.Data.SqlClient;
+
+var credential = new DefaultAzureCredential();
+
+var token = await credential.GetTokenAsync(
+    new TokenRequestContext(
+        new[] { "https://database.windows.net/.default" }
+    )
+);
+
+var connectionString =
+    "Server=tcp:myserver.database.windows.net,1433;" +
+    "Database=MyDatabase;" +
+    "Encrypt=True;" +
+    "TrustServerCertificate=False;";
+
+await using var connection = new SqlConnection(connectionString);
+
+connection.AccessToken = token.Token;
+
+await connection.OpenAsync();
+```
+
+The application also needs the appropriate Entra principal and database permissions in Azure SQL. Identity authentication alone does not grant database access.
+
+For production code, manage token acquisition and renewal using the appropriate Microsoft.Data.SqlClient and Azure Identity integration rather than assuming one manually acquired token remains valid indefinitely.
+
+### **Your actual project mapping**
+
+You previously confirmed:
+
+| Component                   | Your implementation      |
+| --------------------------- | ------------------------ |
+| Sync Job UAMI               | Separate identity        |
+| API UAMI                    | Separate identity        |
+| Sync Job SQL authentication | Confirmed                |
+| API SQL authentication      | Confirmed                |
+| API incoming authentication | Confirmed                |
+| AKS identity mechanism      | Needs final verification |
+
+One important correction for interviews:
+
+Do not say that a UAMI is automatically attached to a Pod just because the Pod runs in AKS.
+
+You must explain how the Pod receives the identity through Workload Identity federation or another supported identity mechanism.
+
+## **C1.5 Ingress options**
+
+Fundamental
+
+First understand the difference between a Service and Ingress.
+
+**Kubernetes Service:** Provides stable access to Pods.
+
+**Ingress:** Defines HTTP/HTTPS routing rules from outside the cluster to Services, using an ingress controller.
+
+[Inside the Cluster: Ingress in Focus — How External Traffic Reaches Your Services | by KELVI MANAVADARIA | Medium](https://images.openai.com/static-rsc-4/N3WoFxY-KKSDv4MP14jeEhC0jAwuoR8uIT3TU2c4maNw6d0dCJlkUwNEgEbInSSWJ_k1_Q_3kU4K64OgDCmvjSHQJeIBoGUns-1eG3WjA8YMIppVdb8bdmD-tdpThY0PQqXuExpvk6ReZxi3KlWsB1AsIuE9-dcsn97CPv70A6Q?purpose=inline)
+
+[medium.com](https://medium.com/%40kelvi030117/inside-the-cluster-ingress-in-focus-how-external-traffic-reaches-your-services-95006bd8cdb4?utm_source=chatgpt.com)
+
+### **Service types**
+
+| Type         | Purpose                                          |
+| ------------ | ------------------------------------------------ |
+| ClusterIP    | Internal cluster communication                   |
+| NodePort     | Exposes a port on each node                      |
+| LoadBalancer | Provisions an external or internal load balancer |
+| ExternalName | DNS alias to an external name                    |
+
+### **Ingress example**
+
+Suppose you have:
+
+- api.example.com/customers
+- api.example.com/payments
+
+The ingress controller routes each request to the correct Kubernetes Service.
+
+### **Ingress choices in AKS**
+
+1. Application Gateway for Containers — Azure-native application delivery and Gateway API/Ingress capabilities.
+2. NGINX-based ingress controllers — commonly used historically; evaluate current support and migration requirements.
+3. Other supported Gateway API implementations.
+4. Azure Load Balancer — primarily Layer 4 exposure, not a complete HTTP ingress solution.
+
+**2026 architecture consideration:** Do not start a new long-lived architecture by assuming the historical community ingress-nginx controller is a future-proof default. Its retirement and support transition require attention. Evaluate Microsoft's current recommended Gateway API and application-routing options.
+
+### **When should you use which?**
+
+- Simple TCP exposure: LoadBalancer.
+- HTTP path-based routing: Gateway or Ingress controller.
+- Azure application delivery integration: Application Gateway for Containers.
+- Internal-only APIs: Internal LoadBalancer or private gateway architecture.
+
+## **C1.6 Cluster autoscaler and KEDA**
+
+Fundamental
+
+These solve two different scaling problems.
+
+### **Cluster Autoscaler**
+
+Problem: Your Pods cannot be scheduled because the existing nodes do not have enough capacity.
+
+Cluster Autoscaler adjusts the number of worker nodes in a node pool.
+
+Example:
+
+- Initially: 3 nodes.
+- More workloads arrive.
+- Pods remain Pending.
+- Cluster Autoscaler adds nodes.
+- Scheduler places Pods on the new nodes.
+
+### **KEDA**
+
+Kubernetes Event-driven Autoscaling.
+
+It scales workloads based on external event sources and metrics.
+
+Examples:
+
+- Kafka consumer lag.
+- Azure Service Bus queue length.
+- RabbitMQ messages.
+- Event Hub throughput.
+- Other supported scalers.
+
+### **HPA versus Cluster Autoscaler versus KEDA**
+
+| Technology         | What it scales    | Trigger                       |
+| ------------------ | ----------------- | ----------------------------- |
+| HPA                | Pod replicas      | CPU, memory or custom metrics |
+| Cluster Autoscaler | Worker nodes      | Unschedulable Pods            |
+| KEDA               | Workload replicas | External events and metrics   |
+
+[Building Enterprise-Grade Shared AKS Clusters: A Guide to Multi-Tenant Kubernetes Architecture | Microsoft Community Hub](https://images.openai.com/static-rsc-4/X97-Aa558uTq2u5wjH1eLMJKDwrQKBEi-Kh-USpXEUP5sGWHN7rmCl1FS6sF1Whaz8rYUMBctBrqhIhwdVIbUmdxO5M3ymcCMCLS7lHQA1lyUVauv2AqR_mD0xY6YIvaW9_f10R98p163fnxidm7jF3PD_ciVSpplGQAhdJyxPQ?purpose=inline)
+
+[techcommunity.microsoft.com](https://techcommunity.microsoft.com/blog/azureinfrastructureblog/building-enterprise-grade-shared-aks-clusters-a-guide-to-multi-tenant-kubernetes/4468563?utm_source=chatgpt.com)
+
+### **Real example: Kafka consumer**
+
+Suppose your Kafka topic receives 100 messages per second.
+
+Initially:
+
+- 2 consumer Pods.
+- Lag is increasing.
+- Kafka messages accumulate.
+
+KEDA observes Kafka lag.
+
+It increases the consumer replica count from 2 to 8.
+
+If the existing nodes do not have enough capacity, Cluster Autoscaler adds worker nodes.
+
+This gives you two levels of elasticity.
+
+Important: Scaling a Kafka consumer beyond the number of available partitions does not necessarily improve throughput. Also consider consumer-group rebalancing, processing time and downstream database capacity.
+
+### **KEDA configuration example**
+
+Conceptual example:
+
+```
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: kafka-consumer-scaler
+spec:
+  scaleTargetRef:
+    name: kafka-consumer
+  minReplicaCount: 2
+  maxReplicaCount: 10
+  triggers:
+    - type: kafka
+      metadata:
+        bootstrapServers: kafka:9092
+        consumerGroup: payment-consumer
+        topic: payments
+        lagThreshold: "100"
+```
+
+Actual authentication and Kafka metadata configuration must be supplied for your environment.
+
+## **C1.7 Upgrade channels**
+
+Important
+
+AKS requires regular Kubernetes version maintenance.
+
+Why?
+
+- Security patches.
+- Kubernetes bug fixes.
+- API changes.
+- New capabilities.
+- Compatibility with Azure features.
+
+AKS offers different auto-upgrade channels.
+
+| Channel    | Meaning                                           |
+| ---------- | ------------------------------------------------- |
+| None       | No automatic Kubernetes version upgrade selection |
+| Patch      | Automatic patch updates within the minor version  |
+| Stable     | More conservative minor-version upgrade selection |
+| Rapid      | Earlier minor-version upgrades                    |
+| Node-image | Node OS image updates, independently configurable |
+
+The exact behavior and availability of channels depend on the current AKS release and configuration.
+
+### **Upgrade considerations**
+
+A cluster upgrade is not simply changing a number.
+
+You must consider:
+
+- Kubernetes API deprecations.
+- Pod disruption budgets.
+- Node drain behavior.
+- Application compatibility.
+- Node pool version skew.
+- Capacity during rolling replacement.
+- Maintenance windows.
+
+## **C1.8 AKS Automatic**
+
+Important
+
+AKS Automatic is an opinionated AKS operating model that automates more cluster management and operational decisions.
+
+Think of it as:
+
+Traditional AKS = You configure more operational details.
+
+AKS Automatic = Azure provides more defaults and automation for a production-oriented cluster experience.
+
+It aims to simplify:
+
+- Cluster configuration.
+- Security defaults.
+- Scaling.
+- Node management.
+- Monitoring and operations.
+
+It does not mean Azure takes ownership of your application architecture, business logic or every operational responsibility.
+
+**Principal decision:** Use AKS Automatic when its supported configuration and automation fit your operational requirements. Choose standard AKS when you need specific control over cluster configuration, networking, node pools or platform behavior.
+
+## **C1.9 Key Vault CSI Driver**
+
+Fundamental
+
+Problem:
+
+Your application needs secrets such as:
+
+- Database credentials.
+- API keys.
+- Certificates.
+- Private keys.
+
+You don't want these embedded in your container image.
+
+Azure Key Vault CSI Driver allows secrets and certificates to be mounted into Pods through the Kubernetes Secrets Store CSI integration.
+
+[Getting Secrets Out of YAML: Implementing Azure Key Vault CSI Driver on AKS with Workload Identity](https://images.openai.com/static-rsc-4/Yr8O69IhUy1ET68_s6xYYtaiXPhyXRUQlCV9F4gHQKii_r0yz2z58HyZGGeukNUthwHZHFWTIHcWrxpQ6_ktMU86H4z3p8r-8e74CLWV8kl7BF9UcnPf7K9Q5fXOwF5qeAWky7VejO5Za4wjz4_7Q0msrFW6tk8M5dQIPUwMjV4?purpose=inline)
+
+[linkedin.com](https://www.linkedin.com/pulse/getting-secrets-out-yaml-implementing-azure-key-vault-anand-ranjan-mhhoc/?utm_source=chatgpt.com)
+
+### **How does it work?**
+
+1. Pod is scheduled.
+2. CSI driver interacts with the Azure Key Vault provider.
+3. Provider authenticates using the configured identity.
+4. Secret is retrieved from Key Vault.
+5. Secret is mounted into the Pod filesystem.
+6. Application reads the mounted file.
+
+### **Example**
+
+```
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: app-secrets
+  namespace: production
+spec:
+  provider: azure
+  parameters:
+    clientID: "<UAMI_CLIENT_ID>"
+    keyvaultName: "kv-production"
+    tenantId: "<TENANT_ID>"
+    objects: |
+      array:
+        - |
+          objectName: sql-password
+          objectType: secret
+```
+
+The exact identity settings and CSI configuration depend on whether you use Workload Identity or another supported identity configuration.
+
+### **Critical distinction**
+
+Workload Identity and Key Vault CSI are different.
+
+- Workload Identity establishes the workload's Azure identity.
+- CSI Driver retrieves and mounts secrets.
+- Key Vault stores the secrets.
+
+You can use Workload Identity to access Key Vault without necessarily using CSI if your application reads secrets through an SDK.
+
+## **C1.10 Cost levers**
+
+Advanced
+
+AKS cost is not simply the Kubernetes cluster fee.
+
+Major cost areas:
+
+1. Worker node VMs.
+2. Managed disks.
+3. Load Balancers.
+4. NAT Gateway.
+5. Azure Firewall.
+6. Public IPs.
+7. Log Analytics and Application Insights ingestion.
+8. Container Registry or external registry.
+9. Networking and data transfer.
+10. Premium support tiers and additional platform services.
+
+Cost optimization methods:
+
+- Right-size node pools.
+- Use autoscaling.
+- Separate system and user pools.
+- Use Spot node pools for interruptible workloads.
+- Avoid unnecessary oversized VM SKUs.
+- Control log ingestion.
+- Use appropriate storage classes.
+- Remove unused public IPs and load balancers.
+
+## **C2. Execution internals**
+
+Now we move from what the features do to what happens inside Kubernetes and AKS when they execute.
+
+### **1. Pod scheduling lifecycle**
+
+[EP178: The Lifecycle of a Kubernetes Pod](https://images.openai.com/static-rsc-4/JEZpKtuMEW_fvOm5FxgyAgbYgQQw9eezr41Myqs12FEFvHcr-l9-UomUdDqclPIUFFLYdqsVAVH4zj5Tkcfypd8f19Jpy-9xY8izAJsHxCTbZrA1V8pdW0dx-keyTlj185-tQv3dmVIMVEK6uiqSTqFvcHRAGPFeDNA8HnAwgV8?purpose=inline)
+
+[blog.bytebytego.com](https://blog.bytebytego.com/p/ep178-the-lifecycle-of-a-kubernetes?utm_source=chatgpt.com)
+
+Suppose you deploy a .NET API with 3 replicas.
+
+What happens?
+
+1. You submit a Deployment.
+2. API Server validates and stores the desired state.
+3. Deployment Controller creates a ReplicaSet.
+4. ReplicaSet Controller creates 3 Pods.
+5. Scheduler identifies suitable worker nodes.
+6. Kubelet receives assigned Pod specifications.
+7. Container runtime pulls the image.
+8. Container starts.
+9. Readiness probe determines whether it can receive traffic.
+10. Kubernetes Service routes requests to eligible endpoints.
+
+### **2. Reconciliation loop**
+
+Kubernetes is declarative.
+
+You tell Kubernetes:
+
+"I want 3 API replicas."
+
+Kubernetes continuously compares:
+
+- Desired state = 3.
+- Actual state = 2.
+
+The ReplicaSet controller creates another Pod.
+
+This is called the reconciliation loop.
+
+### **3. Node failure**
+
+Suppose one worker node becomes unavailable.
+
+- Node health detection identifies the issue.
+- Pods on the unavailable node become unavailable.
+- Controllers attempt to restore the desired replica count.
+- Scheduler places replacement Pods on eligible healthy nodes.
+- Service endpoints update as Pods become ready.
+
+Important: Stateful workloads, storage attachment, disruption budgets, capacity and node-health detection timing affect actual recovery. Kubernetes does not guarantee instantaneous replacement.
+
+### **4. Networking internals**
+
+When a client calls a Kubernetes Service:
+
+- Service DNS resolves the Service name.
+- Service IP represents a stable virtual endpoint.
+- Kubernetes networking components direct traffic to an eligible Pod.
+- CNI provides Pod network connectivity.
+- Network policy controls allowed traffic when supported and configured.
+
+The exact datapath depends on the AKS networking configuration.
+
+### **5. Memory and CPU**
+
+Kubernetes uses resource requests and limits.
+
+```
+resources:
+  requests:
+    cpu: "500m"
+    memory: "512Mi"
+  limits:
+    cpu: "1"
+    memory: "1Gi"
+```
+
+Requests help the scheduler choose nodes.
+
+Limits constrain resource usage.
+
+Important failure differences:
+
+- CPU limit: throttling.
+- Memory limit: possible OOMKilled termination.
+- Insufficient node capacity: Pod remains Pending.
+
+### **6. Storage internals**
+
+Persistent storage is different from a container's writable layer.
+
+A container can be recreated and lose its local writable state.
+
+Persistent Volumes and Persistent Volume Claims allow workloads to use storage beyond the lifecycle of an individual container.
+
+For Azure, common choices include Azure Disk and Azure Files, depending on access patterns and storage requirements.
+
+# **BLOCK D — Decision and trade-offs**
+
+## **D1. Architecture comparison matrix**
+
+This block is about selecting the correct platform configuration, not memorizing features.
+
+### **D1.1 AKS versus alternatives**
+
+| Dimension              | AKS                     | App Service              | Container Apps                            | Self-managed Kubernetes             |
+| ---------------------- | ----------------------- | ------------------------ | ----------------------------------------- | ----------------------------------- |
+| Infrastructure control | High                    | Low                      | Low–medium                                | Very high                           |
+| Kubernetes access      | Full Kubernetes API     | No                       | No general cluster administration         | Full                                |
+| Scaling                | HPA, KEDA, node scaling | App scaling              | KEDA-based scaling                        | Kubernetes-based                    |
+| Networking             | Advanced VNet/CNI       | VNet integration options | VNet environments                         | Depends on implementation           |
+| Operational overhead   | High                    | Low                      | Low–medium                                | Very high                           |
+| Regulatory control     | High                    | Platform dependent       | Platform dependent                        | High                                |
+| Skills required        | Kubernetes, Azure       | Application platform     | Container platform                        | Deep Kubernetes                     |
+| Exit cost              | Medium–high             | Medium                   | Medium                                    | Medium                              |
+| Best use               | Complex orchestration   | Web applications/APIs    | Microservices and event-driven containers | Specialized Kubernetes requirements |
+
+### **D1.2 AKS networking decisions**
+
+| Option               | Cost consideration            | Operational overhead | Preferred situation                  |
+| -------------------- | ----------------------------- | -------------------- | ------------------------------------ |
+| Azure CNI Overlay    | Efficient VNet IP consumption | Medium               | General-purpose modern AKS           |
+| Azure CNI Pod Subnet | More subnet planning          | Medium–high          | Direct Pod addressability            |
+| Kubenet              | Legacy option                 | Migration burden     | Existing clusters awaiting migration |
+| BYOCNI               | Depends on CNI                | Very high            | Specialized networking requirements  |
+
+**Important 2026 note:** Kubenet is scheduled for retirement on March 31, 2028. New deployments should generally favor Azure CNI-based networking.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+
+
+### **D1.3 AKS Automatic versus Standard**
+
+| Dimension            | AKS Automatic                                   | AKS Standard                                                  |
+| -------------------- | ----------------------------------------------- | ------------------------------------------------------------- |
+| Node management      | More automated                                  | Customer-configured                                           |
+| Security defaults    | More preconfigured                              | More opt-in configuration                                     |
+| Scaling              | More automated                                  | Configure scaling                                             |
+| Monitoring           | More preconfigured                              | Configure integrations                                        |
+| Customization        | More constrained                                | Greater control                                               |
+| Operational overhead | Lower                                           | Higher                                                        |
+| Preferred            | Developer productivity and automated operations | Platform engineering and specific infrastructure requirements |
+
+AKS Automatic is not simply a cheaper or newer AKS. It changes the operational ownership model and the degree of control.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+
+
+## **D2. Trade-offs in prose**
+
+### **Why AKS is powerful**
+
+You get:
+
+- Fine-grained control over workloads.
+- Kubernetes-native deployment practices.
+- Advanced networking.
+- Workload identity.
+- Independent application scaling.
+- Platform standardization across teams.
+
+### **What you sacrifice**
+
+You must understand:
+
+- Kubernetes scheduling.
+- Networking and DNS.
+- Pod lifecycle.
+- Node capacity.
+- Cluster upgrades.
+- Security policies.
+- Observability.
+- Cost management.
+
+A common architectural mistake is selecting AKS simply because the organization has microservices.
+
+Microservices do not automatically require Kubernetes.
+
+If an application only needs a simple API and a background worker, Azure Container Apps may provide the required capabilities with much less operational complexity.
+
+### **Principal Engineer perspective**
+
+I would not justify AKS by saying:
+
+"We need Kubernetes because we have multiple microservices."
+
+I would justify it using concrete requirements:
+
+1. We need advanced workload scheduling.
+2. We need multiple isolated node pools.
+3. We require Kubernetes-native operational controls.
+4. We have platform engineering capabilities.
+5. We need specialized networking and workload orchestration.
+6. The operational benefits justify the additional complexity.
+
+## **D3. When to use, avoid and prerequisites**
+
+**Use AKS when:**
+
+- Many containerized workloads need orchestration.
+- Different workloads need independent scaling.
+- You require advanced scheduling and networking.
+- You need a Kubernetes platform shared across teams.
+- You have a mature DevOps/platform engineering capability.
+
+**Avoid AKS when:**
+
+- You have only one or two simple applications.
+- You don't need Kubernetes-specific functionality.
+- Your team cannot support cluster operations.
+- The operational cost exceeds the application benefit.
+
+**Prerequisites:**
+
+- Containerization skills.
+- Kubernetes fundamentals.
+- Azure networking knowledge.
+- Identity and security understanding.
+- CI/CD and infrastructure-as-code.
+- Monitoring and incident-management practices.
+
+## **D4. What would change my mind?**
+
+Imagine an organization currently running 30 services on AKS.
+
+I would reconsider the architecture if:
+
+- Most services are simple HTTP APIs.
+- They don't need custom Kubernetes resources.
+- There is no dedicated platform team.
+- Cluster utilization is consistently low.
+- Container Apps meets the availability, networking and scaling requirements.
+
+I might move some services to Container Apps while retaining AKS for workloads requiring Kubernetes-specific features.
+
+**Principal-level principle:** Platform selection should be workload-driven, not technology-driven.
+
+# **BLOCK E — Implementation and operations**
+
+## **E1. End-to-end implementation**
+
+We will construct a representative production-style .NET API deployment.
+
+This is a learning architecture, not a claim that all components exist in your current project.
+
+### **Step 1: Create an AKS cluster**
+
+Example using Azure CLI:
+
+```
+az group create \
+  --name rg-aks-production \
+  --location centralindia
+```
+
+Create the cluster:
+
+```
+az aks create \
+  --resource-group rg-aks-production \
+  --name aks-production \
+  --location centralindia \
+  --node-count 3 \
+  --node-vm-size Standard_D4s_v5 \
+  --network-plugin azure \
+  --network-plugin-mode overlay \
+  --pod-cidr 10.244.0.0/16 \
+  --enable-oidc-issuer \
+  --enable-workload-identity \
+  --generate-ssh-keys
+```
+
+This is an illustrative configuration. Validate the supported SKU, Pod CIDR, networking parameters, subscription quotas and regional availability before deployment.
+
+### **Step 2: Connect to AKS**
+
+```
+az aks get-credentials \
+  --resource-group rg-aks-production \
+  --name aks-production
+```
+
+Verify:
+
+```
+kubectl get nodes
+kubectl get namespaces
+kubectl get pods -A
+```
+
+### **Step 3: Create a namespace**
+
+```
+kubectl create namespace production
+```
+
+A namespace logically separates resources.
+
+For example:
+
+```
+production
+  customer-api
+  payment-api
+  notification-worker
+
+development
+  customer-api
+  payment-api
+```
+
+Namespaces are not security boundaries by themselves. Use RBAC, network policies and other controls.
+
+### **Step 4: Deploy your .NET application**
+
+First build and push the container image to your registry.
+
+For your project, Nexus is the known artifact registry.
+
+Example:
+
+```
+docker build -t customer-api:1.0 .
+
+docker tag customer-api:1.0 \
+  nexus.example.com/customer-api:1.0
+
+docker push nexus.example.com/customer-api:1.0
+```
+
+The Kubernetes nodes need valid authentication to pull private images. Registry pull credentials and workload identity are separate concerns; do not assume the application's UAMI automatically authenticates Nexus image pulls.
+
+### **Step 5: Deployment YAML**
+
+```
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: customer-api
+  namespace: production
+
+spec:
+  replicas: 3
+
+  selector:
+    matchLabels:
+      app: customer-api
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  template:
+    metadata:
+      labels:
+        app: customer-api
+        azure.workload.identity/use: "true"
+
+    spec:
+      serviceAccountName: api-sa
+
+      containers:
+        - name: customer-api
+          image: nexus.example.com/customer-api:1.0
+
+          ports:
+            - containerPort: 8080
+
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "512Mi"
+
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 15
+```
+
+### **Step 6: Kubernetes Service**
+
+```
+apiVersion: v1
+kind: Service
+
+metadata:
+  name: customer-api
+  namespace: production
+
+spec:
+  type: ClusterIP
+
+  selector:
+    app: customer-api
+
+  ports:
+    - port: 80
+      targetPort: 8080
+```
+
+Now other workloads inside the cluster can access the API using:
+
+```
+http://customer-api.production.svc.cluster.local
+```
+
+### **Step 7: Horizontal Pod Autoscaler**
+
+```
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+
+metadata:
+  name: customer-api-hpa
+  namespace: production
+
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: customer-api
+
+  minReplicas: 3
+  maxReplicas: 10
+
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+```
+
+This requires working metrics infrastructure and appropriate resource requests.
+
+### **Step 8: Enable cluster autoscaler**
+
+For an existing node pool:
+
+```
+az aks nodepool update \
+  --resource-group rg-aks-production \
+  --cluster-name aks-production \
+  --name apipool \
+  --enable-cluster-autoscaler \
+  --min-count 3 \
+  --max-count 10
+```
+
+The node pool can scale within its configured bounds when scheduling demand requires it.
+
+### **Step 9: Verify everything**
+
+```
+kubectl get deployment -n production
+
+kubectl get pods -n production -o wide
+
+kubectl get svc -n production
+
+kubectl get hpa -n production
+
+kubectl describe pod <pod-name> -n production
+
+kubectl logs <pod-name> -n production
+```
+
+## **E2. Production failure catalog**
+
+This is a very important Principal Engineer section.
+
+| Failure                    | Cause                                             | User impact                  | Detection                    | Recovery / prevention               |
+| -------------------------- | ------------------------------------------------- | ---------------------------- | ---------------------------- | ----------------------------------- |
+| CrashLoopBackOff           | Application repeatedly crashes                    | API unavailable              | Pod events/logs              | Fix startup issue; backoff analysis |
+| ImagePullBackOff           | Registry authentication or image issue            | Pod cannot start             | Pod events                   | Fix registry access and image tag   |
+| Pending Pod                | Insufficient CPU/memory or scheduling constraints | Capacity unavailable         | `kubectl describe pod`       | Scale nodes or correct requests     |
+| OOMKilled                  | Memory exceeds container limit                    | Process restarts             | Pod status, memory metrics   | Profile memory and right-size       |
+| CPU throttling             | CPU limit too restrictive                         | High latency                 | Container metrics            | Adjust limits and investigate CPU   |
+| Node NotReady              | VM/network/kubelet problem                        | Workloads disrupted          | Node conditions              | Repair/replace node                 |
+| DNS failure                | CoreDNS or network issue                          | Service calls fail           | DNS tests and logs           | Restore DNS capacity/configuration  |
+| Failed probe               | Incorrect health endpoint or application issue    | Traffic removed or restart   | Pod events                   | Correct probes and health logic     |
+| SQL authentication failure | Identity federation or permissions incorrect      | Database requests fail       | App Insights and SQL logs    | Correct federation and SQL grants   |
+| Subnet exhaustion          | Insufficient IP capacity                          | Node/Pod provisioning issues | Azure network metrics/events | Redesign address space              |
+| Failed upgrade             | PDB, API compatibility or capacity issue          | Maintenance blocked          | Upgrade operation/events     | Resolve blockers and retry          |
+| Ingress failure            | Gateway, DNS, TLS or routing misconfiguration     | External traffic fails       | Gateway/controller logs      | Restore route, DNS or certificate   |
+
+### **Important: CrashLoopBackOff versus OOMKilled**
+
+These are not equivalent.
+
+- CrashLoopBackOff describes repeated container startup failure and backoff.
+- OOMKilled describes termination due to memory exhaustion.
+
+An OOMKilled container may subsequently appear in CrashLoopBackOff.
+
+### **Troubleshooting sequence**
+
+Suppose your API suddenly becomes unavailable.
+
+I would investigate in this order:
+
+```
+kubectl get pods -n production
+
+kubectl get nodes
+
+kubectl describe pod <pod-name> -n production
+
+kubectl logs <pod-name> -n production --previous
+
+kubectl get endpointslices -n production
+
+kubectl get events -n production \
+  --sort-by=.lastTimestamp
+```
+
+Then check:
+
+1. Is the node healthy?
+2. Is the Pod running?
+3. Is it ready?
+4. Does the Service have ready endpoints?
+5. Is the ingress route healthy?
+6. Is the application dependency healthy?
+7. Is the identity token being acquired correctly?
+
+This layered approach prevents randomly restarting Pods without understanding the problem.
+
+## **E3. Production readiness checklist**
+
+One release checklist — use before production deployment.
+
+**AKS production release checklist**
+
+0/18 complete
+
+Control plane tier and supported Kubernetes version verified
+
+System and user node pools designed separately
+
+Node capacity and failure-domain placement validated
+
+Networking, IP ranges and DNS validated
+
+Workload Identity federation tested
+
+Azure SQL permissions validated
+
+Nexus image pull authentication tested
+
+Ingress, TLS and DNS configured
+
+Readiness and liveness probes tested
+
+CPU and memory requests/limits defined
+
+HPA and node autoscaling tested
+
+Pod disruption budgets and rolling deployment tested
+
+Key Vault access and secret rotation tested
+
+Monitoring, logs, metrics and alerts configured
+
+Backup and disaster recovery requirements addressed
+
+Upgrade and rollback procedures tested
+
+Security policies and RBAC reviewed
+
+Cost budgets and resource ownership established
+
+Reset checklist
+
+### **SLI, SLO and error budget**
+
+AKS infrastructure health and application availability are different.
+
+Example:
+
+| Measurement          | Example target                         |
+| -------------------- | -------------------------------------- |
+| API availability SLO | 99.9%                                  |
+| API latency SLO      | 95% of requests below 300 ms           |
+| Error-rate SLO       | Below 0.1%                             |
+| Pod readiness        | Measured against deployment objectives |
+| Recovery time        | Defined by application RTO             |
+
+For a 30-day month:
+
+- 99.9% availability permits approximately 43.2 minutes of unavailability.
+- 99.95% permits approximately 21.6 minutes.
+- 99.99% permits approximately 4.32 minutes.
+
+An error budget helps balance feature delivery against reliability work.
+
+Do not equate a managed AKS control-plane SLA with your application's end-to-end availability.
+
+# **BLOCK F — Advanced topics**
+
+## **F1. Real-world end-to-end architecture**
+
+Let's map AKS to your existing AutoSys, .NET and Azure architecture.
+
+### **F1.1 Your confirmed architecture**
+
+## **AutoSys-triggered .NET workload**
+
+**AutoSys**
+
+Schedules and triggers the job
+
+**NEXUS / deployment integration**
+
+Your confirmed tool-based integration
+
+**AKS Kubernetes Pod**
+
+Runs the .NET console application
+
+**Sync Job — .NET console application**
+
+Business processing and synchronization
+
+**Sync Job UAMI**
+
+Confirmed separate identity for the Sync Job
+
+**Azure SQL**
+
+SQL authentication using the Sync Job identity
+
+Your separate API architecture:
+
+**Incoming request**
+
+**Ingress / routing**
+
+**AKS API Pod**
+
+**API UAMI**
+
+**Azure SQL**
+
+The API identity and Sync Job identity are separate. This follows the principle of least privilege.
+
+### **F1.2 What you should explain about node pools**
+
+For your architecture, an interviewer may ask:
+
+"Where does the AutoSys-triggered job execute?"
+
+Your answer:
+
+The AutoSys scheduler initiates the execution workflow. The .NET console application runs as a Kubernetes workload inside an AKS Pod. The Pod is scheduled onto a worker node by the Kubernetes scheduler. The worker node belongs to a node pool.
+
+The exact node pool assigned to the job depends on your actual deployment configuration.
+
+Do not claim that AutoSys directly communicates with the Kubernetes API unless you have verified that integration.
+
+### **F1.3 Principal-level improvements to consider**
+
+These are proposed enhancements, not confirmed project implementations.
+
+| Area           | Recommendation                          | Why                                     |
+| -------------- | --------------------------------------- | --------------------------------------- |
+| Job execution  | Kubernetes Job resource                 | Explicit completion and retry semantics |
+| Job uniqueness | Concurrency policy and business locking | Prevent duplicate processing            |
+| Identity       | Separate workload identities            | Least privilege                         |
+| Scheduling     | Dedicated batch node pool if justified  | Protect API capacity                    |
+| Resilience     | Idempotent processing                   | Safe retry                              |
+| Monitoring     | Correlation IDs and job execution IDs   | Trace failures                          |
+| Resource usage | Requests and limits                     | Prevent noisy neighbors                 |
+| Cleanup        | TTL for completed Jobs                  | Avoid unnecessary resource accumulation |
+
+### **F1.4 Important: Pod versus Job versus Deployment**
+
+This is a likely interview question based on your project.
+
+| Kubernetes resource | Best use                                             |
+| ------------------- | ---------------------------------------------------- |
+| Pod                 | Basic workload execution unit                        |
+| Deployment          | Long-running stateless application                   |
+| Job                 | Workload that must complete successfully             |
+| CronJob             | Workload executed on a recurring schedule            |
+| StatefulSet         | Stateful workloads requiring stable identity/storage |
+
+For your .NET console workload:
+
+- If AutoSys creates a fresh execution for each scheduled run, a Kubernetes Job is generally a good architectural fit.
+- If your integration maintains a long-running Pod and invokes it, a different design may be appropriate.
+
+You should confirm which model is actually deployed before describing it as a Kubernetes Job.
+
+## **F2. Principal / Architect perspective**
+
+At Principal level, knowing Kubernetes resources is not enough.
+
+You must understand the relationships between them.
+
+### **F2.1 Scaling is a chain**
+
+[KEDA Concepts | KEDA](https://images.openai.com/static-rsc-4/dQsJjPCLjVmus9dDwSDAP3uyZ4N7OSIlbQkXY3uqzdeuQsm9oGvMchWcdASv_lDjO22jQjoY4RK_Bl4-Pb-9C2F5cCCnYxt4CnU_jL3Lom86CvXnUxINNxzkXeZYdbjx973iOEp_7k2qmrJCGs62TvEWRhGYyI6Lkw2GODL9CPg?purpose=inline)
+
+[keda.sh](https://keda.sh/docs/2.20/concepts/?utm_source=chatgpt.com)
+
+Consider this:
+
+A payment application receives 10× normal traffic.
+
+What happens?
+
+1. Incoming workload increases.
+2. Application metrics or events increase.
+3. HPA/KEDA increases Pod replicas.
+4. Existing nodes become insufficient.
+5. Cluster Autoscaler provisions additional capacity.
+6. Kubernetes schedules the Pods.
+7. Readiness checks succeed.
+8. Traffic is routed to ready Pods.
+
+But consider a critical complication:
+
+What if Azure SQL is already overloaded?
+
+Adding more API Pods could increase database contention and make the incident worse.
+
+A Principal Engineer must evaluate the complete dependency chain, not just Kubernetes scaling.
+
+### **F2.2 Availability is not the same as replica count**
+
+Suppose you deploy 3 replicas.
+
+Does that guarantee high availability?
+
+No.
+
+If all 3 replicas run on the same worker node, a single node failure can affect all replicas.
+
+You need to consider:
+
+- Multiple nodes.
+- Availability zones where supported.
+- Pod topology spread constraints.
+- Pod anti-affinity.
+- Pod disruption budgets.
+- Sufficient spare capacity.
+- Application dependency availability.
+
+Example topology constraint:
+
+```
+topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: kubernetes.io/hostname
+    whenUnsatisfiable: ScheduleAnyway
+    labelSelector:
+      matchLabels:
+        app: customer-api
+```
+
+This encourages replicas to spread across nodes.
+
+For strict high-availability requirements, choose an appropriate scheduling policy and validate that enough eligible nodes exist.
+
+### **F2.3 Security architecture**
+
+A production AKS security model should include:
+
+1. Microsoft Entra authentication.
+2. Kubernetes RBAC.
+3. Azure RBAC where applicable.
+4. Workload Identity.
+5. Network policies.
+6. Private cluster or restricted API-server access where required.
+7. Private image registry access.
+8. Image scanning.
+9. Pod security controls.
+10. Secrets management.
+11. Audit logging.
+
+**Critical distinction:** Kubernetes RBAC controls access to Kubernetes resources. Azure RBAC controls access to Azure resources. They are related but are not interchangeable.
+
+### **F2.4 Trade-off defence template**
+
+When an interviewer challenges an architecture decision, use this structure:
+
+1. Requirement — what business problem are we solving?
+2. Options — what alternatives did we evaluate?
+3. Decision — what did we choose?
+4. Reason — what constraints influenced the choice?
+5. Trade-off — what did we sacrifice?
+6. Risk — what can fail?
+7. Mitigation — how do we reduce that risk?
+8. Review trigger — what would make us reconsider?
+
+Example:
+
+"We selected Azure CNI Overlay because our workload requires Kubernetes networking integrated with the Azure VNet, but allocating a VNet IP to every Pod would create unnecessary address-space pressure. Overlay provides a separate Pod CIDR. We accepted the additional routing and addressability considerations and validated connectivity to the required Azure and on-premises dependencies."
+
+## **F3. Misconceptions and anti-patterns**
+
+| Misconception                                  | Correct understanding                                                                                       |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| AKS manages everything                         | Control plane is managed; workloads and significant infrastructure configuration remain your responsibility |
+| More Pods always improve performance           | Dependencies and capacity may become bottlenecks                                                            |
+| Three replicas guarantee HA                    | Scheduling and failure-domain distribution matter                                                           |
+| UAMI automatically attaches to a Pod           | Workload identity federation needs configuration                                                            |
+| HPA scales worker nodes                        | Cluster Autoscaler handles node capacity                                                                    |
+| Cluster Autoscaler scales application replicas | HPA/KEDA scale workload replicas                                                                            |
+| Key Vault CSI is an identity provider          | CSI mounts secrets; identity authenticates to Key Vault                                                     |
+| A Pod is a VM                                  | A Pod is a Kubernetes workload unit scheduled onto a node                                                   |
+| Node failure means data loss                   | Depends on storage and workload design                                                                      |
+| Rolling update guarantees zero downtime        | Readiness, capacity, compatibility and dependencies matter                                                  |
+| Kubernetes Secret is automatically encrypted   | Base64 is not encryption; storage encryption and access controls matter                                     |
+| AKS is always better than Container Apps       | It depends on requirements and operating capability                                                         |
+
+### **Five dangerous production anti-patterns**
+
+**1. Running without resource requests**
+
+The scheduler cannot make reliable placement decisions.
+
+**2. Putting every workload on one node pool**
+
+This can create noisy-neighbor and resource-contention problems.
+
+**3. Using static secrets in deployment YAML**
+
+This increases credential exposure.
+
+**4. Scaling without downstream protection**
+
+More Pods may overload databases and external services.
+
+**5. Upgrading without API compatibility checks**
+
+Deprecated APIs or incompatible controllers can break deployments.
+
+## **F4. Migration and evolution**
+
+Suppose your organization is migrating from VM-hosted .NET applications to AKS.
+
+### **Migration stages**
+
+1. **Assess existing applications**
+
+   Identify application dependencies, ports, scheduled jobs, files, certificates and database connectivity.
+2. **Containerize**
+
+   Build a Docker image and externalize environment-specific configuration.
+3. **Establish the platform**
+
+   Configure AKS, networking, identity, node pools, registry and monitoring.
+4. **Deploy non-production**
+
+   Validate health probes, DNS, identity, resource allocation and dependencies.
+5. **Production rollout**
+
+   Use controlled rollout, traffic shifting and rollback procedures.
+6. **Optimize**
+
+   Tune scaling, resources, logging, cost and availability.
+
+### **VM to AKS migration risks**
+
+- File-system assumptions.
+- Windows-specific dependencies.
+- Scheduled task behavior.
+- Application configuration.
+- Certificate access.
+- Database connectivity.
+- Network allowlists.
+- Container memory limits.
+- Long-running process lifecycle.
+
+For your .NET Framework to .NET 8 modernization experience, distinguish the application migration from the infrastructure migration. Modernizing the application does not automatically make it AKS-ready.
+
+## **F5. Cost and operational overhead**
+
+### **F5.1 Understand the cost equation**
+
+A simplified monthly AKS cost model:
+
+\\[ C\_{\text{total}} = C\_{\text{compute}}+ C\_{\text{storage}}+ C\_{\text{network}}+ C\_{\text{monitoring}}+ C\_{\text{platform}} \\]
+
+For compute:
+
+\\[ C\_{\text{compute}} = \sum\_{i=1}^{n} (\text{VM count}\_i \times \text{hourly VM price}\_i \times 730) \\]
+
+730 hours is an illustrative average-month assumption.
+
+### **F5.2 Worked example**
+
+Assume this hypothetical cluster:
+
+| Pool       | Nodes | VM category |
+| ---------- | ----- | ----------- |
+| System     | 3     | 4-vCPU      |
+| API        | 3     | 4-vCPU      |
+| Background | 2     | 8-vCPU      |
+| **Total**  | **8** | —           |
+
+Total allocated compute capacity:
+
+\\[ (3\times4)+(3\times4)+(2\times8)=40 \\]
+
+That gives 40 provisioned vCPUs.
+
+It does not mean 40 vCPUs are continuously consumed by the applications.
+
+For actual monthly compute:
+
+\\[ C = 3P_4(730)+2P_8(730) \\]
+
+Where:
+
+- \\(P_4\\) = hourly price of the selected 4-vCPU VM.
+- \\(P_8\\) = hourly price of the selected 8-vCPU VM.
+
+I am deliberately not inventing current Azure prices. Actual costs depend on region, VM SKU, Linux/Windows, reservation or savings-plan eligibility, and pricing terms.
+
+### **F5.3 Cost optimization decisions**
+
+| Lever                | Benefit                     | Risk                                |
+| -------------------- | --------------------------- | ----------------------------------- |
+| Right-sized VMs      | Lower compute expense       | Insufficient capacity if undersized |
+| Cluster Autoscaler   | Avoid unnecessary nodes     | Scale-up delay                      |
+| Spot node pools      | Lower compute price         | Workload interruption               |
+| HPA/KEDA             | Scale application demand    | Poorly configured scaling           |
+| Log filtering        | Lower ingestion cost        | Missing diagnostic evidence         |
+| Reserved capacity    | Potential long-term savings | Commitment risk                     |
+| Separate batch pools | Better workload isolation   | Additional idle capacity            |
+
+### **F5.4 Cost trap**
+
+Suppose you have 10 API replicas but average CPU usage is only 5%.
+
+Possible explanations:
+
+- Requests are oversized.
+- Workload is mostly waiting on I/O.
+- HPA target is unsuitable.
+- Application is underutilized.
+- Node capacity is excessive.
+
+Do not blindly reduce the node count. Investigate peak demand, memory, latency, scheduling and failure tolerance first.
+
+## **F6. Version and industry awareness**
+
+Checked against Microsoft documentation available November 22, 2026
+
+This section is especially important because Kubernetes and AKS evolve rapidly.
+
+| Feature / technology       | Status / consideration                             |
+| -------------------------- | -------------------------------------------------- |
+| AKS managed control plane  | Stable                                             |
+| System and user node pools | Stable                                             |
+| Azure CNI Overlay          | Supported                                          |
+| Azure CNI Pod Subnet       | Supported; configuration and feature maturity vary |
+| Kubenet                    | Legacy; retirement scheduled March 31, 2028        |
+| Workload Identity          | Supported                                          |
+| Key Vault CSI integration  | Supported                                          |
+| Cluster Autoscaler         | Supported                                          |
+| KEDA                       | Supported through AKS integration                  |
+| AKS Automatic              | Supported product offering                         |
+| Kubernetes Gateway API     | Strategic direction for ingress                    |
+| Ingress NGINX              | Retired upstream in March 2026; migration required |
+| Azure Linux 2.0            | Unsupported since November 30, 2025                |
+
+Sources:&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+5
+
+
+
+### **Particularly important: Ingress NGINX**
+
+This is a time-sensitive issue.
+
+The upstream Ingress NGINX project ended maintenance in March 2026.
+
+Microsoft's support for critical security patches for its managed application-routing NGINX resources ends in November 2026.
+
+The recommended migration direction is Gateway API through the AKS application routing add-on or Application Gateway for Containers, depending on requirements.
+
+Since today is November 22, 2026, this is an immediate architecture review item for anyone running the old managed NGINX implementation.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+2
+
+
+
+### **Upgrade strategy**
+
+For a production AKS environment, I would:
+
+1. Maintain an approved Kubernetes version policy.
+2. Test minor-version upgrades in non-production.
+3. Check deprecated APIs.
+4. Verify node pool compatibility.
+5. Verify ingress and CNI compatibility.
+6. Configure maintenance windows.
+7. Validate disruption budgets.
+8. Roll out gradually.
+9. Monitor application SLOs during upgrades.
+
+Do not confuse Kubernetes version upgrades with node OS image upgrades. They are related but distinct maintenance operations.
+
+## **F7. Glossary**
+
+| Term               | Simple meaning         | Technical meaning                           | Example                    |
+| ------------------ | ---------------------- | ------------------------------------------- | -------------------------- |
+| AKS                | Managed Kubernetes     | Azure Kubernetes Service                    | Production cluster         |
+| Control plane      | Cluster brain          | API server, scheduler, controllers and etcd | Scheduling decisions       |
+| Node               | Worker machine         | Kubernetes worker VM                        | D4s node                   |
+| Node pool          | Group of machines      | Managed group of agent nodes                | API pool                   |
+| Pod                | Workload unit          | Smallest deployable Kubernetes object       | .NET API Pod               |
+| Deployment         | App manager            | Declarative ReplicaSet management           | Three API replicas         |
+| Service            | Stable access point    | Virtual service endpoint                    | ClusterIP                  |
+| Ingress            | HTTP traffic entry     | HTTP routing resource                       | Host/path routing          |
+| CNI                | Networking layer       | Container Network Interface                 | Azure CNI                  |
+| OIDC               | Identity protocol      | OpenID Connect federation                   | AKS issuer                 |
+| UAMI               | Azure identity         | User Assigned Managed Identity              | API identity               |
+| HPA                | Pod scaler             | Horizontal Pod Autoscaler                   | CPU-based scaling          |
+| KEDA               | Event scaler           | Kubernetes Event-driven Autoscaling         | Kafka lag                  |
+| PDB                | Disruption protection  | PodDisruptionBudget                         | Minimum available replicas |
+| CSI                | Storage interface      | Container Storage Interface                 | Key Vault CSI              |
+| RBAC               | Permission model       | Role-Based Access Control                   | Namespace access           |
+| Taint              | Node restriction       | Scheduling exclusion mechanism              | Dedicated batch pool       |
+| Toleration         | Permission to schedule | Allows matching taints                      | Batch Pod                  |
+| Topology spread    | Workload distribution  | Scheduler topology constraint               | Spread across nodes        |
+| Cluster Autoscaler | Node scaler            | Adjusts node pool capacity                  | 3 to 10 nodes              |
+| Gateway API        | Modern traffic model   | Kubernetes API for traffic management       | Gateway and HTTPRoute      |
+
+## **F8. Hands-on labs**
+
+These are exercises, not solutions. Try them in a non-production cluster.
+
+Lab 1 — Beginner
+
+**Deploy a .NET API**
+
+1. Create a namespace.
+2. Deploy an application.
+3. Expose it through ClusterIP.
+4. Verify Pod health.
+5. Inspect logs.
+
+Expected outcome: You can explain how Deployment, ReplicaSet, Pod and Service relate.
+
+Lab 2 — Intermediate
+
+**Implement workload identity**
+
+1. Create a UAMI.
+2. Enable AKS OIDC and Workload Identity.
+3. Create a federated credential.
+4. Configure the Kubernetes Service Account.
+5. Access Azure SQL from a .NET Pod.
+
+Expected outcome: No static database password in the application configuration.
+
+Lab 3 — Advanced
+
+**Implement autoscaling**
+
+1. Configure HPA.
+2. Generate load.
+3. Observe Pod replicas.
+4. Exhaust available node capacity in a controlled test.
+5. Observe Cluster Autoscaler.
+
+Expected outcome: You can distinguish workload scaling from infrastructure scaling.
+
+Lab 4 — Production
+
+**Failure recovery**
+
+Simulate:
+
+- Application crash.
+- Pod OOMKilled.
+- Node unavailability.
+- Image pull authentication failure.
+
+Record:
+
+- What failed?
+- How did you identify it?
+- What was the user impact?
+- How did recovery happen?
+- What permanent prevention would you introduce?
+
+Lab 5 — Principal / Architect
+
+**Design a multi-team AKS platform**
+
+Design an architecture with:
+
+- 3 development teams.
+- 10 microservices.
+- 2 batch-processing workloads.
+- Separate development and production environments.
+- Private Azure SQL.
+- Key Vault.
+- Centralized monitoring.
+- Cost controls.
+
+Explain whether you would use one cluster per environment, multiple clusters, or a shared cluster with namespace isolation.
+
+Do not optimize only for cost; include failure isolation, compliance and team ownership.
+
+# **BLOCK G — Interview and assessment**
+
+## **G1. Technical knowledge validation**
+
+These are the answers you should be able to deliver at different interview depths.
+
+### **Question 1: What is AKS?**
+
+**30-second answer**
+
+AKS is Azure's managed Kubernetes service. Azure manages the Kubernetes control plane, while we manage worker node pools, workloads, networking configuration, security and application operations.
+
+**1-minute answer**
+
+AKS provides a managed Kubernetes environment for deploying and operating containerized applications. It supports workload orchestration, scheduling, service discovery, self-healing, rolling deployments and autoscaling.
+
+From an architecture perspective, I focus on node pool separation, networking, workload identity, ingress, autoscaling, upgrades and observability.
+
+**Detailed answer**
+
+I would explain:
+
+- Control plane and data plane separation.
+- System and user node pools.
+- Networking architecture.
+- Workload identity.
+- Ingress and service discovery.
+- Application and infrastructure scaling.
+- Upgrade and failure management.
+- Shared responsibility.
+
+### **Question 2: What is the difference between system and user node pools?**
+
+**30-second answer**
+
+System node pools primarily host Kubernetes system workloads, whereas user node pools host application workloads such as .NET APIs, workers and batch jobs.
+
+**1-minute answer**
+
+I separate system and user node pools to isolate critical Kubernetes infrastructure workloads from business applications. This allows independent scaling, resource sizing and scheduling policies.
+
+**Detailed answer**
+
+I would additionally explain:
+
+- Taints and tolerations.
+- Node affinity.
+- Resource requests and limits.
+- Availability zones.
+- Dedicated batch pools.
+- Noisy-neighbor prevention.
+
+### **Question 3: HPA versus Cluster Autoscaler?**
+
+**30-second answer**
+
+HPA scales application Pod replicas. Cluster Autoscaler scales the underlying worker nodes when Pods cannot be scheduled due to insufficient capacity.
+
+**1-minute answer**
+
+They operate at different infrastructure layers. HPA reacts to application metrics, while Cluster Autoscaler reacts to unschedulable Pods and node capacity. Both work together to support application elasticity.
+
+### **Question 4: What is Workload Identity?**
+
+**30-second answer**
+
+Workload Identity allows Kubernetes workloads to authenticate to Azure resources using Microsoft Entra federation without storing long-lived credentials.
+
+**1-minute answer**
+
+AKS uses an OIDC issuer, federated identity credentials and Kubernetes Service Accounts to establish trust between a Pod and a User Assigned Managed Identity. The Azure Identity SDK then obtains tokens to access services such as Azure SQL and Key Vault.
+
+### **Question 5: Azure CNI versus Azure CNI Overlay?**
+
+**30-second answer**
+
+Azure CNI Pod Subnet provides Pod IPs from an Azure VNet subnet, whereas Azure CNI Overlay uses a separate Pod CIDR, reducing consumption of VNet IP addresses.
+
+### **Question 6: What happens when a Pod crashes?**
+
+**30-second answer**
+
+Kubernetes detects the failed container or workload and attempts to restore the desired state through its controllers. Depending on the workload, the container may restart or a replacement Pod may be scheduled.
+
+### **Question 7: What is AKS Automatic?**
+
+**30-second answer**
+
+AKS Automatic is an opinionated AKS offering that automates more cluster configuration, scaling, security and operational management compared with standard AKS.
+
+### **Question 8: What is the difference between Service and Ingress?**
+
+**30-second answer**
+
+A Service provides stable access to Pods, whereas Ingress or Gateway API provides HTTP/HTTPS routing from outside the cluster to application Services.
+
+### **Question 9: How do you secure secrets?**
+
+**30-second answer**
+
+I use managed identity and Azure Key Vault integrations. Depending on the application requirements, secrets can be accessed through an SDK or mounted using the Secrets Store CSI Driver.
+
+### **Question 10: How do you handle zero downtime during upgrades?**
+
+**1-minute answer**
+
+I use rolling node pool upgrades and application deployment strategies, with readiness probes, sufficient spare capacity, Pod disruption budgets and topology distribution. Before upgrading, I validate Kubernetes API compatibility and application dependencies. I also monitor application availability and latency throughout the upgrade.
+
+### **Principal Engineer weighting**
+
+| Area                      | Interview importance |
+| ------------------------- | -------------------- |
+| Kubernetes architecture   | High                 |
+| Networking and CNI        | Very high            |
+| Workload identity         | Very high            |
+| Node pools and scheduling | High                 |
+| Autoscaling               | Very high            |
+| Security                  | Very high            |
+| Troubleshooting           | Very high            |
+| Cost optimization         | High                 |
+| Upgrade strategy          | High                 |
+| Multi-team architecture   | Very high            |
+
+## **G2. Scenario-based interview answers**
+
+These fulfill the ten scenarios introduced in A2.
+
+### **Scenario 1 — Happy path**
+
+**Interviewer:** Explain how you would deploy a .NET application to AKS.
+
+**Ideal answer:**
+
+I would first containerize the .NET application and publish the image to our private registry. Then I would configure the Kubernetes Deployment, Service, resource requests and limits, health probes and identity integration.
+
+The scheduler places the Pods on suitable worker nodes. The Service provides stable internal access, while the ingress or Gateway API provides external HTTP routing where required.
+
+I would validate readiness, application dependencies, monitoring and rollback before production release.
+
+**Likely follow-up:** How do you prevent an unhealthy Pod from receiving traffic?
+
+Use readiness probes and ensure Service endpoint selection reflects Pod readiness.
+
+**Trade-off:** More replicas improve availability only when capacity and failure-domain distribution are designed correctly.
+
+### **Scenario 2 — Failure and recovery**
+
+**Interviewer:** A production worker node becomes unavailable. What happens?
+
+**Ideal answer:**
+
+I first inspect node conditions and determine which workloads were affected. Kubernetes identifies the unhealthy node, and controllers attempt to restore the desired replica count by scheduling replacement Pods on healthy nodes.
+
+I verify available capacity, Pod disruption budgets, storage attachment and dependency health. I then investigate the underlying node failure and check whether node repair or replacement has occurred.
+
+**Likely follow-up:** What if all nodes are full?
+
+Cluster Autoscaler can provision additional capacity if configured and if Azure quotas and other constraints permit it.
+
+**Trade-off:** Recovery depends on available capacity, scheduling constraints, storage and application behavior.
+
+### **Scenario 3 — 10× scale**
+
+**Interviewer:** Your API traffic increases tenfold. How do you handle it?
+
+**Ideal answer:**
+
+I would first establish whether the bottleneck is application CPU, memory, database connectivity or an external dependency.
+
+I would use HPA to increase application replicas based on appropriate metrics. If the worker nodes cannot accommodate the new Pods, Cluster Autoscaler adds node capacity.
+
+I would also check database connection limits, downstream throughput, rate limiting and application latency. Scaling the API without protecting dependencies can worsen an incident.
+
+**Likely follow-up:** What if traffic is event-driven rather than HTTP-based?
+
+I would consider KEDA using the relevant event-source metrics.
+
+**Trade-off:** Autoscaling introduces provisioning delays and can increase infrastructure cost.
+
+### **Scenario 4 — Security and compliance**
+
+**Interviewer:** How do you securely connect AKS Pods to Azure SQL?
+
+**Ideal answer:**
+
+I would use Microsoft Entra Workload Identity with a User Assigned Managed Identity. I would configure the OIDC issuer, federated identity credential and Kubernetes Service Account. The application would use Azure Identity to obtain an access token for Azure SQL.
+
+I would assign only the required database permissions and avoid storing long-lived credentials in application configuration.
+
+**Likely follow-up:** Why use separate UAMIs?
+
+To enforce least privilege and prevent unrelated workloads from sharing the same Azure permissions.
+
+**Trade-off:** Federation configuration and troubleshooting are more involved than a simple connection-string password.
+
+### **Scenario 5 — Cost optimization**
+
+**Interviewer:** Your AKS environment is expensive. What would you investigate?
+
+**Ideal answer:**
+
+I would begin with VM utilization, node pool sizing, Pod resource requests and limits, idle capacity, logging ingestion and network costs.
+
+I would evaluate autoscaling, workload consolidation and Spot capacity for interruptible batch workloads.
+
+I would avoid reducing capacity without checking peak traffic, availability requirements and failure scenarios.
+
+**Likely follow-up:** Would you move everything to Spot VMs?
+
+No. Critical production workloads should not depend entirely on interruptible capacity.
+
+**Trade-off:** Cost reduction must not compromise availability or recovery objectives.
+
+### **Scenario 6 — Migration**
+
+**Interviewer:** How would you migrate a .NET application from a VM to AKS?
+
+**Ideal answer:**
+
+I would assess application dependencies, containerize the application, externalize configuration, establish networking and identity, and deploy it in a non-production cluster.
+
+I would validate database connectivity, file-system dependencies, health probes and resource consumption before controlled production rollout.
+
+I would plan rollback and compare the operational overhead against the existing VM architecture.
+
+**Likely follow-up:** What about scheduled console applications?
+
+I would evaluate Kubernetes Jobs or CronJobs depending on the execution model and the existing scheduler integration.
+
+### **Scenario 7 — Monitoring and incident**
+
+**Interviewer:** Users report API failures, but all Pods show Running. What do you do?
+
+**Ideal answer:**
+
+Running does not mean healthy or capable of serving traffic.
+
+I would check readiness status, Service endpoints, ingress routing, DNS, application logs and dependency connectivity.
+
+I would correlate failures with application metrics and distributed traces, then investigate database and downstream service health.
+
+**Likely follow-up:** Which Kubernetes commands?
+
+`kubectl describe`, `kubectl logs`, `kubectl get endpointslices` and `kubectl get events`.
+
+### **Scenario 8 — Alternatives**
+
+**Interviewer:** Why AKS instead of Azure Container Apps?
+
+**Ideal answer:**
+
+I would compare the required level of infrastructure control, Kubernetes-specific capabilities, networking, scaling, security and operational ownership.
+
+If we need Kubernetes-native orchestration, specialized scheduling and custom cluster-level controls, AKS is appropriate.
+
+If we mainly need managed containers, HTTP APIs and event-driven workloads without managing a Kubernetes platform, Container Apps may be preferable.
+
+**Likely follow-up:** Would you migrate all microservices to AKS?
+
+No. I would select the platform according to each workload's needs.
+
+### **Scenario 9 — Enterprise and multi-team**
+
+**Interviewer:** Five engineering teams want to share an AKS cluster. How would you design it?
+
+**Ideal answer:**
+
+I would establish platform-level governance and isolate teams through namespaces, Kubernetes RBAC, resource quotas and network policies.
+
+I would define common deployment templates, workload identity standards, observability requirements and security policies.
+
+For stronger isolation or different compliance requirements, I would consider separate clusters rather than relying only on namespaces.
+
+**Likely follow-up:** Are namespaces sufficient security boundaries?
+
+No. They provide logical separation but need supporting RBAC, network and admission controls.
+
+### **Scenario 10 — Business case**
+
+**Interviewer:** How would you justify AKS to senior management?
+
+**Ideal answer:**
+
+I would present the business requirements that require container orchestration, workload isolation, automated scaling and standardized deployment practices.
+
+I would compare AKS against simpler alternatives and include the cost of platform engineering, operations, availability and security.
+
+The decision would be based on measurable business benefits rather than adopting Kubernetes simply because it is a popular technology.
+
+## **G3. Behavioral and leadership — STAR-R story library**
+
+I will not invent an AKS implementation story for you. We can use your verified professional experience as evidence of related engineering capabilities.
+
+| Story           | Verified experience                                                      | Leadership competency    |
+| --------------- | ------------------------------------------------------------------------ | ------------------------ |
+| Modernization   | .NET Framework to .NET 8                                                 | Technical transformation |
+| Delivery        | Quarterly epics increased from 10 to 13 with the same headcount/capacity | Execution                |
+| Performance     | SQL execution reduced from 8s to 2s                                      | Engineering optimization |
+| Monitoring      | Alerts reduced from approximately 10/day to 3/day                        | Operational excellence   |
+| Team leadership | Mentoring 7+ engineers                                                   | Technical leadership     |
+| Integration     | MIGS and KNET integration leadership                                     | System integration       |
+
+These are useful for questions about platform ownership, engineering judgment, incident prevention and technical leadership.
+
+### **STAR-R example: Modernization**
+
+- **Situation:** An existing application needed modernization.
+- **Task:** Modernize the application while following engineering and organizational guidelines.
+- **Action:** Used Claude Code and GitHub Copilot alongside established development practices to support the .NET modernization.
+- **Result:** The application modernization progressed from .NET Framework to .NET 8.
+- **Reflection:** Tool-assisted modernization requires code review, regression testing and validation rather than trusting generated code.
+
+**Likely follow-up:** How did you ensure AI-generated code was production-ready?
+
+Discuss code review, test coverage, security checks, compatibility validation and engineering ownership. Do not claim specific test results unless you can substantiate them.
+
+### **AKS-specific behavioral gap**
+
+You have not yet provided a verified AKS incident, cluster upgrade, network migration or cluster cost-optimization story.
+
+Do not present the hypothetical AKS architecture from this lesson as an implementation you personally delivered.
+
+## **G4. Mastery self-assessment**
+
+**Five levels of AKS mastery**
+
+1. **Level 1 — Fundamentals**
+
+   Explain clusters, nodes, Pods, Deployments and Services.
+2. **Level 2 — Implementation**
+
+   Deploy .NET applications, configure node pools, probes, networking and identities.
+3. **Level 3 — Production engineer**
+
+   Diagnose failures, implement autoscaling, manage secrets and plan upgrades.
+4. **Level 4 — Senior/Staff engineer**
+
+   Design secure multi-team clusters, availability, networking and cost optimization.
+5. **Level 5 — Principal/Architect**
+
+   Defend platform choices, establish standards, manage migration and balance business risk, cost and reliability.
+
+My current assessment from the information available:
+
+| Skill                   | Assessment                                                             |
+| ----------------------- | ---------------------------------------------------------------------- |
+| Kubernetes fundamentals | Previously studied; needs validation                                   |
+| AKS architecture        | Learning in this session                                               |
+| Node pool design        | Learning in this session                                               |
+| Networking/CNI          | Needs hands-on validation                                              |
+| Workload identity       | Some project context confirmed; implementation details need validation |
+| Ingress                 | Needs validation                                                       |
+| Autoscaling             | Needs hands-on validation                                              |
+| Upgrade strategy        | Needs validation                                                       |
+| Cost architecture       | Needs practical validation                                             |
+| Principal-level design  | Needs scenario validation                                              |
+
+**Target:** Level 5.
+
+## **G5. Final self-test — 15 questions with answers**
+
+Try answering each question before revealing its answer.
+
+**AKS knowledge assessment**
+
+0/15 revealed
+
+**1. Why does AKS separate the control plane from the data plane?**
+
+Reveal answer
+
+**2. Can a system node pool be used for application workloads?**
+
+Reveal answer
+
+**3. What happens if a Pod requests 4 CPU but its node has only 2 CPU available?**
+
+Reveal answer
+
+**4. Why might Azure CNI Overlay be preferable for a large cluster?**
+
+Reveal answer
+
+**5. What establishes trust between an AKS Service Account and a UAMI?**
+
+Reveal answer
+
+**6. Why is image pull authentication separate from Workload Identity?**
+
+Reveal answer
+
+**7. What happens when readiness fails but liveness succeeds?**
+
+Reveal answer
+
+**8. Can Cluster Autoscaler scale a Deployment from 3 replicas to 10?**
+
+Reveal answer
+
+**9. Why can excessive HPA scaling damage a database?**
+
+Reveal answer
+
+**10. Why use a Job instead of a Deployment for a one-time batch process?**
+
+Reveal answer
+
+**11. What does a PodDisruptionBudget protect against?**
+
+Reveal answer
+
+**12. Why are three replicas on one node not sufficient for high availability?**
+
+Reveal answer
+
+**13. What should be checked before a Kubernetes minor-version upgrade?**
+
+Reveal answer
+
+**14. Why might AKS be a poor choice for a small application?**
+
+Reveal answer
+
+**15. What is the most important distinction between an AKS SLA and application SLO?**
+
+Reveal answer
+
+Reveal all answersReset
+
+# **BLOCK H — What to learn next**
+
+Your next learning topics should follow this sequence:
+
+1. **H8 — Azure governance and security:** Azure Policy, RBAC, Defender for Cloud, private networking and enterprise security.
+2. **H9 — Azure monitoring:** Azure Monitor, Managed Prometheus, Grafana, Container Insights, Application Insights and KQL.
+3. **H10 — Kubernetes production engineering:** Helm, GitOps, Argo CD, PDB, topology spread, admission control and disaster recovery.
+4. **H11 — Service mesh:** Istio, mTLS, traffic management and zero-trust service communication.
+
+## **Final AKS interview cheat sheet**
+
+## **10 concepts you must remember**
+
+1
+
+**AKS**
+
+Azure-managed Kubernetes control plane
+
+2
+
+**System pool**
+
+Primarily Kubernetes system workloads
+
+3
+
+**User pool**
+
+Business application workloads
+
+4
+
+**Azure CNI Overlay**
+
+Separate Pod CIDR
+
+5
+
+**Workload Identity**
+
+OIDC federation to Entra identity
+
+6
+
+**Ingress / Gateway**
+
+External HTTP traffic routing
+
+7
+
+**HPA**
+
+Scales Pod replicas
+
+8
+
+**Cluster Autoscaler**
+
+Scales worker nodes
+
+9
+
+**KEDA**
+
+Event-driven workload scaling
+
+10
+
+**Key Vault CSI**
+
+Mounts external secrets into Pods
+
+## **My final assessment**
+
+You now have the AKS conceptual and architectural foundation required for a Principal Engineer interview.
+
+However, I would not yet classify AKS as mastered until you can independently:
+
+- Deploy and troubleshoot an application.
+- Explain the complete UAMI federation flow.
+- Defend an Azure CNI networking decision.
+- Diagnose a scaling problem.
+- Explain an upgrade and recovery strategy.
+- Design a multi-team production cluster.
+
+**Most important for your interviews:** Connect AKS concepts to your actual AutoSys → .NET console application → Kubernetes Pod → UAMI → Azure SQL architecture. That will make your answers substantially stronger than giving generic Kubernetes definitions.
+
+**Suggested next exercise:** Build your own AKS architecture diagram from memory and explain every component, its responsibility, authentication mechanism, failure mode and scaling behavior.
