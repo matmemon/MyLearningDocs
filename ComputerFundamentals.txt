@@ -1,707 +1,502 @@
-# MASTER LEARNING PROMPT v3.0
-## Deep Conceptual, Practical, Interview & Principal Engineer Mastery
+# MASTER LEARNING & INTERVIEW PROMPT — PRINCIPAL ENGINEER EDITION
+## Universal · Resume-Calibrated · Interview-Ready · Production-Focused
 
-I want to learn **[TOPIC]** from absolute fundamentals to advanced, production-level understanding.
+I want to master **[TOPIC]** — from fundamentals where needed to advanced, production-level and Principal/Architect-level understanding.
 
-My objective is to develop three levels of expertise:
-
-1. **Interview Readiness:** Explain concepts confidently in 30 seconds and 1 minute, and handle technical follow-ups and cross-questioning.
-2. **Technical Mastery:** Understand fundamentals, architecture, implementation, features, internal working and failure scenarios.
-3. **Principal Engineer Expertise:** Make independent architectural decisions, evaluate trade-offs, design enterprise systems, manage production complexity and justify engineering decisions.
-
-Use this teaching sequence:
-
-**1-MINUTE INTERVIEW ANSWER → WHY → BEFORE → PROBLEM → WHAT → FEATURES → COMPARISON → ADVANTAGES & DISADVANTAGES → WHEN → HOW → INTERNALS → FAILURE SCENARIOS → REAL-WORLD ARCHITECTURE → PRINCIPAL ENGINEER PERSPECTIVE → INTERVIEW & KNOWLEDGE VALIDATION → ADVANCED ENGINEERING MASTERY**
-
-Follow the structure below.
+Teach me in simple English first. Then go deep. Focus on understanding, implementation, engineering decisions, real-world failures and interview readiness.
 
 ---
 
-# PART 1 — CONCEPTUAL AND TECHNICAL LEARNING
+# PART 0 — MY PROFESSIONAL PROFILE
 
-## 0. ONE-MINUTE INTERVIEW ANSWER
+Use this profile as the starting point. Do not ask me to repeat it in every session.
 
-Before starting the detailed explanation, prepare me to explain the topic confidently in an actual interview.
-
-### 0A. Base 1-minute answer
-
-Provide an approximately 100–140-word interview answer covering:
-
-- What is it?
-- Why does it exist?
-- What problem does it solve?
-- How does it work?
-- What are its important components?
-- Where is it used?
-- What is one important limitation or trade-off?
-
-Requirements:
-
-- Simple, conversational English.
-- Natural speaking style.
-- Appropriate for an experienced Senior/Lead Engineer.
-- Easy to remember and reproduce.
-- No unnecessary jargon.
-- Technically accurate.
-
-### 0B. Scenario-specific 1-minute answers
-
-Identify the relevant scenarios for this topic and prepare separate interview-ready answers.
-
-Consider:
-
-1. Happy path: How does it work when everything is healthy?
-2. Failure path: What happens when a dependency or component fails?
-3. Scalability: What changes when traffic increases 10×?
-4. Security: How is security addressed?
-5. Performance: How do you optimize it?
-6. Cost: How do you justify its operational and infrastructure costs?
-7. Migration: How do you migrate from an existing implementation?
-8. Troubleshooting: How do you diagnose a production issue?
-9. Alternatives: Why choose this instead of another technology?
-10. Architecture: How would you design an enterprise solution around it?
-
-For each relevant scenario, provide:
-- Interview question.
-- Approximately 1-minute spoken answer.
-- Key technical points.
-- Important trade-off.
-- Likely follow-up questions.
-
-Do not force irrelevant scenarios. Cover all meaningful scenarios for the particular topic.
-
-### 0C. Follow-up question trees
-
-Create at least three structured interview question trees:
-
-**Tree 1: Conceptual understanding**
-- What is it?
-- Why was it introduced?
-- What existed before?
-- What problem does it solve?
-- What are its limitations?
-
-**Tree 2: Technical implementation**
-- How does it work?
-- How do you implement it?
-- What are its components?
-- What happens internally?
-- How do you test and troubleshoot it?
-
-**Tree 3: Architecture and production**
-- When would you use it?
-- What alternatives exist?
-- What happens during failures?
-- How would you scale it?
-- How would you justify the architecture?
-
-Expand these trees according to the actual topic rather than using generic questions alone.
-
-### 0D. Key points to remember
-
-Provide 5–7 short points that help me reconstruct the 1-minute answer without memorizing the entire paragraph.
-
-### 0E. Immediate follow-up questions
-
-Group likely questions into:
-
-- Clarifying questions.
-- Technical probing questions.
-- Advanced questions.
-- Challenging questions.
-- Scenario-based questions.
-
-### 0F. Expected interview depth
-
-Explain the difference between:
-
-- Senior Software Engineer expectations.
-- Technical Lead / Staff Engineer expectations.
-- Principal Engineer expectations.
-- Solution Architect expectations.
-
-### 0G. Interview traps
-
-Identify 3–5 common incorrect statements, oversimplifications or assumptions that could weaken my interview answer.
-
-Do not answer every follow-up here. Explain them in the appropriate detailed sections.
-
----
-
-## 1. WHY — Why was it required?
-
-- Why was this concept introduced?
-- What industry or engineering problem existed?
-- What triggered its introduction?
-- What were developers struggling with?
-- What requirement could not be addressed effectively?
-- What business or technical requirement motivated its adoption?
-
-## 2. BEFORE — What existed previously?
-
-- What technology, approach or architecture was used before?
-- How did developers solve the same problem?
-- Explain the old architecture and workflow.
-- Show a practical previous implementation.
-- What were its advantages?
-- Why did developers initially prefer that approach?
-
-## 3. PROBLEM — Why was the previous approach insufficient?
-
-- What limitations did it have?
-- What problems appeared as systems grew?
-- Explain performance, scalability, reliability, security, maintenance and complexity issues.
-- Give realistic industry examples.
-- Explain the limitations technically, not just conceptually.
-- Identify the circumstances in which these limitations become significant.
-
-## 4. WHAT — What is the concept?
-
-- Give a simple definition.
-- Explain its purpose and fundamental principles.
-- Start with a simple analogy.
-- Explain the technical definition.
-- Explain its architecture and major components.
-- Explain how it solves the original problem.
-- Explain what it does NOT solve.
-- Clarify common terminology.
-
-## 5. FEATURES — What does it provide?
-
-Explain every important feature.
-
-For each feature, cover:
-
-1. What is it?
-2. Why was it introduced?
-3. What problem does it solve?
-4. How does it work?
-5. What happens internally?
-6. How is it implemented?
-7. What are its limitations?
-8. What are the relevant interview questions?
-
-Organize features into fundamental, intermediate and advanced categories.
-
-## 6. COMPARISON — Previous vs Current approach
-
-Create detailed comparisons covering:
-
-- Architecture.
-- Working mechanism.
-- Performance.
-- Scalability.
-- Reliability.
-- Security.
-- Complexity.
-- Maintenance.
-- Cost.
-- Failure handling.
-
-Explain WHAT changed and WHY.
-
-Also compare relevant alternatives using a decision matrix.
-
-| Criteria | Option A | Option B | Option C |
-|---|---|---|---|
-| Performance | | | |
-| Scalability | | | |
-| Reliability | | | |
-| Complexity | | | |
-| Cost | | | |
-| Best use case | | | |
-
-Only include alternatives relevant to the topic.
-
-## 7. ADVANTAGES AND DISADVANTAGES
-
-- Advantages over previous approaches.
-- Disadvantages and limitations.
-- New complexities introduced.
-- Hidden costs.
-- Operational overhead.
-- Engineering trade-offs.
-- Situations where the old approach is still better.
-
-## 8. WHEN — When should I use it?
-
-- When should I use this concept?
-- When should I avoid it?
-- What alternatives are available?
-- When should I choose one alternative over another?
-- Give real-world scenario-based decisions.
-- Explain how a Principal Engineer would evaluate the decision.
-- Identify situations where adopting it would be overengineering.
-
-## 9. HOW — Practical implementation
-
-Explain implementation in two stages.
-
-### A. Previous implementation
-
-- How was the same requirement implemented before?
-- Show architecture and workflow.
-- Provide practical code.
-- Explain the limitations.
-
-### B. Modern implementation
-
-- Show the current implementation.
-- Explain project structure.
-- Explain classes and interfaces.
-- Explain configurations and dependencies.
-- Provide working code examples.
-- Explain important lines.
-- Show execution flow step by step.
-- Explain error handling.
-- Include testing and monitoring where applicable.
-
-**For .NET-related topics:**
-
-- Use modern C# and .NET.
-- Use ASP.NET Core wherever applicable.
-- Explain dependency injection.
-- Explain configuration and middleware.
-- Explain relevant framework abstractions.
-- Include realistic enterprise-level implementations.
-- Include Azure integrations where relevant.
-- Include logging, security, testing and observability.
-
-Use relevant versions and explicitly distinguish established practices from version-specific capabilities.
-
-## 10. INTERNAL WORKING
-
-Explain the complete internal lifecycle.
-
-- What happens internally?
-- What are the underlying components?
-- How do they communicate?
-- What happens step by step?
-- What happens behind framework abstractions?
-- What background mechanisms are involved?
-- Explain relevant protocols, runtime behaviour, threading, memory, networking and infrastructure mechanisms.
-- Explain the execution sequence from request to completion.
-- Identify important bottlenecks.
-
-Do not stop at the public API or configuration level.
-
-## 11. FAILURE SCENARIOS
-
-Explain realistic failure scenarios.
-
-Consider:
-
-- Timeouts.
-- Application crashes.
-- Network interruptions.
-- Dependency failures.
-- Partial failures.
-- Duplicate requests.
-- Concurrency conflicts.
-- Resource exhaustion.
-- Data corruption.
-- Security failures.
-- Recovery and retry behaviour.
-
-For every relevant failure, explain:
-
-1. What causes it?
-2. What happens internally?
-3. What does the user/business experience?
-4. How do we detect it?
-5. How do we troubleshoot it?
-6. How do we mitigate it?
-7. How do we prevent recurrence?
-
-Include realistic production incidents and their resolutions.
-
-Include chaos engineering scenarios where relevant.
-
-## 12. REAL-WORLD ENTERPRISE ARCHITECTURE
-
-Demonstrate how the concept works in an enterprise application.
-
-Prefer realistic examples involving:
-
-- Banking.
-- Payment processing.
-- Trading and execution.
-- Asset management.
-- E-commerce.
-- Distributed systems.
-
-Explain:
-
-- Overall architecture.
-- Individual components.
-- End-to-end data flow.
-- Request and response lifecycle.
-- Database interactions.
-- Security.
-- Performance.
-- Consistency.
-- Reliability.
-- Monitoring.
-
-Provide architecture diagrams and sequence diagrams wherever useful.
-
-For relevant distributed-system topics, explain interactions with databases, messaging, caching, authentication and other dependencies.
-
-## 13. PRINCIPAL ENGINEER PERSPECTIVE
-
-Explain:
-
-- Architecture and design decisions.
-- Technical trade-offs.
-- Scalability.
-- Performance optimization.
-- Security considerations.
-- Reliability engineering.
-- Production best practices.
-- Anti-patterns.
-- Common mistakes.
-- Technology selection.
-- Maintainability.
-- Migration considerations.
-- Organizational and operational impact.
-- How to justify decisions to stakeholders.
-- How to avoid unnecessary complexity.
-
-Explain how an experienced engineer thinks differently from someone who only knows the implementation.
-
----
-
-# PART 2 — INTERVIEW AND ADVANCED ENGINEERING MASTERY
-
-## 14. INTERVIEW AND KNOWLEDGE VALIDATION
-
-Prepare questions suitable for Senior Engineer through Principal Engineer / Solution Architect interviews.
-
-### A. Basic conceptual questions
-
-Definitions, terminology, fundamentals and purpose.
-
-### B. Intermediate technical questions
-
-Architecture, features, components, configuration and implementation.
-
-### C. Advanced technical questions
-
-Internals, concurrency, performance, security, scalability, reliability and distributed-system behaviour.
-
-### D. Follow-up and cross-questioning
-
-For important questions, provide:
-
-- Most likely follow-up.
-- Next-level technical question.
-- Interviewer challenge.
-- Hidden assumptions.
-- Edge cases.
-- Defensible technical answer.
-
-Build realistic question chains.
-
-### E. Scenario-based questions
-
-Include changing requirements, architectural decisions, technology selection, performance bottlenecks, scaling and production failures.
-
-### F. Troubleshooting questions
-
-Explain how to investigate production problems using logs, metrics, traces and diagnostics.
-
-### G. Coding and implementation questions
-
-Where relevant, include coding, debugging, optimization, refactoring and code-review exercises.
-
-### H. Interview answer preparation
-
-For important questions, provide:
-
-1. 30-second answer.
-2. 1-minute answer.
-3. Advanced Principal Engineer answer.
-4. Practical example.
-5. Follow-up questions with answers.
-
-### I. Interviewer challenge simulation
-
-Challenge my decisions:
-
-- Why did you choose this over an alternative?
-- What happens when traffic increases 10×?
-- What if a dependency becomes unavailable?
-- What if two requests update the same record?
-- What if a message is processed twice?
-- What if the solution becomes too expensive?
-- What if the business requirement changes?
-
-Provide technically defensible answers.
-
-## 15. COMMON MISCONCEPTIONS AND ANTI-PATTERNS
-
-### A. Misconceptions
-
-Identify 5–7 common misconceptions.
-
-Format:
-
-- Incorrect understanding.
-- Correct explanation.
-- Why the misconception exists.
-- Practical example.
-
-### B. Anti-patterns
-
-Identify important anti-patterns with:
-
-- Name.
-- Symptoms.
-- Why they are harmful.
-- Production consequences.
-- Corrective approach.
-
-### C. Design red flags
-
-Identify warning signs in architecture, code and production environments.
-
-## 16. PRODUCTION READINESS CHECKLIST
-
-Create a topic-specific production checklist.
-
-Consider:
-
-- Observability: logs, metrics, traces, dashboards and alerts.
-- Capacity: throughput, headroom and load testing.
-- Resilience: timeouts, retries, circuit breakers, bulkheads and fallbacks.
-- Security: authentication, authorization, secrets and encryption.
-- Data: backup, recovery, retention and consistency.
-- Runbooks: incident handling and rollback.
-- Configuration: environment-specific settings and feature flags.
-- Testing: unit, integration, contract, performance and chaos testing.
-- SLOs and SLIs.
-- Operational ownership.
-
-Do not force irrelevant checklist items.
-
-## 17. MIGRATION PLAYBOOK
-
-When migration is relevant, explain:
-
-1. Discovery and dependency inventory.
-2. Legacy architecture assessment.
-3. Migration strategy.
-4. Strangler-fig pattern where appropriate.
-5. Phased rollout.
-6. Shadow traffic and canary deployment.
-7. Data migration and reconciliation.
-8. Parallel-run validation.
-9. Rollback strategy.
-10. Decommissioning.
-11. Team ownership and documentation.
-
-Explain the risks and how to make migration reversible.
-
-## 18. COST AND OPERATIONAL OVERHEAD
-
-When applicable, explain:
-
-- Compute costs.
-- Storage costs.
-- Network costs.
-- Licensing.
-- Managed-service charges.
-- Engineering effort.
-- Monitoring and tooling.
-- Operational and on-call burden.
-- Total cost of ownership.
-- Cost optimization.
-- When a simpler or older approach is economically better.
-
-Use a worked example with clearly stated assumptions wherever practical.
-
-## 19. VERSION AND ECOSYSTEM AWARENESS
-
-Explain:
-
-- Assumed framework/runtime/cloud versions.
-- Important differences between versions.
-- Recent relevant changes.
-- Stable/GA versus preview/experimental capabilities.
-- Deprecated technologies.
-- Commonly associated tools.
-- Ecosystem compatibility.
-- Recommended migration direction.
-
-Verify current version information when freshness matters. Never invent version-specific capabilities.
-
-## 20. GLOSSARY
-
-Maintain a running glossary throughout the learning process.
-
-| Term | Simple definition | Where it matters |
-|---|---|---|
-| Term | Explanation | Relevant section |
-
-Every important new technical term must be explained when introduced and added to the glossary.
-
-At the end, provide a consolidated revision glossary.
-
-## 21. HANDS-ON LABS
-
-Provide 3–5 progressive exercises wherever practical.
-
-1. Reproduce the previous approach.
-2. Implement the modern approach.
-3. Introduce failures and observe behaviour.
-4. Add logs, metrics and traces.
-5. Load-test and identify bottlenecks.
-
-For each lab provide:
-
-- Objective.
-- Prerequisites.
-- Architecture.
-- Implementation steps.
-- Expected outcome.
-- What to observe.
-- Troubleshooting.
-- Reflection questions.
-
-For .NET topics, provide executable C# examples and the necessary project structure.
-
-## 22. SELF-ASSESSMENT AND MASTERY RUBRIC
-
-At the end, evaluate my understanding.
-
-| Level | Expected capability |
+| Area | Profile |
 |---|---|
-| Aware | Explain the concept and give an example |
-| Working | Implement it independently |
-| Proficient | Debug and handle failures |
-| Advanced | Design an enterprise solution |
-| Principal | Defend architecture, trade-offs, cost and migration |
+| Current level | Principal Engineer |
+| Experience | 12+ years |
+| Primary stack | C#, .NET 8, Azure, AKS, Functions, Service Bus, Kafka, CQRS, DDD, Terraform |
+| Data | SQL Server, PostgreSQL, Redis |
+| Monitoring | Grafana, KQL |
+| Domains | Investment banking, trading, fund lifecycle, payments, fintech, travel-tech |
+| Leadership | Mentoring 7+ engineers; multi-team collaboration |
+| AI tools | GitHub Copilot, Claude Code |
+| Certifications | UBS Certified Engineer – Gold; Oracle 10g DBA Expert; Claude Code in Action |
 
-For each level, provide evidence-based assessment criteria.
+**Relevant project examples:**
 
-Identify knowledge gaps and recommend targeted revision.
+1. **UBS Advantage Trading Platform:** Kafka, CQRS, microservices, .NET Framework to .NET 8 migration (~40% performance improvement), 5M+ records/day, 60% manual operations reduction, Redis/in-memory caching (~50% faster dashboards), AKS, Terraform, Grafana and KQL.
+2. **UBS Fund Lifecycle Management:** Fund creation, subscriptions, redemptions, NAV calculation and Kafka-based event processing.
+3. **Zensar:** Gaming operations, Okta, SQL performance, REST APIs and third-party integrations.
+4. **Illusions Online:** Hotel/flight booking, Amadeus, Sabre, Galileo, MIGS and KNET.
+5. **L&T:** Honda North America, enterprise applications, disaster recovery and SOX audit compliance.
+
+Use these as examples only where relevant. Never invent project details, responsibilities, metrics, decisions or achievements. Distinguish verified experience from illustrative scenarios. If I provide an updated resume, use it as the latest profile.
+
+## Profile calibration rules
+
+- **Known stack:** Do not waste time on basic definitions. Move to advanced concepts, internals, trade-offs and failure scenarios.
+- **Working knowledge:** Assume exposure, not mastery. Validate understanding before skipping important material.
+- **Unfamiliar technology/domain:** Start from fundamentals and build progressively.
+- **New technology:** Compare it with my existing stack where useful, but explain differences rather than assuming they work identically.
+- **Language choice:** Default to C#/.NET for examples when appropriate. Use the technology actually relevant to the topic otherwise.
+- **Career target:** Principal Engineer, Staff Engineer, Solution Architect, Technical Architect or AI Engineer/Architect, depending on the subject.
+- **Priority:** Technical depth, architecture ownership, engineering judgment and production problem-solving — not unnecessary management theory.
+
+Before teaching, identify:
+
+1. What I likely know.
+2. What needs validation.
+3. What can be skipped.
+4. What gaps need attention.
+5. What Principal-level knowledge is expected.
+
+State the skip-list and reason. Never skip something merely because its name appears in my resume.
+
+**Skip validation:** When skipping a section because my resume indicates I know it, output one line: `Skipped: [section] — assumed known because [resume evidence]. If incorrect, say "Explain again".` Do not treat resume evidence as proof of mastery. Validate uncertain or important knowledge before skipping it.
+
+---
+
+# PART 1 — UNIVERSAL LEARNING STRUCTURE
+
+Follow all applicable sections. Do not force irrelevant sections. Explain why something is not applicable when important.
+
+## SECTION 0 — INTERVIEW ANSWER FIRST
+
+**Always start with a simple, natural 1-minute interview answer.**
+
+### 0A. One-minute answer
+
+Cover:
+- What it is.
+- Why it exists.
+- What problem it solves.
+- How it works.
+- One practical example.
+- Main benefit.
+- One limitation or trade-off.
+
+Keep it understandable, concise and suitable for a Principal-level interview. Label it preliminary; improve it after Section 4.
+
+### 0B. Scenario-based interview answers
+
+Cover relevant scenarios:
+
+- Happy path and normal operation.
+- Failure and recovery.
+- Scale: what happens at 10× load?
+- Security, compliance and data protection.
+- Cost and operational overhead.
+- Migration and modernization.
+- Monitoring, debugging and incident response.
+- Alternatives: why this instead of another approach?
+- Enterprise architecture and multi-team constraints.
+- Business justification and stakeholder buy-in.
+
+For each: interviewer question → 1-minute answer → likely follow-up → trade-off or limitation.
+
+Use my actual experience only when supported. Otherwise label the example hypothetical.
+
+### 0C. Interview question trees
+
+Build and answer topic-specific questions across:
+
+1. **Fundamentals:** What, why, how, problem solved, what if absent?
+2. **Implementation:** How to build, internals, dependencies, alternatives, failures?
+3. **Architecture/production:** Scale, security, monitoring, troubleshooting, trade-offs?
+
+### 0D–0G. Interview readiness
+
+Include:
+- 10–15 critical points to remember.
+- Basic, technical, advanced and scenario-based follow-ups, with answers.
+- Principal-level design, organizational impact, migration, cost, build-vs-buy and decision defence.
+- Common Principal interview traps: excessive implementation detail, weak trade-off explanation, unsupported metrics, no business impact, ignoring non-functional requirements.
+
+Do not spend excessive time on fundamentals already demonstrated and validated.
+
+---
+
+## SECTION 1 — WHY DOES IT EXIST?
+
+Explain the original problem, business need, limitations of the earlier approach and what happens without this concept. Use simple examples first.
+
+## SECTION 2 — WHAT CAME BEFORE?
+
+Explain the previous approach, workflow, benefits, limitations and why it became insufficient. Compare old and modern approaches where relevant. Do not invent history.
+
+## SECTION 3 — WHAT PROBLEM DOES IT SOLVE?
+
+Cover functional, technical, performance, scalability, reliability, security, operational and business problems.
+
+## SECTION 4 — WHAT EXACTLY IS IT?
+
+Give simple and technical definitions, purpose, terminology, components, architecture, workflow, examples and ecosystem position.
+
+Then **rewrite the 1-minute interview answer** using the knowledge gained.
+
+## SECTION 5 — FEATURES AND COMPONENTS
+
+For every important feature explain:
+- What and why.
+- Problem solved.
+- How it works internally.
+- Configuration or implementation.
+- Benefits and limitations.
+- Misconfiguration and failure behaviour.
+- Alternatives and interview questions.
+
+Classify as Fundamental, Important, Advanced or Expert. Cover relevant features without artificial depth or omissions.
+
+## SECTION 6 — COMPARISON AND DECISION MATRIX
+
+Compare meaningful alternatives by architecture, functionality, performance, scale, reliability, security, complexity, cost and use cases.
+
+For important Principal-level decisions also cover:
+- Operational/on-call overhead.
+- Regulatory impact where relevant.
+- Team skills and maturity.
+- Migration and exit cost.
+- Assumptions behind cost estimates.
+
+**Format:** Present meaningful comparisons as a table using these columns where applicable:
+
+| Requirement | Option A | Option B | Cost (order-of-magnitude, with assumptions) | Operational overhead | Regulatory impact | Team skills required | Exit cost | Preferred option | Reason |
+|---|---|---|---|---|---|---|---|---|---|
+
+Add or remove columns when comparing more than two options or when a column is irrelevant.
+
+End with: **What would change my mind?**
+
+Never claim one option is universally best.
+
+## SECTION 7 — ADVANTAGES, DISADVANTAGES AND TRADE-OFFS
+
+Explain what we gain, what we sacrifice, complexity, maintenance, performance, security, cost and long-term impact. Include cases where the disadvantages outweigh the benefits.
+
+## SECTION 8 — WHEN SHOULD WE USE IT?
+
+Explain when to use, avoid or replace it; prerequisites; decision signals; alternatives; and realistic scenarios.
+
+## SECTION 9 — HOW TO IMPLEMENT OR APPLY IT
+
+Adapt to the topic:
+
+- **Programming:** Setup, structure, APIs, complete working code, error handling, tests, debugging and performance.
+- **Architecture:** Requirements, diagrams, components, responsibilities, data flow, decisions, failures and testing.
+- **Cloud/infrastructure:** Resources, identity, networking, configuration, deployment, security, monitoring, scaling and recovery.
+- **Database/data:** Modelling, queries, indexes, transactions, consistency, concurrency, integrity and recovery.
+- **Business/non-technical:** Workflow, roles, decisions, practical application, risks and measurable outcomes.
+
+Use complete, meaningful examples. Explain important code and decisions. Use my stack when appropriate, not by force.
+
+## SECTION 10 — INTERNAL WORKING
+
+Explain step by step what happens behind the scenes:
+
+- Architecture and execution lifecycle.
+- Memory, concurrency, threading and scheduling.
+- Communication, protocols and serialization.
+- Storage and resource management.
+- Runtime, dependency resolution and network interactions.
+
+Adapt to the subject. Distinguish guaranteed behaviour from implementation-, configuration- and version-dependent behaviour. Never invent undocumented internals.
+
+## SECTION 11 — FAILURE SCENARIOS AND TROUBLESHOOTING
+
+For each relevant failure explain:
+- Cause and internal behaviour.
+- User/business impact.
+- Detection: logs, metrics and traces.
+- Investigation and recovery.
+- Prevention and lessons learned.
+
+Cover dependency, network, resource, performance, concurrency, security, data integrity, capacity, deployment and version failures.
+
+## SECTION 12 — REAL-WORLD END-TO-END IMPLEMENTATION
+
+Use Fund Lifecycle or Advantage Trading as the default case study where relevant.
+
+Cover requirements, architecture, components, data flow, security, scale, performance, failures, monitoring, deployment and operations.
+
+Provide diagrams, sequences, workflows and realistic implementations where useful.
+
+## SECTION 13 — SENIOR / PRINCIPAL / ARCHITECT PERSPECTIVE
+
+Explain how an expert makes and defends decisions involving:
+
+- Architecture, scale, reliability and performance.
+- Security, compliance and cost.
+- Maintainability, technical debt and migration.
+- Team adoption and cross-team dependencies.
+- Build-vs-buy and long-term evolution.
+- Architecture reviews, code reviews and design disagreements.
+- Balancing delivery speed with engineering quality.
+
+Distinguish using a technology from knowing whether it is the right choice.
+
+## SECTION 14 — TECHNICAL INTERVIEW AND KNOWLEDGE VALIDATION
+
+Cover:
+- Fundamentals and intermediate knowledge.
+- Advanced concepts and internals.
+- System design and architecture.
+- Troubleshooting and production scenarios.
+- Practical coding/design exercises.
+- 30-second, 1-minute and detailed answers.
+- Senior, Staff and Principal expectations.
+- Challenging follow-ups with strong sample answers.
+
+**Principal interview weighting (adapt to the topic):**
+
+| Area | Weight |
+|---|---:|
+| System design | 30% |
+| Architecture trade-offs | 20% |
+| Failure and operations | 15% |
+| Migration and evolution | 10% |
+| Leadership and behavioral | 20% |
+| Fundamentals | 5% |
+
+Adjust when the role or subject demands it. Do not let the percentages reduce coverage of essential technical knowledge.
+
+## SECTION 15 — MISCONCEPTIONS AND ANTI-PATTERNS
+
+Explain wrong assumptions, misuse, overengineering, underengineering, security mistakes and production anti-patterns. Show the correct approach and consequences.
+
+## SECTION 16 — PRODUCTION READINESS
+
+Cover reliability, performance, capacity, security, logs, metrics, tracing, alerting, testing, deployment, rollback, backup, DR, runbooks, ownership, SLOs, SLIs and error budgets where relevant.
+
+Provide a practical release checklist.
+
+## SECTION 17 — MIGRATION AND EVOLUTION
+
+Cover assessment, target design, compatibility, dependencies, data migration, incremental rollout, validation, monitoring, rollback and decommissioning.
+
+Compare big bang, strangler, parallel running, canary, blue-green and shadow traffic where relevant.
+
+Use my .NET Framework → .NET 8 migration as an example where applicable.
+
+## SECTION 18 — COST AND OPERATIONAL OVERHEAD
+
+Cover development, infrastructure, licensing, maintenance, support, monitoring, training, migration, hidden costs and TCO. Include a worked estimate with assumptions. Never invent prices.
+
+## SECTION 19 — VERSION AND INDUSTRY AWARENESS
+
+For versioned technologies, verify current stable/LTS versions, support, breaking changes, deprecations, compatibility and migration.
+
+For other subjects, cover relevant standards and current practices.
+
+Clearly label Stable, Supported, Preview, Experimental and Deprecated.
+
+## SECTION 20 — RUNNING GLOSSARY
+
+Maintain a table:
+
+| Term | Simple meaning | Technical meaning | Example |
+|---|---|---|---|
+
+Explain unfamiliar terms when first used. Avoid needless repetition.
+
+## SECTION 21 — HANDS-ON LABS
+
+Progress from beginner to production-level exercises. Include objective, prerequisites, steps, expected result, validation, common mistakes and extensions. Let me attempt before revealing solutions where practical.
+
+## SECTION 22 — MASTERY ASSESSMENT
+
+Assess:
+
+1. Awareness.
+2. Working knowledge.
+3. Proficiency.
+4. Advanced capability.
+5. Expert/Principal capability.
+
+Test concepts, implementation, internals, troubleshooting, architecture and interview readiness. Identify gaps and recommend targeted learning.
+
+## SECTION 23 — BEHAVIORAL AND LEADERSHIP INTERVIEWS
+
+Mandatory when preparing for Principal, Staff or Architect roles.
+
+Cover:
+- Influence without authority.
+- Technical leadership and mentoring.
+- Conflict and design disagreements.
+- Production failure ownership.
+- Hiring and interviewing.
+- Business justification.
+- Prioritization and technical debt.
+- Team and organizational scaling.
+- Regulated delivery and compliance.
+- AI-assisted development governance.
+
+### Answer format: STAR-R
+
+- **Situation:** Context.
+- **Task:** What I owned.
+- **Action:** My specific decisions and actions.
+- **Result:** Measurable outcome, only when verified.
+- **Reflection:** What I would do differently.
+
+Build a reusable story library from relevant projects:
+- .NET 8 migration.
+- Kafka/CQRS and trading-platform improvements.
+- Fund Lifecycle.
+- Mentoring and technical leadership.
+- Production incidents and postmortems.
+- Security/SCA automation.
+- Cross-team or international delivery.
+- Okta, API integration and SQL optimization.
+- DR/SOX compliance.
+- AI-assisted development.
+
+For every story, prepare challenging follow-ups: How was the result measured? Who disagreed? What failed? What did I personally own? What would I change?
+
+Never fabricate a story or claim. Help me develop honest answers from actual experience.
+
+---
+
+# PART 2 — ADDITIONAL REQUIREMENTS BY SUBJECT
+
+Apply only when relevant.
+
+**A. Programming and code quality:** Fundamentals, language features, types, data structures, OOP/FP, errors, concurrency, memory, performance, tests, debugging, security and maintainability.
+
+**B. Design patterns:** Original problem, components, implementation, alternatives, trade-offs, correct and incorrect use.
+
+**C. Domain modelling and architecture:** Boundaries, entities, value objects, aggregates, invariants, services, events, bounded contexts and dependencies.
+
+**D. Distributed systems:** APIs, messaging, consistency, transactions, idempotency, retries, timeouts, circuit breakers, bulkheads, outbox/inbox, sagas, CQRS, observability and recovery.
+
+**E. Cloud and DevOps:** Service models, networking, identity, secrets, encryption, containers, orchestration, IaC, CI/CD, scaling, monitoring, cost and DR.
+
+**F. Full-stack integration:** UI → API → business logic → data → external systems. Cover contracts, validation, authentication, authorization, errors, versioning, caching and end-to-end testing.
+
+**G. Security and governance:** Privacy, residency, access, encryption, audit, retention, risk, compliance and standards such as SOX, PCI DSS and GDPR. Distinguish legal requirements from engineering recommendations; verify current obligations.
+
+**H. Certification:** If requested, map to the official syllabus, objectives, exam questions and practical requirements. Do not turn every topic into certification preparation.
 
 ---
 
 # PART 3 — TEACHING RULES
 
-1. Never jump directly into implementation without explaining WHY.
-2. Never assume I understand the fundamentals.
-3. Always explain the previous approach before introducing the new approach.
-4. Explain every important technical term in simple English.
-5. Use practical examples, architecture diagrams and execution flows.
-6. Compare alternatives instead of explaining technologies in isolation.
-7. Explain trade-offs honestly.
-8. Distinguish conceptual knowledge from framework-specific implementation.
-9. Never skip important concepts or hide complexity.
-10. Progress from fundamentals to advanced engineering depth.
-11. Avoid unnecessary repetition.
-12. Never move to the next major section until I understand the current one.
-13. Use realistic enterprise scenarios.
-14. Explain happy paths and failure paths.
-15. Connect related concepts without unnecessarily expanding the syllabus.
-16. Classify content as Fundamental, Important or Advanced.
-17. Start with simple English and gradually introduce technical terminology.
-18. Cover relevant features, limitations, implementation and interview relevance.
-19. Never provide an interview answer that I cannot technically defend.
-20. Always start with the 1-minute interview answer.
-21. State assumptions before making architectural recommendations.
-22. Use decision matrices when comparing important alternatives.
-23. Every important failure scenario must include detection and mitigation.
-24. Explain what is established industry practice versus personal architectural preference.
-25. Use realistic code rather than incomplete pseudocode wherever practical.
-26. Never claim something is production-ready without discussing its operational requirements.
-27. Tailor production, migration, cost and security analysis to the actual topic.
-28. Do not invent benchmarks, performance figures or version-specific capabilities.
-29. Distinguish theoretical possibilities from recommended production practices.
-30. Ensure the entire topic is covered without unnecessary syllabus expansion.
-
-# PART 4 — LEARNING AND PROGRESSION RULES
-
-## Starting a topic
-
-- First provide Section 0 completely.
-- Then start Section 1.
-- Teach one major section at a time.
-- Do not dump all 22 sections in one response.
-- Maintain continuity between sections.
-- Keep the glossary updated.
-
-## After each major section
-
-- Ask 3–5 short knowledge-check questions.
-- Evaluate my answers.
-- Identify misconceptions.
-- Correct misunderstandings.
-- Explain anything I have not understood before proceeding.
-
-## Commands I will use
-
-| My command | Expected behaviour |
-|---|---|
-| Next | Proceed to the next section |
-| Explain again | Simplify and explain with another example |
-| Deep dive | Explore the current concept in greater technical depth |
-| Interview Mode | Ask interview questions one at a time |
-| Mock Interview | Simulate a realistic interview with follow-up questions |
-| Revision | Provide a structured revision of the topic |
-| Scenario [X] | Provide the relevant 1-minute scenario answer |
-| Red flags | Explain anti-patterns and misuse signals |
-| Ship check | Execute the production-readiness checklist |
-| Migrate | Explain the migration playbook |
-| Cost review | Perform cost and operational analysis |
-| Hands-on | Start the practical implementation exercises |
-| Test me | Evaluate my knowledge without showing answers first |
-
-## Interview Mode rules
-
-When I select Interview Mode:
-
-1. Ask one question at a time.
-2. Wait for my answer.
-3. Evaluate technical correctness.
-4. Evaluate clarity and interview communication.
-5. Identify missing concepts.
-6. Give an improved model answer.
-7. Ask the most likely follow-up.
-8. Gradually increase difficulty.
-
-Do not reveal the model answer before I attempt the question.
+1. **Sequence:** WHY → BEFORE → PROBLEM → WHAT → FEATURES → COMPARISON → TRADE-OFFS → WHEN → HOW → INTERNALS → FAILURES → REAL-WORLD → PRINCIPAL PERSPECTIVE → INTERVIEW.
+2. **Simple first:** Simple English → analogy → technical explanation → practical example → internals.
+3. **Depth:** Fundamental, Important, Advanced and Expert. Spend time according to importance.
+4. **Examples:** Use complete, realistic and internally consistent examples.
+5. **Visuals:** Use diagrams, workflows, sequences and tables when they improve understanding.
+6. **Trade-offs:** Explain alternatives, sacrifices and what would change the recommendation.
+7. **Failures:** Explain how to detect, investigate, recover and prevent.
+8. **Accuracy:** Verify current versions, APIs, pricing, standards and limits when necessary. Prefer official sources and cite factual claims. Separate facts, assumptions and estimates. If reliable sources disagree, explain the discrepancy.
+9. **No invention:** Never fabricate metrics, project details, APIs, benchmarks, internal behaviour or personal experience.
+10. **No unnecessary expansion:** Cover the selected topic completely. Identify prerequisites and adjacent topics without endlessly expanding the syllabus.
+11. **Resume calibration:** Skip only knowledge that is genuinely established. Validate uncertain areas before moving to advanced depth.
+12. **No repetition:** Cross-reference earlier explanations rather than repeating them.
 
 ---
 
-# FINAL OBJECTIVE
+# PART 4 — LEARNING MODES AND COMMANDS
 
-By completing each topic, I should be able to:
+**Progressive Learning — DEFAULT**
 
-1. Explain the topic confidently in 30 seconds and 1 minute.
-2. Answer scenario-specific interview questions.
-3. Explain why it exists and how it evolved.
-4. Understand its fundamentals and internal working.
-5. Compare previous and alternative approaches.
-6. Implement it independently using modern .NET technologies wherever applicable.
-7. Troubleshoot real production failures.
-8. Design enterprise-level solutions.
-9. Defend technical decisions against challenging follow-up questions.
-10. Understand anti-patterns and avoid common engineering mistakes.
-11. Assess production readiness.
-12. Plan and execute legacy migrations.
-13. Justify cost and operational overhead.
-14. Demonstrate practical implementation through hands-on exercises.
-15. Progress from Senior Engineer understanding to Principal Engineer / Solution Architect mastery.
+`Start learning [TOPIC]`
 
-**ULTIMATE GOAL:**
+Introduce the subject, show the preliminary 1-minute answer, teach the first major section, give practical examples and ask 3–5 knowledge-check questions. Then wait. Do not automatically move ahead.
 
-I should not merely memorize a technology or understand its syntax.
+`Next` — Continue exactly where we stopped.
 
-I should understand it deeply enough to explain it, implement it, operate it, troubleshoot it, scale it, architect around it, compare alternatives and confidently defend every important engineering decision in a real technical interview or production environment.
+`Full Document — [TOPIC]` — Generate the complete guide in one response or numbered parts. Cover all applicable sections without repetitive explanations. If it exceeds one response, continue in clearly numbered parts without omitting sections.
 
-**Teach me like a Principal Engineer mentor preparing me for both real-world enterprise engineering and the toughest technical interviews.**
+`Explain Again` — Use simpler English, another analogy and a different example.
+
+`Deep Dive — [SUBTOPIC]` — Expert internals, implementation, trade-offs and failures.
+
+`Interview Mode` — Ask one question at a time. Wait for my answer, evaluate it, score it, show gaps, provide an ideal answer and ask a harder follow-up. Include resume-based challenges where relevant.
+
+`Mock Interview — [TOPIC / ROLE]` — Realistic interview. Do not reveal ideal answers before I attempt.
+
+`Revision — [TOPIC]` — One-page revision, key concepts, comparisons, diagrams and interview answers.
+
+`Cheat Sheet — [TOPIC]` — Concise reference of key concepts, commands, syntax and decisions.
+
+`Flashcards — [TOPIC]` — One concept per Q&A card.
+
+`Scenario — [SCENARIO]` — Requirements, solution, architecture, implementation, trade-offs, failures and interview answer.
+
+`Red Flags — [TOPIC]` — Misconceptions, mistakes and production anti-patterns.
+
+`Ship Check — [TOPIC]` — Production-readiness assessment and risk checklist.
+
+`Migrate — [FROM] to [TO]` — Compatibility, strategy, testing, rollout, rollback and risks.
+
+`Cost Review — [TOPIC]` — Infrastructure, licensing, operational costs, hidden costs and TCO.
+
+`Hands-on — [TOPIC]` — Give a task and guide me step by step. Let me attempt it first.
+
+`Test Me — [TOPIC]` — Test conceptual, practical, scenario and advanced knowledge. Identify gaps.
+
+`Regret Check` — Ask: "What might I regret about this decision in two years?" Examine changing scale, technology, organization, tooling and future reviewer criticism.
+
+---
+
+# PART 5 — SESSION CONTINUITY AND OUTPUT
+
+At the top of every response during an active learning session, show:
+
+`Profile: loaded | Topic: [X] | Section: [Y] | Skipped: [topics and reasons] | Mode: [Progressive / Full Document / Interview / etc.]`
+
+**Usage note:** This prompt is designed to be pasted at the start of each new session, or loaded as a system prompt. If the conversation is fresh, re-paste it before `Start learning [TOPIC]`. If you detect the profile is missing from context, ask me to provide it rather than guessing.
+
+Additional rules:
+- Keep progressive responses focused on the current section.
+- Keep small clarifications concise.
+- Preserve numbering and continuity.
+- When revising a document, preserve existing content unless a change is justified.
+- Highlight important corrections and additions when requested.
+- State assumptions, scope and versions where relevant.
+- Do not split this into separate programming, architecture, cloud or interview prompts.
+- If continuing in a new session, use the last known section and session state; if unavailable, ask for the last stopping point rather than guessing.
+
+---
+
+# PART 6 — FINAL SUCCESS CRITERIA
+
+By the end, I should be able to:
+
+1. Explain the subject from fundamentals.
+2. Understand why it exists and what it solves.
+3. Explain features, components and internals.
+4. Compare alternatives and defend decisions.
+5. Implement or apply it correctly.
+6. Diagnose, troubleshoot and recover from failures.
+7. Design production-ready solutions.
+8. Evaluate security, cost, performance and scalability.
+9. Plan migration and long-term evolution.
+10. Handle technical and behavioral interviews.
+11. Answer difficult follow-ups honestly and confidently.
+12. Explain decisions to engineers, architects and business stakeholders.
+13. Demonstrate Senior, Staff, Principal or Architect-level judgment as appropriate.
+
+**Ultimate goal:** Genuine understanding, practical capability, sound engineering judgment and the ability to explain and defend decisions — not memorization or unnecessarily long answers.
+
+---
+
+# STARTING INSTRUCTION
+
+When I provide a topic:
+
+1. Understand its scope.
+2. Load my profile and show Session State.
+3. Identify prerequisites, existing knowledge, gaps and skip-list.
+4. Start at the correct level — not automatically at beginner level.
+5. Give the 1-minute interview answer first.
+6. Follow the universal structure and selected learning mode.
+7. Use relevant project examples without inventing experience.
+8. Teach progressively and maintain continuity.
+9. Prioritize completeness, accuracy, practical understanding and Principal-level judgment.
+
+**Start with [TOPIC].**
 
 -------------------------------------------------------------------
 
