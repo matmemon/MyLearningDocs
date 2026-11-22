@@ -1,0 +1,17 @@
+In my current project, we use Microsoft Azure and Azure Kubernetes Service (AKS) to host and run containerised .NET applications.
+
+Our architecture primarily consists of two types of workloads: scheduled synchronization jobs and long-running ASP.NET Core APIs.
+
+From an infrastructure perspective, we use Terraform for infrastructure provisioning and User-Assigned Managed Identities for secure authentication. We maintain separate managed identities for our API and synchronization workloads, following workload-level identity separation.
+
+For our build and deployment process, our CI pipeline builds the .NET applications and creates Docker images, which are stored in our Nexus repository. We use an internal deployment tool to select the target environment and deploy the required application version.
+
+For scheduled workloads, we use AutoSys with its Kubernetes K8 integration. AutoSys triggers the execution of our .NET console applications inside AKS Pods. The job configuration contains the namespace, image and execution parameters, along with retry configuration. Failed executions are retried through AutoSys, with a new Pod created for each retry.
+
+For our long-running ASP.NET Core APIs, we use Helm charts through the deployment pipeline. Our API deployments are configured with two replicas, and Kubernetes manages their lifecycle and replacement when a Pod crashes. Our deployment configuration also includes Kubernetes resources for service exposure, ingress, health checks, resource management and scaling.
+
+From a security perspective, our APIs support incoming service-to-service communication through ingress routing and application-level authentication and authorization. We use Microsoft Entra ID and managed identity-based authentication for Azure SQL connectivity. Each workload uses its respective User-Assigned Managed Identity.
+
+For monitoring and troubleshooting, we use Application Insights for application telemetry and exceptions, along with Kubernetes Pod status, events and container logs for diagnosing deployment and runtime issues.
+
+Overall, our architecture provides a common AKS-based platform for scheduled processing and continuously running APIs, with automated deployments, centralized scheduling, workload-level identity separation and Kubernetes-based application resilience.
