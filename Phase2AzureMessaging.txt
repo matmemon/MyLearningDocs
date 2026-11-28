@@ -1,0 +1,2892 @@
+# **H13 — Azure Messaging Services (MASTER)**
+
+
+
+Principal / Staff Engineer level
+
+Full learning mode
+
+
+
+This is an important system-design topic because messaging is one of the foundations of distributed systems and microservices.
+
+We'll cover all four major Azure messaging options:
+
+1. **Azure Service Bus** – Enterprise messaging, queues, topics, reliable business workflows.
+2. **Azure Event Hubs** – High-throughput event streaming and real-time data ingestion.
+3. **Azure Event Grid** – Event notifications and event-driven reactions.
+4. **Azure Storage Queues** – Simple, inexpensive asynchronous messaging.
+
+We'll also cover the Service Bus emulator, architecture decisions, failure scenarios, internals and interview questions.
+
+## **1. First understand WHY messaging exists**
+
+Imagine we operate a restaurant with Wi-Fi and an online ordering application.
+
+A customer places an order:
+
+1. Customer submits an order.
+2. Order service saves the order.
+3. Kitchen receives the order.
+4. Billing generates an invoice.
+5. Notification service sends an SMS.
+6. Delivery service assigns a delivery person.
+
+Initially, you might implement everything synchronously.
+
+**Architecture A — Without messaging**
+
+**Customer / Order API**
+
+**Order Service**
+
+Synchronous calls
+
+Kitchen Service
+
+Billing Service
+
+Notification Service
+
+Delivery Service
+
+Problem: Tight runtime dependency
+
+- If the notification service is down, order processing might fail.
+- If billing takes 5 seconds, the order API waits.
+- If delivery is unavailable, the entire workflow may become unreliable.
+
+We need to separate the services in time.
+
+This is where messaging comes in.
+
+## **2. What is messaging?**
+
+Messaging allows one application to send a message to another application without requiring the receiving application to process it immediately.
+
+Instead of directly calling the kitchen service, the Order Service sends a message to a messaging system.
+
+The kitchen processes it when ready.
+
+**Architecture B — With messaging**
+
+**Customer**
+
+**Order Service**
+
+Publish message
+
+**Azure Messaging Service**
+
+Stores / routes messages
+
+Consume when ready
+
+**Kitchen Service**
+
+**Billing Service**
+
+**Notification Service**
+
+**Delivery Service**
+
+Loose coupling
+
+The Order Service doesn't need to know when each consumer finishes processing.
+
+### **Important terminology**
+
+| Term              | Meaning                                                |
+| ----------------- | ------------------------------------------------------ |
+| Producer          | Application sending a message                          |
+| Consumer          | Application receiving a message                        |
+| Broker            | Middleware managing messages                           |
+| Queue             | Message storage with competing consumers               |
+| Topic             | Publish-subscribe destination                          |
+| Subscription      | Independent consumer endpoint of a topic               |
+| Event             | Something that happened                                |
+| Message           | A unit of information transmitted                      |
+| Acknowledgement   | Confirmation of successful processing                  |
+| Dead-letter queue | Storage for messages that cannot be processed normally |
+
+**Important distinction:** Messaging does not automatically mean microservices.
+
+You can use messaging in:
+
+- A monolithic application.
+- A modular monolith.
+- Microservices.
+- Distributed systems.
+- Legacy applications.
+
+## **3. The four Azure messaging services — big picture**
+
+[Microsoft - Azure - Servicebus - Messageidplugin 2 - Azure Service Bus Logo Clipart - Large Size Png Image - PikPng](https://images.openai.com/static-rsc-4/V2k_ClRvS-99LezhhM45Nke7UoIQvROD6rNGQYVqRRf4NgaoBrsxaweoIOO-aCWqeACjUjn8D6qO_KQ8wpOjKxv3udHIoi05ZMIXOViLr3uGGW1Kt4qkwL6roul3o4HBFr6bxmEYfLW0gzXY5JDYxu_1UGK9wYxMTYZt9GblG-8?purpose=inline)
+
+**Azure Service Bus**
+
+Reliable enterprise message broker
+
+Orders, payments, business workflows.
+
+[Azure Event Hub Logo PNG Vector (SVG) Free Download](https://images.openai.com/static-rsc-4/RhfBbRahms9WFYnMc2b8k0-YA6KmK7q0UPEpzMhSGJaS67J3yYMbBS-RAOmTynPh6SnsiLzHJa8vknB52G2deJt08rX0DNzLd1ewGfpA7u-F4iZ-iLZwCyZtARJHDy3Zd07C8xQpMfAS7BUE3kF167W1VmQd9dBwLFeCsLJJHhs?purpose=inline)
+
+**Azure Event Hubs**
+
+Large-scale event streaming
+
+Logs, telemetry, millions of events.
+
+[Amazon SQS vs Azure Event Grid](https://images.openai.com/static-rsc-4/REdlV1NKVWFzAszS4eEDpKcxFN_Zfrg9A8igomPUyzfWzSslv-jizM88NI2TIgQaV0W6IupsDWvqrjg9pbwaQjB-3oDERNfZmX_pRgFJTMiGDh64JZAEl3NBr1f1XeKXq3_xYOL4UmWbBM4UrLrJwELBIJjR6v-Tb8SvuBNbgu0?purpose=inline)
+
+**Azure Event Grid**
+
+Event routing and notifications
+
+React to file uploads, resource changes and application events.
+
+[Azure Storage Queue color icon in PNG, SVG](https://images.openai.com/static-rsc-4/SmcOkSPglRh_LGpgMo-C8YYZ6jayDAS1_5SIp83SGcwqrR-FrIZBd14j25bjwGBiQpTces7m_asAQlih5hvw4GD37sYHJiz33EL4u2Sjkk0O2MZtKMFXfwuSfCFQSO3PjeyWku5Ag05EisbQRCPHaF57b9xbl46VRsNkF-IvdM8?purpose=inline)
+
+**Azure Storage Queues**
+
+Simple queue-based messaging
+
+Background jobs and lightweight asynchronous work.
+
+The biggest mistake engineers make is treating these four services as interchangeable.
+
+They solve related but different problems.
+
+| Requirement                                          | Best starting point  |
+| ---------------------------------------------------- | -------------------- |
+| Reliable payment processing                          | Service Bus          |
+| One message, multiple independent business consumers | Service Bus Topic    |
+| Millions of telemetry events                         | Event Hubs           |
+| React to Azure resource changes                      | Event Grid           |
+| Simple background job queue                          | Storage Queue        |
+| Replay historical event streams                      | Event Hubs           |
+| Ordered processing by customer/session               | Service Bus Sessions |
+| Route notifications to multiple destinations         | Event Grid           |
+
+Let's understand each service deeply.
+
+# **PART A — Azure Service Bus**
+
+## **4. What is Azure Service Bus?**
+
+ENTERPRISE MESSAGE BROKER
+
+[Azure Service Bus: Backbone of Enterprise Messaging](https://images.openai.com/static-rsc-4/zXLm4Ta45VxGA8Bu7nFMhIFL_VPw9tw4A167lHtTzUdAYob1W8eRWQsjF6M2kmGO9-7DwPEKgM88eCP7lr5-gimU-7GpjkAmA9UNVFjj73Dn5GzrJQBRMLLU4TipSuCo6vK-j0hxdSFuy3UbqO_OG_gPle-JlGlyN8BFywjx_nw?purpose=inline)
+
+[linkedin.com](https://www.linkedin.com/pulse/azure-service-bus-isnt-just-queue-heres-what-makes-powerful-karkera-l4uee?utm_source=chatgpt.com)
+
+Azure Service Bus is a fully managed enterprise message broker.
+
+It provides:
+
+- Durable message storage.
+- Queues and publish-subscribe topics.
+- Message locking and acknowledgement.
+- Retry and dead-letter handling.
+- Duplicate detection.
+- Sessions and ordered processing.
+- Transactions.
+- Disaster recovery capabilities.
+
+Think of it as a central order-management desk in our restaurant.
+
+The Order Service submits a kitchen ticket. The ticket remains there until a kitchen worker takes responsibility for it.
+
+The producer and consumer don't have to be running simultaneously.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+
+
+### **4.1 Basic architecture**
+
+**Order API (.NET 8)**
+
+Producer
+
+SendAsync(message)
+
+**Azure Service Bus Namespace**
+
+Broker / logical container
+
+**orders-queue**
+
+OrderCreated messages
+
+Receive / process
+
+**Kitchen Worker (.NET 8)**
+
+Consumer
+
+### **4.2 Namespace, queue and message**
+
+These three terms are important.
+
+**Namespace:** A logical container for Service Bus resources. It is where you configure tier, networking, security and capacity.
+
+**Queue:** An individual messaging entity inside the namespace.
+
+**Message:** The actual data sent through the queue.
+
+Example:
+
+```
+restaurant-prod.servicebus.windows.net
+    |
+    |-- orders-queue
+    |-- payments-queue
+    |-- notifications-queue
+    |
+    |-- order-events-topic
+           |
+           |-- billing-subscription
+           |-- kitchen-subscription
+           |-- analytics-subscription
+```
+
+One namespace can contain multiple queues and topics.
+
+## **5. Service Bus tiers — Basic, Standard and Premium**
+
+This is an important interview question.
+
+Azure Service Bus has three tiers.
+
+**Basic**
+
+Entry level
+
+- Queues only.
+- No topics/subscriptions.
+- No sessions.
+- No duplicate detection.
+- No transactions.
+- 256 KB maximum message size.
+
+**Standard**
+
+General purpose
+
+- Queues and topics.
+- Sessions.
+- Transactions.
+- Duplicate detection.
+- Shared multi-tenant infrastructure.
+- 256 KB maximum message size.
+
+**Premium**
+
+Enterprise
+
+- All major Standard capabilities.
+- Dedicated resources.
+- Predictable performance.
+- Virtual network integration and Private Link.
+- Large messages up to 100 MB.
+- Geo-Replication.
+- JMS 2.0 support.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+### **5.1 Understanding Premium Messaging Units (MU)**
+
+Standard uses shared infrastructure.
+
+Premium gives your namespace dedicated resources.
+
+Premium capacity is measured using Messaging Units (MU).
+
+You can provision 1, 2, 4, 8 or 16 MUs.
+
+Think about our restaurant:
+
+- Standard: Multiple restaurants share the underlying kitchen infrastructure.
+- Premium: Your restaurant has dedicated kitchen infrastructure.
+
+Why do we need dedicated resources?
+
+Suppose:
+
+- 10,000 messages per second.
+- Payment processing is business-critical.
+- Latency must be predictable.
+- Other tenants' workloads should not affect our performance.
+
+Premium is a better candidate.
+
+However, more MUs don't automatically mean a proportional increase in throughput. Benchmark your workload.
+
+### **5.2 Which tier would I choose?**
+
+| Scenario                         | Tier     |
+| -------------------------------- | -------- |
+| Basic background queue           | Basic    |
+| Orders + billing + notifications | Standard |
+| Critical financial workflows     | Premium  |
+| Private networking requirements  | Premium  |
+| Geo-Replication requirement      | Premium  |
+| High predictable throughput      | Premium  |
+
+Principal Engineer perspective: don't choose Premium just because it is enterprise-grade. Choose it based on performance, security, availability, message-size and recovery requirements.
+
+## **6. Queue — Point-to-Point messaging**
+
+A queue is used when one message should be processed by one competing consumer.
+
+Example: A restaurant receives 100 orders.
+
+Instead of sending all 100 orders to one worker, we run three kitchen workers.
+
+**Order Queue**
+
+Order-101 | Order-102 | Order-103 | Order-104 | Order-105
+
+**Worker 1**
+
+**Worker 2**
+
+**Worker 3**
+
+Each message is acquired by one competing receiver at a time.
+
+Possible distribution:
+
+- Worker 1 → Order 101.
+- Worker 2 → Order 102.
+- Worker 3 → Order 103.
+- Worker 1 → Order 104.
+- Worker 2 → Order 105.
+
+The queue distributes work among competing consumers.
+
+### **Important: Is it one message for only one consumer?**
+
+Normally, yes, in the competing-consumer pattern.
+
+However, if the message is abandoned or its lock expires, another consumer can receive it.
+
+So don't interpret this as exactly-once business execution.
+
+### **6.1 Peek-Lock vs Receive-and-Delete**
+
+This is a very important concept.
+
+Service Bus supports two receive modes.
+
+**A. Peek-Lock**
+
+The consumer receives the message but doesn't immediately remove it.
+
+It temporarily locks the message.
+
+1. **Message enters queue**
+
+   Order-101 is waiting.
+2. **Worker receives message**
+
+   Message becomes locked.
+3. **Worker processes order**
+
+   It prepares the food and saves processing status.
+4. **Worker completes message**
+
+   Service Bus removes the message.
+
+Successful processing
+
+What happens if the worker crashes after receiving the message?
+
+- Message is still present.
+- Its lock eventually expires.
+- The message becomes available again.
+- Another worker can receive it.
+
+This is why Peek-Lock is suitable for business-critical workflows.
+
+**B. Receive-and-Delete**
+
+The message is removed as soon as the broker transfers it to the receiver.
+
+If the consumer crashes after receiving it but before processing, the message is lost from the queue.
+
+Use carefully
+
+| Feature                          | Peek-Lock           | Receive-and-Delete   |
+| -------------------------------- | ------------------- | -------------------- |
+| Message removed                  | After Complete      | At receive           |
+| Failure recovery                 | Possible redelivery | No broker redelivery |
+| Processing acknowledgement       | Explicit            | Not required         |
+| Suitable for critical processing | Yes                 | Usually no           |
+
+### **6.2 Complete, Abandon, Dead-letter and Defer**
+
+When using Peek-Lock, the consumer has different ways to settle a message.
+
+| Operation   | Meaning                                                                         |
+| ----------- | ------------------------------------------------------------------------------- |
+| Complete    | Successfully processed; remove it                                               |
+| Abandon     | Release lock; make it available again                                           |
+| Dead-letter | Move to DLQ                                                                     |
+| Defer       | Keep it but make it unavailable for normal receiving until explicitly retrieved |
+
+Example:
+
+```
+Order-101 received
+      |
+      v
+  Processing
+      |
+      +---- Success ------> Complete
+      |
+      +---- Temporary failure -> Abandon
+      |
+      +---- Permanent failure -> Dead-letter
+      |
+      +---- Wait for another message -> Defer
+```
+
+**Interview question:** What is the difference between Abandon and Dead-letter?
+
+Abandon means retry the message through normal delivery.
+
+Dead-letter means remove it from normal delivery and isolate it for investigation or later recovery.
+
+## **7. Topic and Subscription — Publish/Subscribe**
+
+A queue is one-to-one in its normal processing model.
+
+But what if the Order Service needs to inform multiple independent services?
+
+For example, after an order is placed:
+
+- Kitchen prepares the order.
+- Billing generates the invoice.
+- Notification sends SMS.
+- Analytics records order activity.
+
+Should the Order Service call all four services directly?
+
+No. We can use a topic.
+
+**Order Service**
+
+Publishes OrderCreated
+
+**order-events-topic**
+
+**Kitchen**
+
+kitchen-subscription
+
+**Billing**
+
+billing-subscription
+
+**Notifications**
+
+notification-subscription
+
+**Analytics**
+
+analytics-subscription
+
+Each subscription gets its own logical copy and processes independently.
+
+This is called Publish/Subscribe (Pub/Sub).
+
+One publisher publishes a message to the topic. Each matching subscription receives its own copy.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+### **7.1 Queue vs Topic**
+
+| Queue                               | Topic                               |
+| ----------------------------------- | ----------------------------------- |
+| Point-to-point                      | Publish/subscribe                   |
+| Competing consumers                 | Independent subscriptions           |
+| One logical message processing path | Multiple independent delivery paths |
+| Work distribution                   | Event distribution                  |
+| Kitchen worker pool                 | Kitchen + Billing + Analytics       |
+
+Remember:
+
+**A topic alone is not the consumer endpoint. The subscription is the consumer endpoint.**
+
+### **7.2 Topic filters**
+
+Suppose we publish all order events to one topic.
+
+But the billing service only wants orders where payment is required.
+
+We can configure subscription filters.
+
+Example:
+
+```
+order-events-topic
+       |
+       +-- kitchen-subscription
+       |      OrderType = 'Food'
+       |
+       +-- billing-subscription
+       |      PaymentRequired = true
+       |
+       +-- analytics-subscription
+              All orders
+```
+
+Service Bus supports SQL filters and correlation filters.
+
+A correlation filter is useful when matching message properties, such as:
+
+```
+Region = "Pune"
+EventType = "OrderCreated"
+```
+
+A SQL filter supports expressions such as:
+
+```
+PaymentRequired = TRUE
+AND OrderAmount > 500
+```
+
+This prevents unnecessary processing by consumers.
+
+## **8. Message Sessions — Ordered processing**
+
+This is one of the most important advanced Service Bus features.
+
+First, understand the problem.
+
+Suppose the same customer places three orders:
+
+```
+Order 101
+Order 102
+Order 103
+```
+
+The messages arrive in this order.
+
+But multiple workers process them concurrently:
+
+```
+Worker 1 -> Order 101 (slow)
+Worker 2 -> Order 102 (fast)
+Worker 3 -> Order 103 (fast)
+```
+
+Processing completion might be:
+
+```
+Order 103 -> completed
+Order 102 -> completed
+Order 101 -> completed
+```
+
+Is that acceptable?
+
+Sometimes not.
+
+For a bank account, for example:
+
+```
+Transaction 1: Add ₹1,000
+Transaction 2: Deduct ₹500
+Transaction 3: Add ₹200
+```
+
+You may need to process these in the correct order for that account.
+
+### **8.1 What is SessionId?**
+
+Service Bus Sessions allow you to group related messages using a SessionId.
+
+Example:
+
+```
+Customer-101:
+    Order-1
+    Order-2
+    Order-3
+
+Customer-102:
+    Order-4
+    Order-5
+```
+
+Assign:
+
+```
+message.SessionId = "Customer-101";
+```
+
+Another customer:
+
+```
+message.SessionId = "Customer-102";
+```
+
+Service Bus provides session-aware receivers.
+
+**Session-based processing**
+
+**Session A**
+
+Customer-101
+
+Locked by Worker 1
+
+Order 1 → Order 2 → Order 3
+
+**Session B**
+
+Customer-102
+
+Locked by Worker 2
+
+Order 4 → Order 5
+
+Different sessions can be processed concurrently; messages within a session are processed in sequence by the session receiver.
+
+### **8.2 Important distinction**
+
+Sessions don't mean only one message can be processed at a time globally.
+
+They mean:
+
+- Same session: ordered processing.
+- Different sessions: parallel processing.
+
+This gives us both ordering and scalability.
+
+**Principal Engineer insight:** Sessions provide ordered delivery and exclusive session ownership, but you must still design your processing and database updates carefully. Session locks can expire, and messages can be redelivered.
+
+## **9. Duplicate Detection**
+
+Let's consider an important production failure.
+
+Order Service sends:
+
+```
+MessageId = ORDER-1001
+```
+
+Service Bus receives the message.
+
+But the network connection drops before the producer receives confirmation.
+
+The Order Service doesn't know whether the message was accepted.
+
+What should it do?
+
+It retries.
+
+Now the same order may be sent twice.
+
+```
+First send  -> ORDER-1001
+Retry send  -> ORDER-1001
+```
+
+Without duplicate detection, both might enter the queue.
+
+### **9.1 How duplicate detection works**
+
+Enable duplicate detection on a supported Standard or Premium entity.
+
+Service Bus tracks message identifiers for a configured detection window.
+
+If the same MessageId is sent again within that window, the duplicate send is discarded.
+
+```
+Producer
+   |
+   | MessageId = ORDER-1001
+   v
+Service Bus
+   |
+   +--> First message accepted
+   |
+   +--> Same MessageId sent again
+            |
+            v
+       Duplicate detected
+            |
+            v
+       Duplicate discarded
+```
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+### **9.2 Is duplicate detection enough?**
+
+No.
+
+Very important.
+
+Duplicate detection prevents duplicate sends within the configured window.
+
+But consider this:
+
+1. Worker receives Order-1001.
+2. Worker charges the customer's card.
+3. Worker crashes before completing the message.
+4. Message is redelivered.
+5. Worker charges the customer again.
+
+Duplicate detection won't prevent this because it is the same accepted message being redelivered.
+
+We need **idempotency**.
+
+Example:
+
+```
+public async Task ProcessPayment(
+    PaymentMessage message)
+{
+    var exists = await db.Payments
+        .AnyAsync(x => x.IdempotencyKey ==
+                       message.OrderId);
+
+    if (exists)
+        return;
+
+    await paymentGateway.ChargeAsync(
+        message.Amount);
+
+    db.Payments.Add(new Payment
+    {
+        IdempotencyKey = message.OrderId,
+        Amount = message.Amount
+    });
+
+    await db.SaveChangesAsync();
+}
+```
+
+This is illustrative only: the payment gateway and database must also participate in an idempotency strategy, and the check/write must be concurrency-safe. A database unique constraint is one useful protection.
+
+**Remember:**
+
+- Duplicate detection = Broker-level protection against repeated sends.
+- Idempotency = Business-level protection against repeated effects.
+
+## **10. Dead Letter Queue (DLQ)**
+
+A DLQ is a special subqueue where messages are moved when they cannot be processed normally.
+
+Imagine a restaurant receives an order with an invalid menu item.
+
+The kitchen cannot prepare it.
+
+Instead of repeatedly retrying it forever, we isolate it.
+
+### **10.1 Why do messages enter the DLQ?**
+
+Common reasons:
+
+1. Maximum delivery count exceeded.
+2. Message explicitly dead-lettered by consumer.
+3. Message expires, if expiry handling is configured to dead-letter.
+4. Some other broker or forwarding failures.
+
+Example:
+
+```
+Order-1001
+    |
+    v
+Worker receives message
+    |
+    v
+Processing fails
+    |
+    v
+Abandon
+    |
+    v
+Retry
+    |
+    v
+Processing fails again
+    |
+    v
+Retry limit exceeded
+    |
+    v
+Dead Letter Queue
+```
+
+Service Bus has a configurable maximum delivery count. The default is 10.
+
+### **10.2 What happens to DLQ messages?**
+
+They remain available for inspection and explicit recovery or removal.
+
+You should not assume they are automatically retried.
+
+A DLQ monitoring system should capture:
+
+- MessageId.
+- Original queue or subscription.
+- Dead-letter reason.
+- Dead-letter description.
+- Exception details.
+- Enqueue timestamp.
+- Delivery count.
+
+### **10.3 How do we recover DLQ messages?**
+
+A typical operational workflow:
+
+```
+DLQ
+ |
+ v
+Investigate
+ |
+ +-- Invalid data?
+ |      Fix source / reject
+ |
+ +-- Temporary dependency failure?
+ |      Retry after recovery
+ |
+ +-- Code defect?
+        Deploy fix
+           |
+           v
+      Replay message
+```
+
+Do not blindly move every DLQ message back to the main queue.
+
+You can create an infinite failure loop.
+
+**Principal Engineer recommendation:** Treat the DLQ as an operational workflow, not just a storage location. Add alerts, dashboards, replay tooling and audit trails.
+
+## **11. Message TTL and Lock Duration**
+
+Two concepts often get confused.
+
+### **TTL — Time To Live**
+
+How long a message is allowed to live.
+
+Example:
+
+```
+Order message created: 10:00 AM
+TTL: 30 minutes
+Expiry: 10:30 AM
+```
+
+If it is not processed before expiry, it expires.
+
+Depending on entity configuration, expired messages can be dead-lettered.
+
+### **Lock Duration**
+
+How long a message remains locked after a Peek-Lock receiver acquires it.
+
+Example:
+
+```
+11:00 AM -> Worker receives message
+11:00 AM -> Message locked
+11:01 AM -> Lock expires
+```
+
+If processing takes longer than the lock duration, the worker needs to renew the lock.
+
+Service Bus supports automatic lock renewal through the SDK.
+
+| TTL                       | Lock duration               |
+| ------------------------- | --------------------------- |
+| Message lifetime          | Receiver ownership duration |
+| Applies before expiration | Applies after receiving     |
+| Controls message expiry   | Controls competing access   |
+
+Important: Lock renewal doesn't create an unlimited guarantee. The application must handle lock loss and possible redelivery.
+
+## **12. Service Bus Transactions**
+
+Suppose a consumer receives an order message and wants to:
+
+1. Complete the original message.
+2. Send a billing message.
+3. Send a notification message.
+
+What if the application completes the order message but fails to send the billing message?
+
+Now billing never receives the event.
+
+This is a consistency problem.
+
+Service Bus transactions can atomically group supported broker operations within the applicable transaction scope.
+
+Conceptually:
+
+```
+BEGIN SERVICE BUS TRANSACTION
+
+Receive Order-1001
+Send Billing-1001
+Send Notification-1001
+Complete Order-1001
+
+COMMIT
+```
+
+If the transaction aborts, the grouped broker operations don't partially commit.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+### **Critical limitation**
+
+Service Bus transactions do not automatically create a distributed transaction between:
+
+- Service Bus.
+- Azure SQL.
+- External payment gateways.
+- Other independent services.
+
+For example:
+
+```
+Receive message
+Update Azure SQL
+Send another Service Bus message
+Complete original message
+```
+
+You cannot assume all four actions form one atomic transaction.
+
+### **What should we use instead?**
+
+The Transactional Outbox Pattern.
+
+**Transactional Outbox**
+
+Order Service
+
+**Single Azure SQL transaction**
+
+Orders table
+
+Outbox table
+
+Both commit or roll back together.
+
+Background publisher reads outbox
+
+**Azure Service Bus**
+
+Billing / Kitchen / Notification
+
+The database transaction ensures the business change and the intention to publish are saved together.
+
+The publisher can retry sending. Consumers must remain idempotent.
+
+This is one of the most important architectural patterns for Principal Engineers.
+
+## **13. Service Bus quotas and limits**
+
+Quotas are important when designing production systems.
+
+A few important examples:
+
+| Property                | Basic / Standard | Premium      |
+| ----------------------- | ---------------- | ------------ |
+| Message size            | 256 KB           | Up to 100 MB |
+| Queue and topic support | Yes              | Yes          |
+| Topics in Basic         | No               | Yes          |
+| Sessions                | No in Basic      | Yes          |
+| Duplicate detection     | No in Basic      | Yes          |
+| Dedicated resources     | No               | Yes          |
+
+The actual limits depend on tier, protocol, configuration and current service quotas. Premium large-message support has specific constraints; don't assume every SDK or entity configuration automatically supports every 100 MB message.
+
+Also monitor:
+
+- Maximum entity size.
+- Maximum concurrent connections.
+- Broker throughput.
+- Message size.
+- Active message count.
+- DLQ count.
+- Throttling and server errors.
+- Lock-loss rate.
+
+See the official [Service Bus quotas and pricing documentation](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-quotas?utm_source=chatgpt.com) and [tier comparison](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-pricing-billing?utm_source=chatgpt.com).
+
+## **14. Geo-Disaster Recovery vs Geo-Replication**
+
+This is a Principal-level topic.
+
+Suppose your Service Bus namespace is deployed in Central India.
+
+There is a regional outage.
+
+How do you continue processing?
+
+Service Bus Premium offers two distinct capabilities.
+
+### **14.1 Geo-Disaster Recovery (metadata replication)**
+
+This replicates namespace metadata/configuration to a secondary namespace.
+
+It helps with:
+
+- Namespace alias failover.
+- Configuration continuity.
+- Entity structure recovery.
+
+But the message data itself is not replicated.
+
+Important
+
+A failover does not mean existing messages automatically appear in the secondary namespace.
+
+### **14.2 Geo-Replication (metadata + message data)**
+
+Geo-Replication provides replication of namespace metadata and message data to a secondary region.
+
+This is designed for more complete disaster recovery.
+
+**Regional disaster recovery**
+
+Primary
+
+**Region A**
+
+Service Bus
+
+Messages + metadata
+
+Secondary
+
+**Region B**
+
+Service Bus
+
+Replicated data, subject to replication lag
+
+Replication according to configured mode
+
+The important architectural difference:
+
+| Feature                  | Geo-DR                      | Geo-Replication                     |
+| ------------------------ | --------------------------- | ----------------------------------- |
+| Metadata replication     | Yes                         | Yes                                 |
+| Message data replication | No                          | Yes                                 |
+| Namespace failover       | Yes                         | Yes                                 |
+| Data loss protection     | No message-data replication | Depends on replication mode and lag |
+| Tier                     | Premium                     | Premium                             |
+
+Geo-Replication has different modes and consistency/availability trade-offs. You must understand the selected mode and replication lag before defining RPO.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+# **PART B — Azure Event Hubs**
+
+## **15. What is Azure Event Hubs?**
+
+HIGH-THROUGHPUT EVENT STREAMING PLATFORM
+
+[Browse Azure Architectures - Azure Architecture Center | Microsoft Learn](https://images.openai.com/static-rsc-4/dgFmL2eaUqTkclIOZW5j4DxU5lBYmLI1O3oIBKuPupNpIr68As32Q-Z6bFjjLUPxsS-CwkjipuKYCJWIMKLY-WhiBebOWuCxAnnbZtfcsVw1xDPrJJioEqxmwEMM25rk_wVY8ErZ76cQ3lLnPWTzv6m4A5druYZv-IJFTAu7Yhs?purpose=inline)
+
+[learn.microsoft.com](https://learn.microsoft.com/en-us/azure/architecture/browse/?utm_source=chatgpt.com)
+
+Now imagine our restaurant has 10,000 connected devices.
+
+They continuously generate events:
+
+```
+Table-101 -> Temperature 25°C
+Table-102 -> Temperature 26°C
+Table-103 -> Temperature 24°C
+Kitchen-01 -> Power usage 4.5 kW
+Kitchen-02 -> Power usage 5.1 kW
+```
+
+We want to ingest all these events.
+
+We don't necessarily want to create a separate business queue for every event.
+
+We want a streaming platform that can:
+
+- Accept a very high volume of events.
+- Store events for a retention period.
+- Allow multiple independent consumers.
+- Support replay.
+- Scale through partitions.
+
+That is Azure Event Hubs.
+
+### **15.1 Service Bus vs Event Hubs — fundamental difference**
+
+Think of Service Bus as a task distribution system.
+
+Think of Event Hubs as a distributed event log.
+
+| Service Bus                                          | Event Hubs                                 |
+| ---------------------------------------------------- | ------------------------------------------ |
+| Message broker                                       | Streaming platform                         |
+| Work distribution                                    | Event ingestion                            |
+| Peek-Lock and settlement                             | Read using offsets/checkpoints             |
+| Message completed and removed from active processing | Event retained for configured duration     |
+| DLQ support                                          | No equivalent built-in Service Bus DLQ     |
+| Sessions for ordered workflows                       | Partitions for ordered streams             |
+| Business commands and workflows                      | Telemetry, logs, high-volume event streams |
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+## **16. Event Hubs architecture**
+
+Event Hubs has several important concepts.
+
+### **16.1 Namespace**
+
+A namespace is the management container for event hubs.
+
+Example:
+
+```
+restaurant-events.servicebus.windows.net
+    |
+    |-- orders-stream
+    |-- payments-stream
+    |-- kitchen-telemetry
+    |-- customer-activity
+```
+
+### **16.2 Event Hub**
+
+An Event Hub is the logical streaming endpoint.
+
+Think of it as an event stream or a Kafka topic.
+
+### **16.3 Partitions**
+
+This is the most important Event Hubs concept.
+
+A partition is an ordered sequence of events.
+
+Imagine a highway.
+
+One lane can handle a limited amount of traffic.
+
+Multiple lanes allow more traffic to flow concurrently.
+
+**Event Hub: orders-stream**
+
+**Partition 0**
+
+E1 → E4 → E7
+
+Ordered
+
+**Partition 1**
+
+E2 → E5 → E8
+
+Ordered
+
+**Partition 2**
+
+E3 → E6 → E9
+
+Ordered
+
+Ordering is maintained within each partition, not globally across all partitions.
+
+### **Why partitions?**
+
+Three main reasons:
+
+1. Parallelism.
+2. Throughput scaling.
+3. Ordering within a partition.
+
+Suppose we have four partitions.
+
+We can distribute consumers across those partitions to process events in parallel.
+
+### **16.4 Partition Key**
+
+Suppose all orders from the same customer must go to the same partition.
+
+Set:
+
+```
+eventData.PartitionKey = "Customer-101";
+```
+
+The service uses the partition key to consistently route related events to a partition.
+
+Example:
+
+```
+Customer-101 -> Partition 0
+Customer-102 -> Partition 2
+Customer-103 -> Partition 1
+```
+
+All events with the same partition key are routed to the same partition while the mapping remains stable.
+
+**Important:** More partitions do not automatically guarantee more throughput if your workload has a hot partition or insufficient consumer capacity.
+
+## **17. Consumer Groups**
+
+Now suppose we publish 1 million restaurant events.
+
+Three systems want to independently process them:
+
+- Analytics.
+- Fraud detection.
+- Monitoring.
+
+Should all three share the same reading position?
+
+No.
+
+We use consumer groups.
+
+**orders-stream**
+
+Event Hub — 3 partitions
+
+**Analytics**
+
+Independent consumer group
+
+Own offsets
+
+**Fraud**
+
+Independent consumer group
+
+Own offsets
+
+**Monitoring**
+
+Independent consumer group
+
+Own offsets
+
+Each consumer group maintains its own position in the stream.
+
+For example:
+
+```
+Analytics:
+Partition 0 -> Offset 100
+Partition 1 -> Offset 150
+
+Fraud:
+Partition 0 -> Offset 90
+Partition 1 -> Offset 145
+
+Monitoring:
+Partition 0 -> Offset 200
+Partition 1 -> Offset 180
+```
+
+One consumer group can be behind another.
+
+This is useful because analytics might process data more slowly than fraud detection.
+
+### **Consumer Group vs Consumer**
+
+Don't confuse these.
+
+- Consumer group: Independent logical view of the event stream.
+- Consumer: Actual application or worker reading events.
+
+Within one consumer group, multiple consumer instances can divide the partitions among themselves.
+
+### **Can we replay events?**
+
+Yes.
+
+Because events remain in the stream for a configured retention period, consumers can read again from an earlier offset, subject to retention and checkpoint configuration.
+
+This is one of Event Hubs' biggest advantages.
+
+## **18. Event Hubs Capture**
+
+What happens when we need to store events for long-term analytics?
+
+Event Hubs has a feature called Capture.
+
+It automatically writes incoming event data to:
+
+- Azure Blob Storage.
+- Azure Data Lake Storage.
+
+**High-volume events**
+
+IoT / Application / Trading events
+
+**Azure Event Hubs**
+
+Capture
+
+**Azure Data Lake / Blob Storage**
+
+Long-term event storage
+
+**Databricks / Synapse / Analytics**
+
+Why is this useful?
+
+Imagine collecting 100 million trading events every day.
+
+We don't want an application manually consuming every event and writing each one to storage.
+
+Capture handles this as a managed feature.
+
+It uses configured time and size windows to write event batches.
+
+Important: Capture is not the same as consumer checkpointing. Capture archives event data; checkpoints track how far a consumer has processed.
+
+## **19. Event Hubs tiers**
+
+Event Hubs has four major tiers.
+
+| Feature                  | Basic   | Standard               | Premium            | Dedicated        |
+| ------------------------ | ------- | ---------------------- | ------------------ | ---------------- |
+| Multi-tenancy            | Shared  | Shared                 | Resource-isolated  | Single tenant    |
+| Kafka endpoint           | No      | Yes                    | Yes                | Yes              |
+| Multiple consumer groups | Limited | Yes                    | Yes                | Yes              |
+| Capture                  | No      | Yes, separately priced | Included           | Included         |
+| Geo-DR                   | No      | Yes                    | Yes                | Yes              |
+| Geo-Replication          | No      | No                     | Yes                | Yes              |
+| Scale                    | Basic   | General purpose        | Higher performance | Highest capacity |
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+### **Which tier?**
+
+- Basic: Simple, low-volume ingestion.
+- Standard: Typical production event streaming.
+- Premium: High-performance, resource isolation and stronger enterprise capabilities.
+- Dedicated: Very large-scale workloads needing a dedicated cluster.
+
+Event Hubs capacity is expressed using throughput units, processing units or capacity units depending on tier.
+
+Do not confuse these with Service Bus Messaging Units.
+
+## **20. Event Hubs Kafka endpoint**
+
+This is an extremely useful feature for .NET and distributed systems engineers.
+
+Suppose your organization already uses Apache Kafka.
+
+You don't necessarily want to rewrite every Kafka producer and consumer when moving to Azure.
+
+Event Hubs provides an Apache Kafka-compatible endpoint.
+
+**Existing Kafka Producer**
+
+Kafka protocol
+
+**Azure Event Hubs Kafka Endpoint**
+
+**Kafka Consumer**
+
+This means you can use supported Kafka clients and the Kafka protocol to communicate with Event Hubs.
+
+However, it is not a full replacement for every Apache Kafka capability.
+
+Differences exist in:
+
+- Broker administration.
+- Protocol support.
+- Kafka-specific APIs.
+- Configuration.
+- Feature availability.
+
+For example, don't assume you can deploy Kafka brokers or use every Kafka Connect feature exactly as you would with a self-managed Kafka cluster.
+
+**Interview question:** Does Event Hubs use Kafka internally?
+
+No. Event Hubs is Microsoft's managed streaming platform that exposes a Kafka-compatible protocol endpoint.
+
+# **PART C — Azure Event Grid**
+
+## **21. What is Event Grid?**
+
+EVENT ROUTING AND NOTIFICATION
+
+[Réaction aux événements du Stockage Blob Azure | Microsoft Learn](https://images.openai.com/static-rsc-4/jvj-QWeUKUiNGSfZvCiNbNVMwgINk5DZQl9BT4jqtQDb0Niia6P4_b8EoK53Eyrh-L3V3rH9lbpiS9S4Pjwtl-7yIymV6nVAv_8PL5WrlHEkk95TL1IXWN18fEhoC_j9YmY0tyPFZf9b4kbZ7dDlDQzhpILDMO2be0FsDG4zEWY?purpose=inline)
+
+[learn.microsoft.com](https://learn.microsoft.com/fr-fr/azure/storage/blobs/storage-blob-event-overview?utm_source=chatgpt.com)
+
+Now let's consider a different problem.
+
+Suppose our restaurant uploads an invoice PDF to Azure Blob Storage.
+
+Whenever a new invoice is uploaded, we want to:
+
+1. Generate a thumbnail.
+2. Extract information using AI.
+3. Notify the accounting team.
+4. Update the invoice index.
+
+We don't want Blob Storage to directly know about these four applications.
+
+We want Azure to notify interested applications when something happens.
+
+This is Event Grid.
+
+### **21.1 How does Event Grid work?**
+
+Event Grid routes events from publishers to subscribers.
+
+```
+Blob Storage
+    |
+    | BlobCreated event
+    v
+Azure Event Grid
+    |
+    +----> Azure Function
+    |
+    +----> Logic App
+    |
+    +----> Webhook
+    |
+    +----> Event Hub
+```
+
+The publisher announces that something happened.
+
+Event Grid routes the event to the appropriate subscribers.
+
+It is particularly useful for reactive, event-driven architectures.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+## **22. Event Grid terminology**
+
+| Term            | Meaning                                          |
+| --------------- | ------------------------------------------------ |
+| Event source    | Where the event originates                       |
+| Event publisher | Application or Azure service publishing events   |
+| Event           | Description of something that happened           |
+| Topic           | Logical endpoint receiving events                |
+| Subscription    | Rules defining which events to receive and where |
+| Event handler   | Destination processing the event                 |
+| Filter          | Selects matching events                          |
+
+### **22.1 System Topics**
+
+A System Topic is associated with an Azure service that publishes events.
+
+Examples:
+
+- Azure Blob Storage.
+- Azure Key Vault.
+- Azure Event Hubs.
+- Azure Service Bus.
+- Azure resource groups.
+
+Example:
+
+When a new file is uploaded:
+
+```
+Blob Storage
+     |
+     | BlobCreated
+     v
+System Topic
+     |
+     v
+Event Subscription
+     |
+     v
+Azure Function
+```
+
+The Azure service itself is the event source.
+
+You don't need to build your own publisher for supported system events.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn
+
+### **22.2 Custom Topics**
+
+What if our application generates its own events?
+
+For example:
+
+```
+Restaurant:
+    OrderCreated
+    OrderCancelled
+    MenuUpdated
+    RestaurantClosed
+```
+
+We can create a custom topic and publish our application events to it.
+
+The custom publisher sends events to Event Grid.
+
+### **22.3 Event Grid Namespaces**
+
+This is an important newer architectural concept.
+
+Don't confuse the older Event Grid topic/domain model with the newer namespace-based model.
+
+Namespaces support advanced event messaging patterns.
+
+They include capabilities such as:
+
+- Namespace topics.
+- Pull delivery.
+- Push delivery.
+- MQTT broker capabilities.
+- Client authentication and access control.
+
+**Push delivery:** Event Grid sends events to your configured destination.
+
+**Pull delivery:** Your consumer actively retrieves events when it is ready.
+
+This is useful when applications need greater control over event consumption.
+
+The namespace model is particularly relevant for application-to-application messaging and IoT/MQTT scenarios.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+### **22.4 Event Grid delivery and retries**
+
+Suppose Event Grid sends an event to an Azure Function.
+
+But the Function is unavailable.
+
+Event Grid can retry delivery according to its retry policy and can use dead-letter storage for events that cannot be delivered, when configured and supported by the delivery model.
+
+Important distinction:
+
+Event Grid delivery retry is not the same as Service Bus message locking and settlement.
+
+Event Grid is fundamentally an event notification and routing service, not a transactional business-workflow broker.
+
+# **PART D — Azure Storage Queues**
+
+## **23. What are Azure Storage Queues?**
+
+SIMPLE ASYNCHRONOUS QUEUING
+
+[Exploring Azure Queue Storage - KodeKloud](https://images.openai.com/static-rsc-4/4PQwOwfUsX74qcPjErXelqDbr6uu0g8ZnSTrAgFll-RyZ1lOtiKNgNJAratpVtlLeFmRw8MKPWJlRq2RflHtA9ATe12us84HUswQCpShVFwe3s_MXpfIx9ZPf1n2I3zFISFfzFsJEmMTtCTev1YMI3K79eT6FavvCqXrFEWLCbQ?purpose=inline)
+
+[notes.kodekloud.com](https://notes.kodekloud.com/docs/AZ-204-Developing-Solutions-for-Microsoft-Azure/Discovering-Azure-Message-Queues/Exploring-Azure-Queue-Storage/page?utm_source=chatgpt.com)
+
+Suppose our restaurant needs to resize uploaded food images in the background.
+
+We don't require:
+
+- Complex topic subscriptions.
+- Message sessions.
+- Broker transactions.
+- Advanced enterprise messaging features.
+
+We just need a simple queue.
+
+Azure Storage Queues provides this.
+
+### **23.1 Architecture**
+
+```
+Image Upload API
+       |
+       v
+Azure Storage Queue
+       |
+       v
+Background Worker
+       |
+       v
+Resize Image
+       |
+       v
+Save Result
+```
+
+Storage Queues are part of an Azure Storage account.
+
+They are simple, scalable, inexpensive and useful for background processing.
+
+### **23.2 How does Storage Queue work?**
+
+A worker retrieves a message.
+
+The message becomes temporarily invisible to other consumers.
+
+This is called the visibility timeout.
+
+If the worker successfully processes it, the worker deletes the message.
+
+If the worker fails, the message becomes visible again after the timeout expires.
+
+### **23.3 Visibility Timeout vs Service Bus Lock**
+
+These concepts are similar, but not identical.
+
+| Service Bus  | Storage Queue                     |
+| ------------ | --------------------------------- |
+| Peek-Lock    | Visibility timeout                |
+| Complete     | Delete message                    |
+| Abandon      | Message becomes visible again     |
+| DLQ          | No native per-queue DLQ           |
+| Sessions     | No equivalent native sessions     |
+| Transactions | No equivalent broker transactions |
+
+Storage Queues support a maximum message size of 64 KB.
+
+For large payloads, store the data in Blob Storage and place its reference in the queue.
+
+# **PART E — Compare all four services**
+
+## **24. The most important comparison**
+
+This is the table I want you to remember for system-design interviews.
+
+| Capability                | Service Bus                   | Event Hubs                        | Event Grid                                  | Storage Queue                     |
+| ------------------------- | ----------------------------- | --------------------------------- | ------------------------------------------- | --------------------------------- |
+| Primary purpose           | Enterprise messaging          | Event streaming                   | Event routing                               | Simple queuing                    |
+| Queue                     | Yes                           | No traditional queue              | No traditional queue                        | Yes                               |
+| Pub/Sub                   | Topics                        | Consumer groups                   | Event subscriptions                         | No native equivalent              |
+| High-throughput streaming | Not its primary purpose       | Yes                               | Not its primary purpose                     | No                                |
+| Ordering                  | Sessions                      | Within partition                  | No general global ordering guarantee        | No general ordering guarantee     |
+| Replay                    | Not like a retained event log | Yes, within retention             | Depends on delivery model; not a replay log | No general replay                 |
+| DLQ                       | Yes                           | No Service Bus-style DLQ          | Dead-letter delivery support                | No native DLQ                     |
+| Transactions              | Yes, broker-scoped            | No Service Bus-style transactions | No                                          | No equivalent broker transactions |
+| Duplicate detection       | Yes, supported tiers          | Producer/consumer strategy        | Consumer idempotency                        | Application strategy              |
+| Kafka protocol            | No                            | Yes                               | No                                          | No                                |
+
+### **24.1 Decision-making flowchart**
+
+**Which Azure messaging service should I choose?**
+
+**What is the main requirement?**
+
+**Business workflow?**
+
+Orders, payments, retries, DLQ, sessions
+
+Service Bus
+
+**Huge event volume?**
+
+Logs, telemetry, streaming, replay
+
+Event Hubs
+
+**React to something?**
+
+Blob created, resource changed, notification
+
+Event Grid
+
+**Simple background task?**
+
+Lightweight queue, simple worker
+
+Storage Queue
+
+### **24.2 A tricky question: Can we combine these services?**
+
+Absolutely. In fact, this is where good architecture becomes interesting.
+
+Consider this production architecture:
+
+**Restaurant distributed architecture**
+
+**Customer places order**
+
+**Service Bus — Order Queue**
+
+Reliable order processing
+
+**Order Service**
+
+Save order and publish business event through Outbox
+
+**Event distribution**
+
+**Service Bus Topic**
+
+Billing and notification workflows
+
+**Event Hubs**
+
+Operational telemetry and analytics
+
+**Event Grid**
+
+React to Blob uploads
+
+**Storage Queue**
+
+Background image processing
+
+Important architectural distinction: this diagram shows possible integration patterns, not a requirement to publish every order event to every service. Use each broker only when there is a real requirement.
+
+# **PART F — Service Bus Emulator**
+
+## **25. What is the Azure Service Bus Emulator?**
+
+The Service Bus Emulator allows developers to develop and test applications locally without requiring a live Azure Service Bus namespace.
+
+Think about your development environment.
+
+You are writing a .NET 8 application.
+
+You want to test:
+
+- Sending messages.
+- Receiving messages.
+- Queues.
+- Topics and subscriptions.
+- Basic message processing.
+- Dead-letter handling.
+
+Instead of creating an Azure resource and incurring cloud costs for every local test, you can run the emulator.
+
+[Developing Azure Functions with Aspire and the Service Bus Emulator](https://images.openai.com/static-rsc-4/tFEW_WzjD97awc89qx_QZ10vgdfMJ9-BqpyOUaPS1Vielf1vXqkNIU5jwa20dYVy0LXb0EL2U-DWO6-3WtRhOeBcQ7Nu4RV4uSee5glyJHVytY4m8dBcHLHtsiv0m4WwuwtoDfi00gCk9NbQWioyEaNKkb7NxENGm3zYw-nSsps?purpose=inline)
+
+[wagemakers.net](https://www.wagemakers.net/posts/aspire-functions-service-bus/?utm_source=chatgpt.com)
+
+### **25.1 Architecture**
+
+```
+Your local machine
+       |
+       +-- .NET 8 Producer
+       |
+       +-- .NET 8 Consumer
+       |
+       v
+Docker
+       |
+       +-- Service Bus Emulator
+       |
+       +-- SQL Server container
+```
+
+The emulator runs locally with SQL Server as its supporting dependency.
+
+### **25.2 What can it do?**
+
+The emulator supports core Service Bus development scenarios, including:
+
+- Queues.
+- Topics.
+- Subscriptions.
+- SQL and correlation filters.
+- Send and receive operations.
+- Basic message settlement.
+- Local integration testing.
+
+However, it is not a full cloud-service replacement.
+
+Some important emulator limitations:
+
+| Capability                             | Emulator                     |
+| -------------------------------------- | ---------------------------- |
+| Local queue testing                    | Yes                          |
+| Topic/subscription testing             | Yes                          |
+| Local message processing               | Yes                          |
+| Premium performance testing            | No                           |
+| Geo-Replication                        | No                           |
+| Azure regional disaster recovery       | No                           |
+| Production-scale throughput validation | No                           |
+| Azure managed identity validation      | Not equivalent to real Azure |
+
+Some particularly important emulator quotas:
+
+| Property                | Emulator limit |
+| ----------------------- | -------------- |
+| Namespaces              | 1              |
+| Queues/topics           | 50             |
+| Subscriptions per topic | 50             |
+| Concurrent connections  | 10             |
+| Message size            | 256 KB         |
+| Queue/topic size        | 100 MB         |
+| TTL                     | 1 hour         |
+
+These are emulator limits, not the cloud Service Bus quotas.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn
+
+
+
+Official guide: [Azure Service Bus Emulator documentation](https://learn.microsoft.com/en-us/azure/service-bus-messaging/overview-emulator?utm_source=chatgpt.com).
+
+### **25.3 When should we use the emulator?**
+
+| Development activity      | Recommendation                      |
+| ------------------------- | ----------------------------------- |
+| Unit tests                | Mock interfaces or use test doubles |
+| Local integration testing | Emulator                            |
+| Cloud integration testing | Real Azure Service Bus              |
+| Load testing              | Real Azure Service Bus              |
+| Geo-DR testing            | Real Azure Service Bus              |
+| Managed identity testing  | Real Azure environment              |
+
+**Principal Engineer insight:** Passing emulator tests does not prove that your application will work correctly under Azure throttling, lock expiration, network failures or production load.
+
+# **PART G — Implementing Service Bus in .NET 8**
+
+## **26. Let's build a practical example**
+
+We'll implement a simple restaurant order workflow.
+
+Our goal:
+
+```
+Order API
+    |
+    v
+Service Bus Queue
+    |
+    v
+Background Worker
+    |
+    v
+Process Order
+```
+
+We'll use the official `Azure.Messaging.ServiceBus` SDK.
+
+### **26.1 Install NuGet package**
+
+```
+dotnet add package Azure.Messaging.ServiceBus
+```
+
+### **26.2 Configure connection**
+
+For local development, use your emulator connection settings.
+
+For Azure production, prefer Microsoft Entra ID and Managed Identity rather than storing connection strings in source code.
+
+```
+{
+  "ServiceBus": {
+    "FullyQualifiedNamespace":
+      "restaurant-prod.servicebus.windows.net",
+    "QueueName": "orders-queue"
+  }
+}
+```
+
+### **26.3 Create message model**
+
+```
+public sealed record OrderMessage(
+    string OrderId,
+    string CustomerId,
+    decimal Amount,
+    DateTime CreatedAt
+);
+```
+
+### **26.4 Producer — Send message**
+
+```
+using Azure.Messaging.ServiceBus;
+using System.Text.Json;
+
+public sealed class OrderPublisher
+{
+    private readonly ServiceBusSender _sender;
+
+    public OrderPublisher(ServiceBusClient client)
+    {
+        _sender = client.CreateSender("orders-queue");
+    }
+
+    public async Task PublishAsync(
+        OrderMessage order,
+        CancellationToken cancellationToken)
+    {
+        var json = JsonSerializer.Serialize(order);
+
+        var message = new ServiceBusMessage(json)
+        {
+            MessageId = order.OrderId,
+            ContentType = "application/json"
+        };
+
+        await _sender.SendMessageAsync(
+            message,
+            cancellationToken);
+    }
+}
+```
+
+What happens internally?
+
+1. The API creates an order message.
+2. It serializes the object into JSON.
+3. It creates a Service Bus message.
+4. It assigns a MessageId.
+5. It sends the message through the SDK.
+6. Service Bus accepts the message.
+7. The API receives the send operation result.
+
+Note that `MessageId` becomes useful for duplicate detection only when the queue has duplicate detection enabled.
+
+### **26.5 Consumer — Receive and process**
+
+```
+public sealed class OrderWorker : IAsyncDisposable
+{
+    private readonly ServiceBusProcessor _processor;
+
+    public OrderWorker(ServiceBusClient client)
+    {
+        _processor = client.CreateProcessor(
+            "orders-queue",
+            new ServiceBusProcessorOptions
+            {
+                AutoCompleteMessages = false,
+                MaxConcurrentCalls = 5,
+                MaxAutoLockRenewalDuration =
+                    TimeSpan.FromMinutes(5)
+            });
+
+        _processor.ProcessMessageAsync += ProcessMessage;
+        _processor.ProcessErrorAsync += ProcessError;
+    }
+
+    public Task StartAsync(CancellationToken token)
+        => _processor.StartProcessingAsync(token);
+
+    private async Task ProcessMessage(
+        ProcessMessageEventArgs args)
+    {
+        try
+        {
+            var order = JsonSerializer.Deserialize<OrderMessage>(
+                args.Message.Body.ToString());
+
+            if (order is null)
+                throw new InvalidOperationException(
+                    "Invalid order message");
+
+            Console.WriteLine(
+                $"Processing order {order.OrderId}");
+
+            // Perform idempotent business processing.
+
+            await args.CompleteMessageAsync(args.Message);
+        }
+        catch (PermanentMessageException)
+        {
+            await args.DeadLetterMessageAsync(
+                args.Message,
+                "PermanentFailure",
+                "Order cannot be processed");
+        }
+        catch
+        {
+            await args.AbandonMessageAsync(args.Message);
+        }
+    }
+
+    private Task ProcessError(ProcessErrorEventArgs args)
+    {
+        Console.WriteLine(args.Exception);
+        return Task.CompletedTask;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await _processor.DisposeAsync();
+    }
+}
+```
+
+The code demonstrates the basic processing pattern. In production, classify transient and permanent errors explicitly rather than treating every exception identically. Avoid endlessly abandoning poison messages.
+
+### **26.6 What is ServiceBusClient?**
+
+```
+var client = new ServiceBusClient(
+    fullyQualifiedNamespace,
+    new DefaultAzureCredential());
+```
+
+This client represents your connection to the Service Bus namespace.
+
+It is generally intended to be reused.
+
+Don't create a new client for every message.
+
+You can create multiple senders and processors from it.
+
+### **26.7 How do we use Managed Identity?**
+
+In Azure, assign the appropriate Service Bus data role to the application's managed identity.
+
+For example:
+
+- Azure Service Bus Data Sender.
+- Azure Service Bus Data Receiver.
+
+Then authenticate using:
+
+```
+var credential = new DefaultAzureCredential();
+
+var client = new ServiceBusClient(
+    "restaurant-prod.servicebus.windows.net",
+    credential);
+```
+
+This avoids hardcoding credentials.
+
+### **26.8 Dependency Injection architecture**
+
+For a real application:
+
+```
+ASP.NET Core API
+     |
+     v
+OrderController
+     |
+     v
+IOrderPublisher
+     |
+     v
+OrderPublisher
+     |
+     v
+ServiceBusClient
+     |
+     v
+Azure Service Bus
+```
+
+The consumer can run as a separate .NET Worker Service.
+
+Keep messaging infrastructure separate from business logic.
+
+For example:
+
+```
+OrderService/
+    Domain/
+    Application/
+    Infrastructure/
+        Messaging/
+            ServiceBusPublisher.cs
+            ServiceBusConsumer.cs
+    API/
+```
+
+This separation makes testing and broker replacement easier.
+
+# **PART H — Internal Working and Production Architecture**
+
+## **27. What actually happens when a message is sent?**
+
+Let's go deeper than calling `SendMessageAsync()`.
+
+Suppose our .NET application sends:
+
+```
+{
+  "orderId": "ORD-1001",
+  "customerId": "CUST-101",
+  "amount": 850
+}
+```
+
+The actual lifecycle looks like this:
+
+1. **Application creates message**
+
+   .NET serializes the business object and adds metadata such as MessageId, ContentType and SessionId.
+2. **SDK sends message**
+
+   The Azure Service Bus SDK communicates with the broker, normally using AMQP 1.0 over TLS.
+3. **Broker accepts message**
+
+   Service Bus validates the request and stores the message in its messaging infrastructure.
+4. **Consumer receives message**
+
+   A receiver obtains the message using Peek-Lock or Receive-and-Delete.
+5. **Consumer processes message**
+
+   It performs the business operation, ideally idempotently.
+6. **Consumer settles message**
+
+   Complete, Abandon, Dead-letter or Defer.
+
+### **27.1 What is AMQP?**
+
+AMQP stands for Advanced Message Queuing Protocol.
+
+It is a messaging protocol used for communication between messaging clients and brokers.
+
+It defines how:
+
+- Connections are established.
+- Sessions and links are managed.
+- Messages are transferred.
+- Delivery outcomes are communicated.
+
+Service Bus supports AMQP 1.0.
+
+This is different from HTTP REST calls.
+
+In a REST request, the application typically sends an HTTP request to an endpoint and waits for the response.
+
+In messaging, the producer sends a message to the broker, and the consumer can process it later.
+
+### **27.2 Is the message stored in memory?**
+
+No, you should not think of Service Bus as just an in-memory collection.
+
+It is a managed broker with durable messaging infrastructure.
+
+However, actual persistence and availability guarantees depend on the tier and service configuration.
+
+For critical workloads, understand:
+
+- Availability Zones.
+- Replication.
+- Premium messaging units.
+- Geo-Replication.
+- Entity partitioning.
+- Namespace configuration.
+
+## **28. Delivery guarantees: At-most-once, At-least-once and Exactly-once**
+
+This is one of the most important distributed-systems interview topics.
+
+### **28.1 At-most-once delivery**
+
+The message is delivered zero or one time.
+
+It might be lost, but the system doesn't repeatedly deliver it.
+
+Receive-and-Delete is an example of a pattern where a failure after receipt can cause message loss.
+
+### **28.2 At-least-once delivery**
+
+The message is delivered one or more times.
+
+Duplicates are possible.
+
+Peek-Lock with redelivery provides this type of processing model.
+
+Example:
+
+```
+Message received
+       |
+       v
+Business operation succeeds
+       |
+       v
+Application crashes
+       |
+       v
+Complete was not acknowledged
+       |
+       v
+Message redelivered
+```
+
+This is why idempotency is important.
+
+### **28.3 Exactly-once processing**
+
+Can Service Bus guarantee that your business operation executes exactly once?
+
+Not by itself.
+
+Imagine:
+
+```
+Charge customer's card
+       |
+       v
+Application crashes
+       |
+       v
+Message redelivered
+```
+
+The broker cannot know whether your external payment operation succeeded.
+
+You need business-level idempotency and appropriate transaction design.
+
+| Guarantee           | Meaning                                                                         |
+| ------------------- | ------------------------------------------------------------------------------- |
+| At-most-once        | Zero or one delivery                                                            |
+| At-least-once       | One or more deliveries                                                          |
+| Exactly-once effect | Duplicate business effects are prevented through coordinated application design |
+
+**Principal Engineer answer:** Design for at-least-once delivery and idempotent processing rather than assuming exactly-once execution across distributed services.
+
+## **29. Failure scenarios — Production troubleshooting**
+
+Let's assume our restaurant system has been running in production.
+
+These are the failures you must know how to diagnose.
+
+### **Scenario 1: Queue backlog is increasing**
+
+Production incident
+
+Symptoms:
+
+- Producer is sending 1,000 messages/second.
+- Consumer is processing 300 messages/second.
+- Queue length is increasing.
+
+Why?
+
+Incoming rate exceeds processing capacity.
+
+If this continues, message latency increases and the queue can eventually reach its configured size limit.
+
+What would you do?
+
+1. Check consumer CPU and memory.
+2. Check database response times.
+3. Check external API latency.
+4. Increase consumer concurrency carefully.
+5. Scale worker replicas.
+6. Investigate throttling.
+7. Check whether a poison message is repeatedly failing.
+
+Example:
+
+```
+Producer: 1,000 messages/sec
+Consumer:   300 messages/sec
+
+Backlog growth: 700 messages/sec
+```
+
+Increasing the number of consumers helps only if the downstream dependencies can handle the additional load.
+
+### **Scenario 2: Message is processed twice**
+
+Symptoms:
+
+Customer gets charged twice.
+
+Why?
+
+The application performed the payment operation but failed before completing the message.
+
+Solution:
+
+- Use idempotency keys.
+- Store processed message/business identifiers.
+- Use unique database constraints.
+- Use idempotent external APIs where available.
+- Avoid relying only on duplicate detection.
+
+### **Scenario 3: Message lock is lost**
+
+Symptoms:
+
+Consumer receives an exception when trying to complete a message.
+
+Why?
+
+Possible causes:
+
+- Processing exceeded lock duration.
+- Network connection dropped.
+- Lock renewal failed.
+- Another condition caused lock loss.
+
+Solution:
+
+- Configure automatic lock renewal.
+- Reduce unnecessarily long processing time.
+- Use smaller units of work.
+- Make processing idempotent.
+- Handle lock loss and possible redelivery.
+
+### **Scenario 4: Poison message**
+
+Symptoms:
+
+One message fails every time.
+
+It repeatedly gets retried.
+
+Solution:
+
+- Classify errors.
+- Set appropriate delivery limits.
+- Move permanent failures to DLQ.
+- Alert operations.
+- Fix the root cause before replaying.
+
+### **Scenario 5: Service Bus is unavailable**
+
+What happens?
+
+Your producer cannot send messages.
+
+What would you do?
+
+- Use retry with exponential backoff.
+- Add jitter to avoid synchronized retries.
+- Set sensible retry limits.
+- Avoid retry storms.
+- Preserve the business operation in a durable outbox.
+- Alert when the broker is unavailable.
+- Use the configured disaster-recovery architecture if the outage is regional.
+
+### **Scenario 6: Consumer is slower than producer**
+
+This is called a throughput mismatch.
+
+You need to identify the bottleneck:
+
+```
+Service Bus
+     |
+     v
+.NET Worker
+     |
+     v
+Azure SQL
+     |
+     v
+External Payment API
+```
+
+If Azure SQL takes 2 seconds per message, adding 100 workers may overload the database.
+
+Scaling consumers without considering downstream capacity is a common architectural mistake.
+
+### **Scenario 7: Event Hubs consumer falls behind**
+
+Suppose the producer sends 50,000 events/second but the consumer processes 20,000.
+
+The consumer lag grows.
+
+How do you investigate?
+
+- Check partition-level lag.
+- Check consumer group ownership.
+- Check partition distribution.
+- Check checkpoint frequency.
+- Check processing latency.
+- Increase consumer capacity where appropriate.
+- Investigate hot partitions.
+
+Remember: adding consumers beyond the available partition parallelism does not necessarily increase throughput.
+
+## **30. Backpressure, Retry and Circuit Breaker**
+
+These three concepts work together.
+
+Suppose our billing service depends on an external payment provider.
+
+The provider becomes slow.
+
+Without protection:
+
+```
+Service Bus
+     |
+     v
+100 Workers
+     |
+     v
+Payment API (slow)
+```
+
+All workers become blocked.
+
+The queue backlog grows.
+
+We need three protections.
+
+**Backpressure:** Control the rate at which work enters or proceeds through a downstream component.
+
+**Retry:** Try again when a failure is likely to be temporary.
+
+**Circuit breaker:** Stop repeatedly calling an unhealthy dependency for a period of time.
+
+Example:
+
+```
+Payment API
+     |
+     v
+Failures increase
+     |
+     v
+Circuit breaker opens
+     |
+     v
+Stop calling temporarily
+     |
+     v
+Retry after recovery period
+     |
+     v
+Circuit closes when healthy
+```
+
+Use Polly or the .NET resilience libraries to implement application-level resilience.
+
+Important: A circuit breaker does not replace Service Bus retry or message settlement. They protect different layers.
+
+### **Recommended production configuration**
+
+| Setting                    | Starting consideration                        |
+| -------------------------- | --------------------------------------------- |
+| MaxConcurrentCalls         | Based on CPU and downstream capacity          |
+| MaxAutoLockRenewalDuration | Based on expected processing time             |
+| MaxDeliveryCount           | Based on retry policy                         |
+| TTL                        | Based on business validity                    |
+| PrefetchCount              | Based on message size and processing capacity |
+| Retry policy               | Exponential backoff with jitter               |
+| DLQ alert                  | Alert when count exceeds threshold            |
+
+These are design parameters, not universal fixed values.
+
+## **31. Service Bus vs Kafka vs Azure Event Hubs**
+
+You already encountered Kafka and Service Bus in microservices architecture.
+
+Let's connect the concepts.
+
+| Capability         | Azure Service Bus                   | Apache Kafka                | Azure Event Hubs                     |
+| ------------------ | ----------------------------------- | --------------------------- | ------------------------------------ |
+| Main purpose       | Enterprise messaging                | Distributed event streaming | Managed event streaming              |
+| Message model      | Queue/topic                         | Topic/partition             | Event hub/partition                  |
+| Message retention  | Broker queue semantics and TTL      | Configurable retention      | Configurable retention               |
+| Consumer groups    | Subscriptions / competing receivers | Yes                         | Yes                                  |
+| Ordered processing | Sessions                            | Within partition            | Within partition                     |
+| DLQ                | Built in                            | Usually application-managed | Usually application-managed          |
+| Transactions       | Broker-scoped transactions          | Kafka transactions          | Not equivalent to Kafka transactions |
+| Kafka protocol     | No                                  | Native                      | Compatible endpoint                  |
+| Best fit           | Business workflows                  | Event streaming             | Azure-managed streaming              |
+
+### **Example: Restaurant**
+
+Use Service Bus for:
+
+```
+OrderPlaced
+PaymentRequested
+RefundRequested
+```
+
+Use Kafka or Event Hubs for:
+
+```
+CustomerActivity
+KitchenTemperature
+RestaurantTelemetry
+Clickstream
+```
+
+Don't select a broker merely because it is popular.
+
+Select based on delivery semantics, ordering, retention, throughput, operational requirements and cost.
+
+# **PART I — Principal Engineer Architecture Decisions**
+
+## **32. What if we need ordering, scalability and reliability together?**
+
+This is where the architecture becomes interesting.
+
+Suppose we are developing a multi-restaurant platform.
+
+Requirements:
+
+1. Orders must be processed reliably.
+2. Orders from the same customer must preserve sequence.
+3. Different customers must process concurrently.
+4. Multiple services need to react to completed orders.
+5. Analytics needs historical events.
+6. Failures must be recoverable.
+
+A reasonable architecture:
+
+**Production reference architecture**
+
+**ASP.NET Core Order API**
+
+**Azure SQL + Transactional Outbox**
+
+**Azure Service Bus**
+
+Queue with SessionId = CustomerId
+
+**Order Processing Worker**
+
+**Azure SQL**
+
+Business state
+
+**Service Bus Topic**
+
+Business event distribution
+
+**Event Hubs**
+
+High-volume analytics
+
+**Event Grid**
+
+Infrastructure event routing
+
+### **32.1 Important architecture question**
+
+Why not use Event Hubs for everything?
+
+Because our payment workflow requires:
+
+- Business-level message processing.
+- Explicit settlement.
+- DLQ handling.
+- Session-based ordered processing.
+- Broker transactions where applicable.
+
+Event Hubs solves a different problem: high-throughput ingestion and replayable streaming.
+
+Why not use Service Bus for all analytics events?
+
+Because streaming platforms are designed for very high event volumes, partitioned consumption and independent offsets.
+
+Why not use Event Grid for payment commands?
+
+Because Event Grid is designed for event routing and notification, not as the primary transactional business workflow broker.
+
+## **33. Observability — What should a Principal Engineer monitor?**
+
+Having a queue is not enough.
+
+You need to know whether the entire messaging system is healthy.
+
+### **Service Bus monitoring**
+
+| Metric               | What it tells you                                              |
+| -------------------- | -------------------------------------------------------------- |
+| Active Messages      | Messages waiting to be processed                               |
+| Dead-letter Messages | Failed or rejected messages                                    |
+| Incoming Messages    | Incoming workload                                              |
+| Outgoing Messages    | Message delivery activity                                      |
+| Server Errors        | Broker-side problems                                           |
+| Throttled Requests   | Capacity or quota pressure                                     |
+| Active Connections   | Connected clients                                              |
+| Message Latency      | End-to-end processing delay, measured by application telemetry |
+
+### **Event Hubs monitoring**
+
+- Incoming messages.
+- Incoming bytes.
+- Outgoing bytes.
+- Throttled requests.
+- Active connections.
+- Partition-level consumer lag.
+- Checkpoint progress.
+- Capture failures.
+
+### **Event Grid monitoring**
+
+- Delivery attempts.
+- Failed deliveries.
+- Dead-lettered events.
+- Matched and unmatched events.
+- Delivery latency.
+- Subscription health.
+
+### **Correlation IDs**
+
+Every business operation should have a correlation identifier.
+
+Example:
+
+```
+CorrelationId: CORR-1001
+
+Order API
+   |
+   v
+Service Bus
+   |
+   v
+Billing Service
+   |
+   v
+Notification Service
+```
+
+Pass the correlation identifier through message properties and distributed tracing.
+
+This helps troubleshoot a business transaction across multiple services.
+
+# **PART J — Interview and Knowledge Validation**
+
+## **34. Principal Engineer interview questions**
+
+These are questions I would expect in a Senior/Principal .NET and Azure architecture interview.
+
+### **Fundamentals**
+
+**Q1. What is the difference between Azure Service Bus and Event Hubs?**
+
+Service Bus is an enterprise message broker for reliable business messaging. Event Hubs is a high-throughput streaming platform that uses partitions, offsets and consumer groups.
+
+**Q2. What is the difference between a queue and a topic?**
+
+A queue distributes messages among competing consumers. A topic provides independent copies to its matching subscriptions.
+
+**Q3. What is the difference between Event Grid and Event Hubs?**
+
+Event Grid routes notifications about events. Event Hubs ingests and retains high-volume event streams.
+
+**Q4. What is the difference between Service Bus and Storage Queue?**
+
+Service Bus offers advanced enterprise messaging features such as topics, sessions, broker transactions and DLQs. Storage Queues offer simple, inexpensive asynchronous queuing.
+
+### **Advanced Service Bus**
+
+**Q5. Explain Peek-Lock.**
+
+A message is locked temporarily after a receiver obtains it. The consumer explicitly settles it after processing.
+
+**Q6. What happens if the consumer crashes before completing a message?**
+
+The lock eventually expires and the message can be redelivered.
+
+**Q7. What is a SessionId?**
+
+A mechanism for grouping related messages and processing them in order within a session.
+
+**Q8. What is duplicate detection?**
+
+Broker-level filtering of repeated sends with the same MessageId within a configured detection window.
+
+**Q9. Does duplicate detection guarantee exactly-once processing?**
+
+No. A message can be redelivered after business processing but before acknowledgement. Consumers need idempotency.
+
+**Q10. What is a DLQ?**
+
+A special subqueue that holds messages that cannot be processed normally, for investigation and controlled recovery.
+
+**Q11. Does Service Bus support transactions with Azure SQL?**
+
+Not as one automatically coordinated atomic transaction. Use the Transactional Outbox pattern for reliable database-to-broker publishing.
+
+**Q12. Difference between Geo-DR and Geo-Replication?**
+
+Geo-DR replicates namespace metadata but not messages. Geo-Replication replicates metadata and message data.
+
+### **Advanced Event Hubs**
+
+**Q13. What is a partition?**
+
+An independently ordered sequence of events that enables parallel ingestion and consumption.
+
+**Q14. What is a consumer group?**
+
+An independent logical view of the stream with its own reading position.
+
+**Q15. Can Event Hubs replay events?**
+
+Yes, while the events remain within the configured retention period.
+
+**Q16. What is Event Hubs Capture?**
+
+A managed feature that writes streaming data into Blob Storage or Data Lake Storage.
+
+**Q17. Does Event Hubs support Kafka?**
+
+It exposes a Kafka-compatible endpoint. It isn't a full self-managed Kafka broker replacement.
+
+### **Architecture**
+
+**Q18. Can we use Service Bus and WebSockets together?**
+
+Yes. Service Bus can carry durable backend messages while WebSockets deliver real-time updates to connected clients.
+
+Example:
+
+```
+Order Service
+     |
+     v
+Service Bus
+     |
+     v
+Notification Worker
+     |
+     v
+SignalR / WebSocket
+     |
+     v
+Customer browser
+```
+
+Remember that WebSockets are a client-server communication channel, not a durable message broker.
+
+**Q19. Can a message be lost even when using Service Bus?**
+
+Yes, depending on receive mode, acknowledgement, expiry, configuration and application behavior. Peek-Lock with appropriate durability and recovery design reduces the risk.
+
+**Q20. How do you prevent duplicate payment processing?**
+
+Use a stable idempotency key, durable processing records, database uniqueness constraints and an idempotent payment-provider operation where supported.
+
+**Q21. What happens when consumers are slower than producers?**
+
+The backlog grows. Monitor lag, investigate downstream bottlenecks and scale consumers within downstream capacity.
+
+**Q22. How do you guarantee ordering?**
+
+Use Service Bus Sessions for grouped business workflows or Event Hubs partition keys for ordered event streams. Ordering is not automatically global across all messages.
+
+**Q23. Why not increase consumers indefinitely?**
+
+Because of partition limits, database capacity, downstream throttling, contention and resource constraints.
+
+## **35. Final revision — Memorise these 15 concepts**
+
+**Your revision checklist**
+
+0/15 completed
+
+Service Bus = Enterprise message broker
+
+Queue = Competing consumers
+
+Topic = Publish/Subscribe
+
+Subscription = Independent consumer endpoint
+
+Peek-Lock = Receive, process, acknowledge
+
+Complete = Remove successfully processed message
+
+Abandon = Release for redelivery
+
+DLQ = Failed-message isolation
+
+SessionId = Ordered processing within a group
+
+MessageId = Duplicate detection identifier
+
+Idempotency = Prevent duplicate business effects
+
+Transactions = Atomic broker operations
+
+Outbox = Reliable database-to-broker publishing
+
+Event Hubs = High-throughput event streaming
+
+Event Grid = Event routing and Storage Queue = Simple background jobs
+
+Reset checklist
+
+## **36. Official Microsoft documentation — reference library**
+
+These are the resources worth keeping for deeper study.
+
+1. [Azure Service Bus — Messaging overview](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-messaging-overview?utm_source=chatgpt.com)
+2. [Queues, Topics and Subscriptions](https://learn.microsoft.com/en-us/azure/service-bus-messaging/service-bus-queues-topics-subscriptions?WT.mc_id=AZ-MVP-5005172\&utm_source=chatgpt.com)
+3. [Premium Messaging Features](https://learn.microsoft.com/en-in/azure/service-bus-messaging/service-bus-premium-messaging?utm_source=chatgpt.com)
+4. [Service Bus Reliability and Disaster Recovery](https://learn.microsoft.com/en-us/azure/reliability/reliability-service-bus?utm_source=chatgpt.com)
+5. [Service Bus Emulator](https://learn.microsoft.com/en-us/azure/service-bus-messaging/overview-emulator?utm_source=chatgpt.com)
+6. [Event Hubs Tier Comparison](https://learn.microsoft.com/en-us/azure/event-hubs/compare-tiers?utm_source=chatgpt.com)
+7. [Event Hubs Features and Terminology](https://learn.microsoft.com/en-in/azure/event-hubs/event-hubs-features?utm_source=chatgpt.com)
+8. [Azure Event Grid Documentation](https://learn.microsoft.com/en-us/azure/event-grid/?utm_source=chatgpt.com)
+9. [Event Grid System Topics](https://learn.microsoft.com/en-us/azure/event-grid/system-topics?utm_source=chatgpt.com)
+10. [Azure Messaging Services — Complete Documentation](https://learn.microsoft.com/en-us/azure/messaging-services/?utm_source=chatgpt.com)
+
+## **37. My Principal Engineer recommendation**
+
+Don't just memorise four Azure products. Understand the underlying distributed-system problems:
+
+| Problem                           | Concept to master               |
+| --------------------------------- | ------------------------------- |
+| Services are tightly coupled      | Asynchronous messaging          |
+| Duplicate business operations     | Idempotency                     |
+| Database and broker inconsistency | Transactional Outbox            |
+| Messages processed out of order   | Sessions / Partitions           |
+| Consumer crashes                  | At-least-once delivery          |
+| Repeated processing failures      | DLQ                             |
+| Sudden traffic spikes             | Backpressure and load levelling |
+| Consumers cannot keep up          | Scaling and partitioning        |
+| Regional outage                   | Geo-Replication and DR          |
+| Need historical event processing  | Event streaming and replay      |
+
+**One final distinction to remember:**
+
+- Service Bus answers: *How do I reliably deliver and process business messages?*
+- Event Hubs answers: *How do I ingest and process enormous volumes of events?*
+- Event Grid answers: *How do I notify interested systems that something happened?*
+- Storage Queues answers: *How do I distribute simple background work?*
+
+This is the foundation you need before moving to advanced distributed-system architecture and messaging patterns.
+
+
+
+Master Restaurant Cheat Sheet
+
+
+Feature	Azure Service Bus	Azure Event Hubs	Apache Kafka
+Restaurant Analogy	Kitchen Ticket Rail	Cloud CCTV Service	In-House Broadcast Studio
+Core Purpose	Execute specific tasks once	Collect & stream raw events	End-to-end streaming & processing
+Memory / Retention	Deleted immediately after cooking	1 to 90 days max	Days, years, or forever
+Built-in Processing	None (just delivers the ticket)	Minimal (needs Databricks/Functions)	Rich (Kafka Streams, ksqlDB, Connect)
+Maintenance Effort	Zero (Fully managed)	Zero (Fully managed)	High (Self-managed) or Vendor-managed
