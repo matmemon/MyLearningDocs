@@ -1,0 +1,2069 @@
+# **H14 — API Management and Integration Services (REASON)**
+
+
+
+Principal / Staff Engineer level
+
+Architecture reasoning
+
+
+
+This topic connects several important concepts:
+
+- API Gateway
+- API Management (APIM)
+- API security
+- Rate limiting and throttling
+- API products and subscriptions
+- API versioning
+- Azure Front Door
+- Application Gateway
+- Logic Apps
+- Self-hosted gateways
+- Enterprise integration architecture
+
+The most important thing to understand is that **API Management, Front Door and Application Gateway are not interchangeable products.** They solve different problems at different layers of an architecture.
+
+We'll use one consistent example: a restaurant platform with multiple restaurants, customers, kitchen systems, billing services and delivery partners.
+
+# **PART A — WHY DO WE NEED API MANAGEMENT?**
+
+## **1. The problem before API Management**
+
+Imagine we have built a restaurant application using .NET microservices.
+
+Our backend contains:
+
+- Customer Service
+- Restaurant Service
+- Menu Service
+- Order Service
+- Payment Service
+- Delivery Service
+- Notification Service
+
+Initially, every service exposes its own API.
+
+**Architecture A — Direct service exposure**
+
+**Mobile App / Web App / Partner Apps**
+
+Customer API
+
+Restaurant API
+
+Menu API
+
+Order API
+
+Payment API
+
+Delivery API
+
+Multiple exposed endpoints
+
+- Each service handles authentication independently.
+- Every service implements its own rate limiting.
+- API consumers need to know multiple endpoints.
+- Security policies may become inconsistent.
+- API versioning becomes harder to manage.
+
+Imagine that we have 50 microservices.
+
+Now we have 50 APIs to secure, monitor, expose and govern.
+
+We need a central entry point.
+
+## **2. What is an API Gateway?**
+
+An API Gateway is a component that sits between API consumers and backend services.
+
+Instead of consumers calling individual microservices, they call the gateway.
+
+**Architecture B — API Gateway**
+
+**Mobile / Web / External Partners**
+
+**API Gateway**
+
+Central entry point
+
+Authentication · Routing · Rate limiting · Transformation
+
+**Customer Service**
+
+**Restaurant Service**
+
+**Order Service**
+
+**Payment Service**
+
+Now consumers know only the gateway endpoint.
+
+For example:
+
+```
+https://api.restaurant.com/customers
+https://api.restaurant.com/orders
+https://api.restaurant.com/payments
+```
+
+The gateway internally routes requests to appropriate backend services.
+
+### **What responsibilities does an API Gateway have?**
+
+| Responsibility       | Example                          |
+| -------------------- | -------------------------------- |
+| Routing              | `/orders` → Order Service        |
+| Authentication       | Validate JWT                     |
+| Authorization        | Check API access                 |
+| Rate limiting        | 100 requests/minute              |
+| Throttling           | Protect overloaded services      |
+| Transformation       | Modify headers or request format |
+| Versioning           | Route v1 and v2                  |
+| Caching              | Cache menu responses             |
+| Monitoring           | Track API calls and latency      |
+| Developer governance | Control consumer access          |
+
+Important: A gateway is not automatically a replacement for service-to-service communication, service discovery or application-level authorization.
+
+## **3. What is Azure API Management?**
+
+[Komunikasi di sisi klien front-end - .NET | Microsoft Learn](https://images.openai.com/static-rsc-4/Vf9k2AtoDyF1c_cA-F9--sj6fQN8L6v-PFqCtjNTBwq8wdhRN8zm200Au-ZL6lJUesGD0yIjXBJ-c6_BOIZOZmAZSejatzElVp4IFMX4jQoCBf3vj7JFg-phxjFUMcPvkiUELiKB98mmdbA-7-0j3cUNUoUl9fLmrnQyBlVFf7U?purpose=inline)
+
+[learn.microsoft.com](https://learn.microsoft.com/id-id/dotnet/architecture/cloud-native/front-end-communication?utm_source=chatgpt.com)
+
+Azure API Management (APIM) is Microsoft's managed API gateway and API management platform.
+
+It gives us:
+
+1. API Gateway.
+2. API publishing and lifecycle management.
+3. Authentication and authorization policies.
+4. Rate limiting and quotas.
+5. API products and subscriptions.
+6. Developer Portal.
+7. Analytics and monitoring.
+8. API versioning and revisions.
+9. Backend routing and transformations.
+
+Think of it as the front-office manager of our restaurant platform.
+
+The front-office manager controls:
+
+- Which partners can access the restaurant.
+- Which menu APIs they can use.
+- How many requests they can make.
+- Which version they can access.
+- Whether their requests are valid.
+
+The actual cooking still happens in the kitchen (backend microservices).
+
+## **4. API Gateway vs API Management**
+
+These terms are related but not identical.
+
+| API Gateway                         | API Management                                |
+| ----------------------------------- | --------------------------------------------- |
+| Runtime traffic entry point         | Broader API lifecycle platform                |
+| Routes requests                     | Publishes and manages APIs                    |
+| Applies runtime policies            | Provides developer portal                     |
+| Enforces rate limits                | Manages products and subscriptions            |
+| Handles request/response processing | Supports analytics, governance and versioning |
+
+An API Gateway is one of the main components of an API Management platform.
+
+# **PART B — AZURE API MANAGEMENT ARCHITECTURE**
+
+## **5. Understand APIM components**
+
+Azure API Management has several important components.
+
+**Azure API Management**
+
+**Developer Portal**
+
+API discovery, documentation and subscriptions
+
+**Gateway**
+
+Processes incoming API requests
+
+**Management Plane**
+
+Configure APIs, policies and products
+
+**Analytics**
+
+Usage, performance and errors
+
+**Backend APIs**
+
+.NET microservices, external APIs and legacy systems
+
+### **5.1 Gateway**
+
+The gateway is the runtime component.
+
+It receives API requests and executes policies before forwarding requests to backend services.
+
+Example:
+
+```
+Client
+  |
+  v
+APIM Gateway
+  |
+  +-- Validate JWT
+  |
+  +-- Check subscription
+  |
+  +-- Apply rate limit
+  |
+  +-- Transform headers
+  |
+  +-- Route to backend
+          |
+          v
+      Order Service
+```
+
+### **5.2 Management Plane**
+
+This is where administrators and developers configure:
+
+- APIs.
+- Products.
+- Subscriptions.
+- Policies.
+- Named values.
+- Backends.
+- Certificates.
+- Users and groups.
+
+It is the control/configuration side, not the actual business API execution.
+
+### **5.3 Developer Portal**
+
+Suppose we allow external restaurant partners to integrate with our platform.
+
+They need:
+
+- API documentation.
+- Endpoint details.
+- Authentication instructions.
+- Sample requests.
+- Subscription access.
+- API testing capabilities.
+
+The Developer Portal provides this self-service experience.
+
+### **5.4 Backend**
+
+The backend is the actual API implementation.
+
+For example:
+
+```
+APIM
+ |
+ +-- /orders    -> order-api.internal
+ |
+ +-- /payments  -> payment-api.internal
+ |
+ +-- /restaurants -> restaurant-api.internal
+```
+
+APIM doesn't need to host the business logic.
+
+It governs and routes access to it.
+
+## **6. Azure API Management tiers**
+
+This is an important area because Azure APIM has multiple deployment options.
+
+The available tiers include:
+
+- Consumption
+- Developer
+- Basic
+- Standard
+- Premium
+- Basic v2
+- Standard v2
+- Premium v2
+
+Availability and individual capabilities vary by region, subscription and deployment configuration.
+
+| Tier        | Main purpose                | Typical use                                      |
+| ----------- | --------------------------- | ------------------------------------------------ |
+| Consumption | Serverless, usage-based     | Low or variable API traffic                      |
+| Developer   | Non-production              | Development and testing                          |
+| Basic       | Lower-cost dedicated option | Smaller production workloads                     |
+| Standard    | General production          | Medium-scale API workloads                       |
+| Premium     | Enterprise capabilities     | High availability, advanced networking and scale |
+| Basic v2    | Modern v2 platform          | Lower-scale dedicated workloads                  |
+| Standard v2 | Modern v2 platform          | General production workloads                     |
+| Premium v2  | Modern premium platform     | Higher-scale enterprise workloads                |
+
+### **6.1 Consumption**
+
+Imagine a small restaurant application with irregular traffic.
+
+Sometimes:
+
+- 10 requests per minute.
+- Sometimes 10,000 requests per hour.
+- Sometimes almost no traffic.
+
+Consumption is a serverless, consumption-based option.
+
+Advantages:
+
+- Pay-per-use pricing.
+- No dedicated capacity to manage.
+- Good for variable workloads.
+
+Trade-offs:
+
+- Feature and networking limitations compared with dedicated tiers.
+- Not the right choice for every enterprise requirement.
+
+### **6.2 Developer**
+
+Used for:
+
+- API development.
+- Policy testing.
+- Integration testing.
+- Developer Portal configuration.
+
+Not for production
+
+It does not provide the production SLA expected from production tiers.
+
+### **6.3 Basic and Standard**
+
+These are dedicated-capacity options for production workloads with different feature and capacity levels.
+
+Choose according to:
+
+- Throughput.
+- Networking requirements.
+- Availability.
+- Scaling.
+- Cost.
+
+### **6.4 Premium**
+
+Historically, Premium is the enterprise tier for advanced networking and multi-region gateway deployment.
+
+Useful for:
+
+- Mission-critical API platforms.
+- High availability.
+- Advanced network isolation.
+- Multi-region deployments.
+
+### **6.5 V2 tiers**
+
+The v2 platform provides a newer APIM architecture.
+
+The important distinction is that v2 tiers have their own feature matrix; do not assume every classic-tier capability maps identically to a v2 tier.
+
+For example, networking, availability-zone support, multi-region options, gateway features and scaling differ.
+
+**Principal Engineer rule:** Never select an APIM tier by name alone. Compare the exact feature matrix, region availability, SLA, networking requirements, scale and cost.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+2
+
+### **6.6 Tier selection — practical reasoning**
+
+Suppose we have:
+
+- 50 .NET microservices.
+- 10,000 requests per second at peak.
+- Private backend APIs.
+- Multiple Azure regions.
+- External banking partners.
+
+I would investigate Premium classic if multi-region deployment is mandatory, or Premium v2 if its networking and availability capabilities meet the requirements and a single-region deployment is acceptable.
+
+Why not automatically select Premium v2?
+
+Because current documentation distinguishes the capabilities:
+
+- Premium classic supports multi-region deployment.
+- Premium v2 supports availability zones but currently doesn't support multi-region deployment.
+- Standard v2 and Premium v2 support virtual network integration; Premium v2 also supports virtual network injection.
+
+This is a good example of why architecture decisions must be based on capabilities rather than tier names.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+
+
+# **PART C — APIM POLICIES**
+
+## **7. What are API Management policies?**
+
+This is probably the most important practical feature of APIM.
+
+Policies are rules executed by the gateway while processing API requests and responses.
+
+Think of policies as middleware in ASP.NET Core.
+
+In ASP.NET Core:
+
+```
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseRateLimiter();
+```
+
+In APIM, we configure equivalent gateway-level behavior through XML policies.
+
+The difference is that APIM policies can be centrally managed without implementing the same cross-cutting logic in every microservice.
+
+Microsoft provides more than 75 built-in policies.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+
+
+## **8. Policy execution flow**
+
+APIM policies have four sections.
+
+**Incoming HTTP Request**
+
+**1. inbound**
+
+Authentication, rate limiting, validation
+
+**2. backend**
+
+Select or configure backend destination
+
+**Backend .NET API**
+
+**3. outbound**
+
+Response transformation, headers, caching
+
+**4. on-error**
+
+Handle gateway policy and processing errors
+
+**HTTP Response to Client**
+
+Important: The `on-error` section is an error-handling branch, not a mandatory stage after every successful outbound response.
+
+## **9. Important APIM policies**
+
+Let's understand the policies you should know as a Principal Engineer.
+
+| Policy                            | Purpose                                               |
+| --------------------------------- | ----------------------------------------------------- |
+| `validate-jwt`                    | Validate JWT tokens                                   |
+| `authentication-managed-identity` | Authenticate to Azure backends using managed identity |
+| `rate-limit`                      | Limit calls per time interval                         |
+| `rate-limit-by-key`               | Limit calls using a selected key                      |
+| `quota`                           | Enforce usage quota                                   |
+| `quota-by-key`                    | Enforce quota by key                                  |
+| `set-header`                      | Add, modify or remove HTTP headers                    |
+| `rewrite-uri`                     | Rewrite backend URI                                   |
+| `set-backend-service`             | Select backend                                        |
+| `cache-lookup`                    | Look up cached response                               |
+| `cache-store`                     | Store response                                        |
+| `ip-filter`                       | Restrict IP addresses                                 |
+| `cors`                            | Configure cross-origin access                         |
+| `validate-content`                | Validate request content                              |
+| `return-response`                 | Return a response directly from the gateway           |
+
+### **9.1 JWT validation**
+
+Suppose a customer logs in and receives a JWT.
+
+The mobile application sends:
+
+```
+GET /orders/1001 HTTP/1.1
+Host: api.restaurant.com
+Authorization: Bearer eyJhbGciOi...
+```
+
+The gateway validates the token before forwarding the request.
+
+It can check:
+
+- Token signature.
+- Issuer.
+- Audience.
+- Expiration.
+- Required claims.
+
+Example policy:
+
+```
+<policies>
+    <inbound>
+        <base />
+
+        <validate-jwt
+            header-name="Authorization"
+            failed-validation-httpcode="401"
+            failed-validation-error-message="Unauthorized">
+
+            <openid-config
+                url="https://login.microsoftonline.com/TENANT-ID/v2.0/.well-known/openid-configuration" />
+
+            <audiences>
+                <audience>restaurant-api</audience>
+            </audiences>
+
+        </validate-jwt>
+
+    </inbound>
+
+    <backend>
+        <base />
+    </backend>
+
+    <outbound>
+        <base />
+    </outbound>
+
+    <on-error>
+        <base />
+    </on-error>
+</policies>
+```
+
+This is an illustrative policy. In production, configure the correct identity provider, issuer, audience and claim requirements.
+
+**Important:** JWT validation at APIM does not necessarily eliminate backend authorization.
+
+The Order Service must still ensure that Customer-101 cannot access Customer-102's orders.
+
+Authentication answers: Who are you?
+
+Authorization answers: What are you allowed to do?
+
+### **9.2 Managed Identity authentication**
+
+Suppose APIM calls a backend protected by Microsoft Entra ID.
+
+Instead of storing a client secret, APIM can use its managed identity.
+
+Example:
+
+```
+<authentication-managed-identity
+    resource="api://order-service"
+    output-token-variable-name="mi-token" />
+
+<set-header name="Authorization" exists-action="override">
+    <value>@("Bearer " + (string)context.Variables["mi-token"])</value>
+</set-header>
+```
+
+The backend validates the access token.
+
+This is useful for protecting internal APIs.
+
+### **9.3 Header transformation**
+
+Suppose we want to forward a correlation ID.
+
+```
+<set-header name="X-Correlation-ID"
+            exists-action="override">
+    <value>@(context.RequestId)</value>
+</set-header>
+```
+
+This helps with distributed tracing across microservices.
+
+### **9.4 URI rewriting**
+
+External API:
+
+```
+GET /api/orders/1001
+```
+
+Internal backend:
+
+```
+https://order-service.internal/v2/orders/1001
+```
+
+We can use `rewrite-uri` to change the backend path without exposing internal URL structures.
+
+### **9.5 Policy inheritance — the&#x20;**`base`**&#x20;element**
+
+Policies can be defined at different scopes.
+
+- Global.
+- Workspace.
+- Product.
+- API.
+- Operation.
+
+Suppose global policies contain JWT validation.
+
+An individual API policy might define caching.
+
+Use:
+
+```
+<inbound>
+    <base />
+    <cache-lookup
+        vary-by-developer="false"
+        vary-by-developer-groups="false" />
+</inbound>
+```
+
+The `base` element includes the inherited policy section.
+
+If you omit it, you can unintentionally override inherited behavior.
+
+This is especially important in large enterprise APIM installations.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn
+
+# **PART D — THROTTLING, RATE LIMITING AND QUOTAS**
+
+## **10. What problem are we solving?**
+
+Suppose an external restaurant partner integrates with our APIs.
+
+They accidentally send:
+
+```
+10,000 requests per second
+```
+
+Our backend can handle only 1,000 requests per second.
+
+Without traffic control:
+
+- CPU increases.
+- Database connections become exhausted.
+- API latency increases.
+- Requests time out.
+- Other customers are affected.
+
+We need to control incoming traffic.
+
+Three concepts are important.
+
+### **10.1 Rate limiting**
+
+Limits how many requests a client can make during a particular period.
+
+Example:
+
+```
+100 requests per minute
+```
+
+After the limit is reached, additional requests are rejected.
+
+### **10.2 Throttling**
+
+Throttling is the broader practice of controlling traffic to protect system capacity.
+
+It may involve:
+
+- Rejecting requests.
+- Delaying work.
+- Reducing processing rates.
+- Applying concurrency controls.
+
+In APIM, a rate-limit policy usually rejects excess requests rather than queuing them for later.
+
+### **10.3 Quotas**
+
+A quota controls total usage over a longer period.
+
+Example:
+
+```
+10,000 requests per day
+```
+
+Even if the partner makes only 100 requests per minute, it cannot exceed its daily allocation.
+
+## **11. Rate limit vs quota**
+
+| Rate limit                   | Quota                      |
+| ---------------------------- | -------------------------- |
+| Controls request frequency   | Controls total consumption |
+| Shorter intervals            | Longer intervals           |
+| Protects backend from spikes | Enforces usage plans       |
+| Example: 100/minute          | Example: 100,000/month     |
+
+### **11.1 Implement rate limiting**
+
+Example:
+
+```
+<policies>
+    <inbound>
+        <base />
+
+        <rate-limit-by-key
+            calls="100"
+            renewal-period="60"
+            counter-key="@(context.Subscription?.Key ?? context.Request.IpAddress)" />
+
+    </inbound>
+
+    <backend>
+        <base />
+    </backend>
+
+    <outbound>
+        <base />
+    </outbound>
+
+    <on-error>
+        <base />
+    </on-error>
+</policies>
+```
+
+Conceptually:
+
+```
+Partner A
+    |
+    v
+APIM
+    |
+    +-- 1st request  -> Allowed
+    +-- 2nd request  -> Allowed
+    +-- ...
+    +-- 100th        -> Allowed
+    +-- 101st        -> HTTP 429
+```
+
+The exact counter behavior depends on the policy and gateway configuration.
+
+Also, don't assume counters are globally synchronized across every APIM deployment or self-hosted gateway instance.
+
+### **11.2 What is HTTP 429?**
+
+HTTP 429 means:
+
+`Too Many Requests`
+
+A client can also receive a `Retry-After` header to indicate when it should try again, when the gateway or policy provides it.
+
+The client should implement controlled retries with exponential backoff and jitter.
+
+Don't retry immediately in a tight loop.
+
+### **11.3 Why not use APIM alone for all throttling?**
+
+Because different layers protect different resources.
+
+| Layer        | Protection                                    |
+| ------------ | --------------------------------------------- |
+| Front Door   | Global edge traffic and WAF protection        |
+| APIM         | Consumer/API-level rate limiting              |
+| ASP.NET Core | Application-level concurrency and rate limits |
+| Database     | Connection limits and query workload controls |
+
+A good architecture uses layered protection.
+
+# **PART E — PRODUCTS AND SUBSCRIPTIONS**
+
+## **12. What is an API Product?**
+
+This is an important APIM concept.
+
+Suppose our restaurant platform exposes these APIs:
+
+```
+Customer API
+Restaurant API
+Order API
+Payment API
+Delivery API
+```
+
+We have different types of customers:
+
+- Basic restaurant partners.
+- Premium restaurant partners.
+- Enterprise delivery partners.
+
+Should everyone access every API?
+
+No.
+
+We create API Products.
+
+An API Product is a logical package of APIs, access rules and subscription requirements.
+
+**Restaurant API Products**
+
+Basic Product
+
+**Basic Restaurant Partner**
+
+- Restaurant API
+- Menu API
+- 1,000 calls/day
+
+Premium Product
+
+**Premium Restaurant Partner**
+
+- Restaurant API
+- Menu API
+- Order API
+- 50,000 calls/day
+
+Enterprise Product
+
+**Enterprise Partner**
+
+- All approved APIs
+- Higher quota
+- Dedicated integration support
+
+Products allow us to package APIs for different consumers.
+
+## **13. What is a Subscription?**
+
+A subscription is the mechanism through which an API consumer obtains access to a product or API using a subscription key.
+
+Example:
+
+```
+Partner A
+    |
+    v
+Premium Product
+    |
+    v
+Subscription
+    |
+    v
+Subscription Key
+    |
+    v
+APIM Gateway
+```
+
+The partner sends:
+
+```
+GET /orders
+Ocp-Apim-Subscription-Key: YOUR-KEY
+```
+
+APIM uses the subscription to identify and authorize access according to its configuration.
+
+### **13.1 Product vs Subscription vs API Key**
+
+| Concept          | Meaning                                       |
+| ---------------- | --------------------------------------------- |
+| API              | The actual exposed interface                  |
+| Product          | Package of APIs and access rules              |
+| Subscription     | Consumer's access entitlement                 |
+| Subscription key | Credential used to identify that subscription |
+
+### **13.2 Are subscription keys sufficient for security?**
+
+No.
+
+A subscription key is not equivalent to strong user authentication.
+
+For sensitive APIs, use:
+
+- OAuth 2.0.
+- Microsoft Entra ID.
+- JWT validation.
+- Client certificates where appropriate.
+- Backend authorization.
+
+You can require subscription keys, OAuth authentication, or both, depending on the product and API design.
+
+**Principal Engineer insight:** A product is a commercial/access package; a subscription represents a consumer's entitlement. Don't confuse either with the identity of the individual end user.
+
+# **PART F — API VERSIONING AND REVISIONS**
+
+## **14. Why do we need API versioning?**
+
+Imagine we have a mobile application using:
+
+```
+GET /api/v1/orders/1001
+```
+
+The response is:
+
+```
+{
+  "orderId": "1001",
+  "customerName": "John",
+  "amount": 850
+}
+```
+
+Now we want to change the response:
+
+```
+{
+  "id": "1001",
+  "customer": {
+    "name": "John"
+  },
+  "totalAmount": 850,
+  "currency": "INR"
+}
+```
+
+This may break existing clients.
+
+We cannot simply change the API without considering backward compatibility.
+
+We need versioning.
+
+## **15. Common API versioning strategies**
+
+### **15.1 URI versioning**
+
+```
+/api/v1/orders
+/api/v2/orders
+```
+
+Advantages:
+
+- Simple.
+- Easy to understand.
+- Easy to route in APIM.
+- Explicit in logs and debugging.
+
+Disadvantages:
+
+- Version is included in URL.
+- Can create duplicated API surfaces.
+
+### **15.2 Query-string versioning**
+
+```
+/api/orders?api-version=1
+/api/orders?api-version=2
+```
+
+Advantages:
+
+- Same URL structure.
+- Easy to configure in some API platforms.
+
+Disadvantages:
+
+- Version is less visible.
+- Caching and routing must account for the query parameter.
+
+### **15.3 Header versioning**
+
+```
+GET /api/orders
+Api-Version: 2
+```
+
+Advantages:
+
+- Keeps the URL clean.
+- Version is part of request metadata.
+
+Disadvantages:
+
+- Less discoverable.
+- Requires clients to send the correct header.
+
+### **15.4 Media-type versioning**
+
+```
+Accept: application/vnd.restaurant.v2+json
+```
+
+This uses content negotiation.
+
+The client indicates which representation it expects.
+
+### **Comparison**
+
+| Strategy   | Example                | Visibility |
+| ---------- | ---------------------- | ---------- |
+| URI        | `/v2/orders`           | High       |
+| Query      | `?api-version=2`       | High       |
+| Header     | `Api-Version: 2`       | Medium     |
+| Media type | `application/vnd...v2` | Low        |
+
+For public REST APIs, URI versioning is often a straightforward and practical choice.
+
+But there is no universal winner.
+
+## **16. Version vs Revision in APIM**
+
+This distinction is important.
+
+**Version:** A different API contract intended for consumers.
+
+**Revision:** A controlled modification to an existing API without necessarily creating a new consumer-facing contract.
+
+Example:
+
+```
+Orders API
+    |
+    +-- Version 1
+    |
+    +-- Version 2
+```
+
+Now we need to update the v2 API's documentation or policy.
+
+We create a revision:
+
+```
+Orders API v2
+    |
+    +-- Revision 1 (Current)
+    |
+    +-- Revision 2 (Testing)
+```
+
+Once tested, we make revision 2 current.
+
+Microsoft documents revisions as a way to safely test and publish API changes without disrupting consumers.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn
+
+
+
+### **When should you create a new version?**
+
+Create a new version when you make a breaking contract change.
+
+Examples:
+
+- Removing a field.
+- Changing field types.
+- Changing required parameters.
+- Changing response semantics.
+
+For backward-compatible changes, a new revision or a compatible update may be sufficient.
+
+# **PART G — SELF-HOSTED GATEWAY**
+
+## **17. What is a self-hosted APIM gateway?**
+
+Normally, the APIM gateway runs in Azure-managed infrastructure.
+
+But imagine our restaurant platform has:
+
+- APIs in Azure.
+- APIs in an on-premises data centre.
+- APIs in AWS.
+- APIs running inside Kubernetes.
+- Internal APIs that cannot be exposed publicly.
+
+What if we want consistent API policies and management across these environments?
+
+We can deploy an APIM self-hosted gateway.
+
+[Hybrid Cloud & Azure API Management : Self-Hosted Gateway | by Amine Charot | Medium](https://images.openai.com/static-rsc-4/ncd4CQq04QicZ0cv8v2EPQ8YlM8LtpdXFUOkDnJYtVt5NEyP2nbQGryTpb_eImRzKaei_6odEK7EPW8MyIZccfsQxpeMlQxHx_msKO8cge2KFNfFpP9Ibr_v28BRF5lbt0wR4HX-rCMssEIBumchD8mpyVB4ao26KldkIacRU4w?purpose=inline)
+
+[charotamine.medium.com](https://charotamine.medium.com/hybrid-cloud-azure-api-management-self-hosted-gateway-4bf72f13652b?utm_source=chatgpt.com)
+
+### **17.1 Architecture**
+
+```
+           Azure
+   +---------------------+
+   | Azure APIM          |
+   |                     |
+   | Management Plane    |
+   | API configuration   |
+   | Policies            |
+   +---------------------+
+             |
+             | Configuration sync
+             |
+       Internet / Network
+             |
+      +------+------+
+      |             |
+      v             v
+  On-premises    Kubernetes
+  Gateway        Gateway
+      |             |
+      v             v
+  Legacy API     .NET API
+```
+
+The important distinction:
+
+- Azure APIM manages the API configuration.
+- The self-hosted gateway executes API requests closer to your applications.
+- The gateway runs as a container.
+- You manage its infrastructure and deployment.
+
+### **17.2 Why would we use it?**
+
+Suppose a banking organization has sensitive APIs running inside its private data centre.
+
+It wants:
+
+- Centralized API governance.
+- Consistent authentication.
+- Common API policies.
+- Local traffic processing.
+- Hybrid cloud support.
+
+A self-hosted gateway is useful here.
+
+### **17.3 What happens if the connection to Azure is unavailable?**
+
+This is an important architectural question.
+
+The gateway can continue processing using its last successfully downloaded configuration, subject to its offline capabilities and configuration.
+
+However, management-plane connectivity is needed for configuration updates and certain management-dependent operations.
+
+Don't confuse self-hosting with completely independent operation.
+
+### **17.4 Which APIM tiers support it?**
+
+According to the current gateway feature matrix, self-hosted gateway is available with Developer and Premium classic tiers, subject to their respective limitations. It is not a feature you should assume exists in every v2 tier.
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+2
+
+**Remember:** Self-hosted gateway is still Azure API Management. It is not a completely separate API gateway product.
+
+# **PART H — AZURE LOGIC APPS**
+
+## **18. What is Azure Logic Apps?**
+
+[Creación de flujos de trabajo estándar con Visual Studio Code - Azure Logic Apps | Microsoft Learn](https://images.openai.com/static-rsc-4/dL3L1MUS6YPnHXiLpnLTBdkh-WEigQHg6YC2OAXUez4_aIoGjxm1SanQ19XpgUr0w6cIKN-QOllklXe7fjWvNfysOYvGd8PFeToK6cdyJ9-PNSs8530_SEgPKgcP8fNZBuPDvLreWkW4gtZii3WW7P-JHZg4Nk7zMqd4zom9r54?purpose=inline)
+
+[learn.microsoft.com](https://learn.microsoft.com/es-es/azure/logic-apps/create-standard-workflows-visual-studio-code?utm_source=chatgpt.com)
+
+Azure Logic Apps is a workflow automation and integration service.
+
+It helps connect different systems and automate business processes.
+
+Let's take our restaurant platform.
+
+When a customer places an order:
+
+1. Save the order in SQL.
+2. Send order information to an ERP system.
+3. Generate an invoice.
+4. Send an email.
+5. Notify the delivery partner.
+6. Update an external accounting system.
+
+You could write all this orchestration in .NET.
+
+But some integration workflows are better handled by a managed workflow engine.
+
+That's where Logic Apps helps.
+
+## **19. How does Logic Apps work?**
+
+Two fundamental concepts:
+
+- Trigger.
+- Action.
+
+**Trigger:** What starts the workflow?
+
+**Action:** What happens after the workflow starts?
+
+Example:
+
+```
+Trigger:
+New order received
+       |
+       v
+Action 1:
+Get order details
+       |
+       v
+Action 2:
+Check order amount
+       |
+       v
+Decision:
+Amount > ₹5,000?
+       |
+       +---- Yes
+       |       |
+       |       v
+       |   Send for manual approval
+       |
+       +---- No
+               |
+               v
+          Continue processing
+               |
+               v
+          Generate invoice
+               |
+               v
+          Send email
+```
+
+## **20. What are connectors?**
+
+Connectors are prebuilt integrations with external services and applications.
+
+Examples:
+
+- SQL Server.
+- Outlook.
+- SharePoint.
+- Salesforce.
+- SAP.
+- Service Bus.
+- Azure Blob Storage.
+- HTTP endpoints.
+
+Instead of writing custom integration code for every system, we can use connectors.
+
+Logic Apps supports more than 1,400 prebuilt connectors and integration capabilities, including hybrid and enterprise B2B scenarios.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+
+
+### **20.1 Logic Apps Consumption vs Standard**
+
+| Feature               | Consumption                            | Standard                                   |
+| --------------------- | -------------------------------------- | ------------------------------------------ |
+| Hosting               | Multitenant                            | Single-tenant                              |
+| Billing               | Per execution/action and related usage | Hosting capacity plus usage                |
+| Workflows             | Consumption workflows                  | Multiple workflows in a Logic App resource |
+| Networking            | Managed connectivity options           | More control over networking               |
+| Performance isolation | Shared platform                        | Dedicated hosting environment              |
+| Local development     | Supported tooling                      | Supported tooling                          |
+
+Standard is useful when you need more control over hosting, networking and execution environments.
+
+Consumption is useful for serverless, event-driven integrations with variable workloads.
+
+## **21. Logic Apps vs Azure Functions vs .NET microservices**
+
+This is an important architecture decision.
+
+| Requirement                             | Suitable choice   |
+| --------------------------------------- | ----------------- |
+| Connect SaaS applications               | Logic Apps        |
+| Automate business workflows             | Logic Apps        |
+| Complex custom business logic           | .NET microservice |
+| Custom event-driven code                | Azure Functions   |
+| Long-running durable code orchestration | Durable Functions |
+| Visual enterprise integration           | Logic Apps        |
+
+### **Example**
+
+Suppose we need to integrate our restaurant platform with SAP.
+
+Option A — Write everything in .NET:
+
+```
+.NET Service
+   |
+   +-- SAP integration
+   +-- Authentication
+   +-- Retry
+   +-- Transformation
+   +-- Email
+   +-- Error handling
+```
+
+Option B — Logic Apps:
+
+```
+Order Event
+    |
+    v
+Logic Apps
+    |
+    +-- SAP Connector
+    |
+    +-- Data Transformation
+    |
+    +-- Approval
+    |
+    +-- Email Notification
+```
+
+The second approach can reduce custom integration code.
+
+But I wouldn't move core payment calculations, complex domain rules or latency-sensitive business operations into a visual workflow merely to avoid writing code.
+
+**Principal Engineer insight:** Logic Apps is an integration orchestration tool, not a replacement for well-designed domain microservices.
+
+# **PART I — AZURE FRONT DOOR AND APPLICATION GATEWAY**
+
+This is one of the most important parts of H14.
+
+You must understand the difference between:
+
+1. Azure Front Door.
+2. Application Gateway.
+3. API Management.
+
+All three can receive or route HTTP traffic, but their responsibilities differ.
+
+## **22. First understand the network layers**
+
+Let's understand where these services operate.
+
+**Request journey**
+
+**Internet / Customer**
+
+**Azure Front Door**
+
+Global edge
+
+Global routing, CDN, WAF, TLS
+
+**Application Gateway**
+
+Regional edge
+
+Regional Layer 7 routing and WAF
+
+**API Management**
+
+API governance
+
+Authentication, API policies, subscriptions and throttling
+
+**.NET Microservices**
+
+Business logic and data access
+
+This is one possible enterprise architecture. You don't necessarily need all three gateways.
+
+## **23. What is Azure Front Door?**
+
+[Design for application delivery - KodeKloud](https://images.openai.com/static-rsc-4/B2iZRVikltvSaGqV6tXK9nqcAUt0QgE_slhwgxuluCZpHXX9VK_GPJcXlEXRrp7RJEI61F0JVRXaMgNgXdmTfrx26U0VkDqexXBAJRigyWLXQcLAlc-BdNmLl7xqIXtxmx-YwMrAiW5IBt_i-xQYpB92M8xYjUXUOWlRvDZXKNQ?purpose=inline)
+
+[notes.kodekloud.com](https://notes.kodekloud.com/docs/AZ-305-Microsoft-Azure-Solutions-Architect-Expert/Design-a-network-architecture/Design-for-application-delivery/page?utm_source=chatgpt.com)
+
+Azure Front Door is a global application delivery service.
+
+It uses Microsoft's global edge network to improve application availability, performance and security.
+
+Imagine our restaurant platform has customers in:
+
+- India.
+- UAE.
+- UK.
+- USA.
+
+Our application is deployed in India and UAE.
+
+A customer in the UK shouldn't necessarily need to travel through a distant endpoint if a healthier, closer region is available.
+
+Front Door provides global routing and edge capabilities.
+
+### **23.1 Main features**
+
+1. Global load balancing.
+2. Edge routing.
+3. CDN and caching.
+4. SSL/TLS termination.
+5. Web Application Firewall (WAF).
+6. Origin health probes.
+7. Routing based on latency and configured rules.
+8. Global failover.
+
+### **23.2 How does it work?**
+
+```
+Customer in UK
+       |
+       v
+Azure Front Door Edge
+       |
+       v
+Evaluate origin health
+       |
+       +------ Region India
+       |
+       +------ Region UAE
+       |
+       v
+Select suitable origin
+       |
+       v
+Application
+```
+
+Front Door can select an origin based on configured routing and health-probe behavior.
+
+It is not simply a nearest-server DNS lookup.
+
+### **23.3 When should we use Front Door?**
+
+- Global applications.
+- Multi-region deployments.
+- Global web application protection.
+- Static and dynamic content delivery.
+- Global failover.
+- Edge caching.
+
+Official documentation: [Azure Front Door overview](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-overview?utm_source=chatgpt.com).
+
+## **24. What is Azure Application Gateway?**
+
+[Route traffic to your web application based on HTTP request](https://images.openai.com/static-rsc-4/Vb5-JAzN2s21NLQIM615-gOzwao_T3cxVUNku6TX5zex8tP3Isuq9QzoAKWK4_RSXHLDO8Qtv3ws5RqzMeTmDgi0Vq3Pt2pseDL_Vvttn4NFD_MrtXb67j9W5WTVgWipMdjLmpdrLhclk7PwLbgGNNHds0-Drk0IOW0byMxh8EU?purpose=inline)
+
+[teckbakers.hashnode.dev](https://teckbakers.hashnode.dev/azure-application-gateway?utm_source=chatgpt.com)
+
+Application Gateway is a regional Layer 7 web traffic load balancer.
+
+It operates inside an Azure virtual network.
+
+It understands HTTP and HTTPS requests and can route them based on:
+
+- Hostname.
+- URL path.
+- Listener configuration.
+- Backend health.
+
+It also supports TLS termination, session affinity and WAF capabilities.
+
+### **24.1 Example**
+
+Suppose we have:
+
+```
+api.restaurant.com/orders
+api.restaurant.com/payments
+api.restaurant.com/customers
+```
+
+Application Gateway can route:
+
+```
+/orders
+     |
+     v
+Order Backend
+
+/payments
+     |
+     v
+Payment Backend
+
+/customers
+     |
+     v
+Customer Backend
+```
+
+It can also protect the web application from common attacks using its WAF.
+
+### **24.2 When should we use Application Gateway?**
+
+- Regional application load balancing.
+- Private backend routing.
+- Inbound traffic into a VNet.
+- Web Application Firewall.
+- Host/path-based routing.
+- TLS termination.
+
+Official documentation: [Application Gateway FAQ](https://learn.microsoft.com/azure/application-gateway/application-gateway-faq?utm_source=chatgpt.com).
+
+## **25. Front Door vs Application Gateway vs APIM**
+
+This is a must-know comparison.
+
+| Feature                     | Front Door                               | Application Gateway                      | API Management             |
+| --------------------------- | ---------------------------------------- | ---------------------------------------- | -------------------------- |
+| Main purpose                | Global application delivery              | Regional web traffic routing             | API management             |
+| Scope                       | Global                                   | Regional                                 | API gateway scope          |
+| Layer                       | HTTP application delivery                | Layer 7                                  | HTTP API gateway           |
+| WAF                         | Yes                                      | Yes                                      | Not a WAF replacement      |
+| CDN                         | Yes                                      | No                                       | No                         |
+| API subscriptions           | No                                       | No                                       | Yes                        |
+| API products                | No                                       | No                                       | Yes                        |
+| JWT policies                | Not its primary API governance function  | Not its primary API governance function  | Yes                        |
+| API rate limiting           | Not API-consumer subscription governance | Not API-consumer subscription governance | Yes                        |
+| Path-based routing          | Yes                                      | Yes                                      | Yes                        |
+| Private backend integration | Supported options including Private Link | VNet backend integration                 | Depends on tier/networking |
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+3
+
+### **The easiest way to remember**
+
+- **Front Door:** How does global internet traffic reach my application?
+- **Application Gateway:** How does regional web traffic reach my backend?
+- **API Management:** Who can consume my APIs, and under what rules?
+
+### **25.1 Can we use all three together?**
+
+Yes.
+
+Imagine a banking platform.
+
+**Enterprise API architecture**
+
+**Global Customers / Banking Partners**
+
+**Azure Front Door Premium**
+
+Global routing, WAF, edge security
+
+**Application Gateway**
+
+Regional WAF and private routing
+
+**Azure API Management**
+
+OAuth, JWT, subscription, quota, API policies
+
+**Customer API**
+
+**Payment API**
+
+**Order API**
+
+**Account API**
+
+Why have all three?
+
+- Front Door protects and distributes global internet traffic.
+- Application Gateway provides regional web traffic control and private routing.
+- APIM provides API-specific governance.
+
+However, don't deploy Application Gateway automatically between Front Door and APIM. If Front Door can securely reach the intended origin directly, the additional regional gateway might add unnecessary complexity and cost.
+
+Choose the architecture based on network isolation and routing requirements.
+
+# **PART J — API GATEWAY SELECTION**
+
+## **26. Which gateway should you choose?**
+
+Let's take some practical scenarios.
+
+| Scenario                                          | Recommended service                       |
+| ------------------------------------------------- | ----------------------------------------- |
+| Public APIs for external partners                 | APIM                                      |
+| 20 internal .NET microservices                    | APIM, if centralized governance is needed |
+| Global web application                            | Front Door                                |
+| Regional private web application                  | Application Gateway                       |
+| Global API platform                               | Front Door + APIM                         |
+| Private API platform in VNet                      | APIM with appropriate networking          |
+| On-premises APIs requiring centralized governance | Self-hosted APIM gateway                  |
+| API consumer subscriptions and products           | APIM                                      |
+| Regional WAF and path routing                     | Application Gateway                       |
+| Global CDN and edge caching                       | Front Door                                |
+
+## **27. A difficult architecture question**
+
+Suppose you have:
+
+- 50 microservices.
+- 10,000 external partners.
+- Different subscription plans.
+- OAuth authentication.
+- Global customers.
+- Private backend services.
+- Different API versions.
+- Rate limits for each partner.
+
+What would you design?
+
+My starting architecture:
+
+```
+External Clients
+       |
+       v
+Azure Front Door
+       |
+       v
+Azure APIM
+       |
+       +-- Validate JWT
+       |
+       +-- Validate subscription
+       |
+       +-- Check product
+       |
+       +-- Apply rate limit
+       |
+       +-- Select API version
+       |
+       v
+Private Backend APIs
+       |
+       +-- Customer Service
+       +-- Order Service
+       +-- Payment Service
+       +-- Restaurant Service
+```
+
+Application Gateway would be added only if the regional WAF/private ingress architecture requires it.
+
+Logic Apps would integrate external enterprise systems, such as ERP and accounting platforms.
+
+Self-hosted gateways would be considered for on-premises API execution.
+
+# **PART K — INTERNAL WORKING AND FAILURE SCENARIOS**
+
+## **28. What happens when a client calls an APIM endpoint?**
+
+Let's follow one real request.
+
+```
+GET https://api.restaurant.com/v1/orders/1001
+Authorization: Bearer JWT_TOKEN
+Ocp-Apim-Subscription-Key: SUBSCRIPTION_KEY
+```
+
+The gateway performs the following operations:
+
+1. Receives the HTTP request.
+2. Identifies the API and operation.
+3. Executes applicable inbound policies.
+4. Validates the token.
+5. Checks subscription access where required.
+6. Applies rate limits and quotas.
+7. Selects the backend.
+8. Forwards the request.
+9. Receives the backend response.
+10. Executes outbound policies.
+11. Returns the response to the client.
+
+If a policy fails, the gateway may return an error without calling the backend.
+
+## **29. Production failure scenarios**
+
+### **Scenario 1 — APIM returns HTTP 401**
+
+Possible causes:
+
+- Missing JWT.
+- Invalid signature.
+- Expired token.
+- Wrong audience.
+- Incorrect issuer.
+
+Troubleshooting:
+
+Check the token claims, identity provider configuration and APIM validation policy.
+
+### **Scenario 2 — APIM returns HTTP 403**
+
+Possible causes:
+
+- Consumer isn't authorized.
+- Subscription is invalid or not entitled to the product.
+- Authorization policy denies access.
+- IP restrictions block the request.
+
+Remember:
+
+401 generally indicates missing or invalid authentication credentials.
+
+403 generally indicates that access is forbidden.
+
+### **Scenario 3 — APIM returns HTTP 429**
+
+Possible causes:
+
+- Rate limit exceeded.
+- Subscription quota exceeded.
+- Gateway capacity throttling.
+
+Troubleshooting:
+
+Check rate-limit counters, subscription configuration and gateway capacity.
+
+A 429 response isn't necessarily evidence of an Azure service incident.&#x20;
+
+[image](https://www.google.com/s2/favicons?domain=https://learn.microsoft.com\&sz=32)
+
+Microsoft Learn+1
+
+
+
+### **Scenario 4 — APIM cannot reach the backend**
+
+Possible causes:
+
+- DNS resolution issue.
+- VNet routing.
+- Firewall restrictions.
+- TLS certificate issue.
+- Backend unavailable.
+- Incorrect backend URL.
+
+Troubleshooting:
+
+Check backend health, networking, DNS, TLS and APIM gateway connectivity.
+
+### **Scenario 5 — Front Door sends traffic to an unhealthy region**
+
+Front Door uses origin health probes and routing configuration.
+
+Investigate:
+
+- Health probe path.
+- Probe response.
+- Origin priority and weight.
+- Origin group configuration.
+- Backend availability.
+
+### **Scenario 6 — Application Gateway returns 502**
+
+Possible causes:
+
+- Backend unavailable.
+- Backend health probe failure.
+- TLS mismatch.
+- DNS issue.
+- Incorrect backend port.
+- Network security restrictions.
+
+### **Scenario 7 — Logic Apps workflow fails**
+
+Possible causes:
+
+- Connector authentication expired.
+- External API unavailable.
+- Payload schema changed.
+- Workflow action timed out.
+- External system throttled the request.
+
+Use run history, retry policies, error handling and monitoring to diagnose.
+
+# **PART L — PRINCIPAL ENGINEER PERSPECTIVE**
+
+## **30. Important design principles**
+
+These are the things that distinguish someone who knows APIM from someone who can architect an enterprise API platform.
+
+### **30.1 Don't put all business logic in APIM**
+
+Bad design:
+
+```
+APIM
+  |
+  +-- Complex payment calculation
+  +-- Order validation
+  +-- Business rules
+  +-- Database operations
+  +-- Payment orchestration
+```
+
+Good design:
+
+```
+APIM
+  |
+  +-- Authentication
+  +-- Authorization enforcement
+  +-- Rate limiting
+  +-- Routing
+  +-- Transformation
+  |
+  v
+.NET Business Services
+  |
+  +-- Domain rules
+  +-- Transactions
+  +-- Business validation
+```
+
+APIM should handle cross-cutting API concerns.
+
+Your microservices should own business logic.
+
+### **30.2 Don't trust the subscription key alone**
+
+Subscription keys can be leaked or shared.
+
+Use proper authentication and authorization.
+
+### **30.3 Don't expose internal backend endpoints**
+
+Use appropriate network isolation and backend authentication.
+
+### **30.4 Don't make every service publicly accessible**
+
+Private backend services reduce the attack surface.
+
+### **30.5 Don't introduce unnecessary gateways**
+
+Every gateway introduces:
+
+- Latency.
+- Cost.
+- Configuration.
+- Failure possibilities.
+- Operational complexity.
+
+Use only the gateways that solve a real problem.
+
+### **30.6 Protect against retry storms**
+
+If APIM retries an overloaded backend aggressively, it can make the incident worse.
+
+Retries should be limited, carefully scoped and supported by appropriate timeouts and circuit breakers.
+
+### **30.7 API versioning requires a lifecycle strategy**
+
+Decide:
+
+- How long v1 will be supported.
+- When v1 will be deprecated.
+- How clients migrate.
+- How breaking changes are communicated.
+- Whether old versions have different quotas.
+
+# **PART M — INTERVIEW QUESTIONS**
+
+## **31. Fundamentals**
+
+**Q1. What is Azure API Management?**
+
+A managed API management platform providing API gateway, publishing, security, governance, analytics and developer access capabilities.
+
+**Q2. What is the difference between API Gateway and API Management?**
+
+API Gateway is the runtime traffic-processing component. API Management provides the broader API lifecycle management platform.
+
+**Q3. What are APIM policies?**
+
+Gateway-executed rules for authentication, routing, validation, throttling, transformation and caching.
+
+**Q4. What is the Developer Portal?**
+
+A self-service portal where API consumers discover documentation, register and subscribe to APIs.
+
+## **32. Advanced APIM**
+
+**Q5. What is the difference between products and subscriptions?**
+
+A product packages APIs and usage/access rules. A subscription represents a consumer's entitlement to access the product or another subscription scope.
+
+**Q6. Is a subscription key enough to secure an API?**
+
+No. Sensitive APIs should use appropriate authentication and authorization, such as OAuth 2.0 and JWT validation.
+
+**Q7. What is the difference between rate limiting and quotas?**
+
+Rate limiting controls the frequency of requests. Quotas control total consumption over a defined period.
+
+**Q8. What is a self-hosted gateway?**
+
+A containerized APIM gateway deployed in infrastructure outside the Azure-managed gateway environment while remaining managed through the APIM control plane.
+
+**Q9. What is the difference between API version and revision?**
+
+A version separates consumer-facing API contracts, especially for breaking changes. A revision safely updates an existing API without necessarily creating a new contract.
+
+**Q10. What happens if a rate limit is exceeded?**
+
+The gateway can return HTTP 429 Too Many Requests.
+
+## **33. Architecture**
+
+**Q11. Difference between Front Door and Application Gateway?**
+
+Front Door is a global edge application delivery service. Application Gateway is a regional Layer 7 load balancer.
+
+**Q12. Difference between Application Gateway and APIM?**
+
+Application Gateway focuses on regional web traffic routing and WAF. APIM focuses on API governance, authentication, subscriptions, policies and throttling.
+
+**Q13. Can Front Door and APIM be used together?**
+
+Yes. Front Door can provide global edge routing and WAF, while APIM provides API-level governance.
+
+**Q14. What is Logic Apps?**
+
+A managed workflow automation and integration platform with triggers, actions and connectors.
+
+**Q15. Logic Apps vs Azure Functions?**
+
+Logic Apps is workflow/connector-oriented. Functions is code-oriented and provides more direct control over custom execution logic.
+
+**Q16. Why do we need self-hosted gateways?**
+
+To execute API gateway policies closer to on-premises, multicloud or containerized backends while maintaining centralized API management.
+
+## **34. Architecture knowledge validation**
+
+Try these scenarios. They test your decision-making rather than memorization.
+
+**H14 scenario assessment**
+
+0/6 answered
+
+**1. A banking partner should access Payment API but not Customer API. What would you use?**
+
+Azure Front Door only
+
+APIM Products, subscriptions and authorization
+
+Application Gateway only
+
+**2. A customer sends 5,000 requests per minute when the allowed limit is 100. What should happen?**
+
+APIM returns HTTP 429
+
+APIM sends everything to a queue automatically
+
+Front Door creates more backend instances
+
+**3. Your application serves customers across India, UAE and UK. You need global routing and failover.**
+
+Application Gateway only
+
+Azure Front Door
+
+Logic Apps
+
+**4. Your backend APIs must remain private inside a regional VNet and need regional WAF protection.**
+
+Application Gateway
+
+Event Hubs
+
+Developer Portal
+
+**5. A new API response breaks existing mobile applications.**
+
+Create a new API version
+
+Only increase the revision number
+
+Increase the subscription quota
+
+**6. You need to connect SAP, Outlook and SQL Server using a visual workflow.**
+
+APIM
+
+Logic Apps
+
+Application Gateway
+
+Check my answers
+
+# **35. Final revision sheet**
+
+| Service / concept   | Remember                                       |
+| ------------------- | ---------------------------------------------- |
+| API Management      | API governance and gateway                     |
+| Gateway             | Runtime request processing                     |
+| Policies            | Runtime rules                                  |
+| Products            | Packages of APIs                               |
+| Subscriptions       | Consumer entitlements                          |
+| Subscription key    | API access credential                          |
+| Rate limiting       | Control request frequency                      |
+| Quota               | Control total consumption                      |
+| Version             | Different API contract                         |
+| Revision            | Controlled API modification                    |
+| Self-hosted gateway | Gateway deployed outside Azure-managed runtime |
+| Logic Apps          | Workflow automation and integration            |
+| Front Door          | Global edge                                    |
+| Application Gateway | Regional Layer 7                               |
+| JWT                 | Authentication token                           |
+| OAuth 2.0           | Authorization framework                        |
+| HTTP 429            | Too many requests                              |
+
+## **36. Official Microsoft documentation**
+
+These are the important references for this module:
+
+1. [APIM tier comparison](https://learn.microsoft.com/en-us/azure/api-management/api-management-features?utm_source=chatgpt.com)
+2. [APIM gateway architecture](https://learn.microsoft.com/en-us/azure/api-management/api-management-gateways-overview?utm_source=chatgpt.com)
+3. [APIM policies](https://learn.microsoft.com/en-us/azure/api-management/api-management-howto-policies?utm_source=chatgpt.com)
+4. [APIM policy reference](https://learn.microsoft.com/en-us/azure/api-management/api-management-policy-reference?utm_source=chatgpt.com)
+5. [Products and API publishing](https://learn.microsoft.com/en-us/azure/api-management/api-management-howto-add-products?utm_source=chatgpt.com)
+6. [API versioning](https://learn.microsoft.com/en-us/azure/api-management/api-management-versions?trk=article-ssr-frontend-pulse_little-text-block\&utm_source=chatgpt.com)
+7. [Self-hosted gateway](https://learn.microsoft.com/en-us/azure/api-management/self-hosted-gateway-support-policies?utm_source=chatgpt.com)
+8. [Logic Apps](https://learn.microsoft.com/azure/logic-apps/logic-apps-overview?WT.mc_id=DT-MVP-10953\&utm_source=chatgpt.com)
+9. [Azure Front Door](https://learn.microsoft.com/en-us/azure/frontdoor/front-door-overview?utm_source=chatgpt.com)
+10. [Application Gateway + APIM reference architecture](https://learn.microsoft.com/en-us/azure/architecture/reference-architectures/apis/protect-apis?utm_source=chatgpt.com)
+
+## **37. What you should be able to explain in a Principal Engineer interview**
+
+You should be able to draw this architecture on a whiteboard and justify every component:
+
+**Final enterprise API platform**
+
+**External Applications / Partners**
+
+**Azure Front Door**
+
+Global edge security and routing
+
+**Azure API Management**
+
+JWT · OAuth · Products · Subscriptions · Rate limits
+
+**Private backend network**
+
+**Customer Service**
+
+**Order Service**
+
+**Payment Service**
+
+**Restaurant Service**
+
+Integration layer
+
+**Logic Apps**
+
+ERP / SAP / external workflows
+
+**Self-hosted Gateway**
+
+Hybrid and on-premises APIs
+
+**The Principal Engineer takeaway:** APIM governs APIs, Front Door delivers applications globally, Application Gateway manages regional web ingress, and Logic Apps orchestrates integrations. Your .NET services remain responsible for business logic and domain integrity.
+
+That separation of responsibilities is the most important learning outcome of H14.
