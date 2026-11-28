@@ -1,0 +1,2761 @@
+# **GOF Design Patterns – Creational, Structural & Behavioural**
+
+Let's learn all **23 Gang of Four (GOF) Design Patterns** from fundamentals to Principal Software Engineer / Architect level.
+
+We will use one consistent real-world analogy throughout:
+
+**A restaurant with Wi-Fi, customers, orders, kitchen, billing, staff and notifications.**
+
+Why a restaurant? Because it has real operational problems that software systems also face:
+
+- Creating different types of objects.
+- Connecting components without tightly coupling them.
+- Managing communication between different objects.
+- Changing business behaviour without rewriting the entire system.
+
+We'll connect every pattern to:
+
+1. **What** – What is the pattern?
+2. **Analogy** – How does it work in a restaurant?
+3. **Why** – What problem does it solve?
+4. **When** – When should we use it?
+5. **How** – How to implement it in C#/.NET.
+6. **Real-world application** – Where you might encounter it in production.
+
+## **1. First understand: What is a GOF Design Pattern?**
+
+GOF stands for **Gang of Four** – Erich Gamma, Richard Helm, Ralph Johnson and John Vlissides.
+
+They documented 23 reusable object-oriented design patterns in their book:
+
+Design Patterns: Elements of Reusable Object-Oriented Software
+
+A design pattern is a proven, reusable approach to solving a commonly occurring software design problem.
+
+It is NOT:
+
+- A framework.
+- A library.
+- A NuGet package.
+- A piece of code that you copy and paste.
+
+It is a way of structuring your classes and objects to solve a particular design problem.
+
+### **Why do we need design patterns?**
+
+Imagine a restaurant application.
+
+Initially, everything is implemented inside one class:
+
+```
+public class Restaurant
+{
+    public void PlaceOrder()
+    {
+        // Validate order
+        // Select food
+        // Send order to kitchen
+        // Calculate bill
+        // Process payment
+        // Send notification
+    }
+}
+```
+
+Initially, it works.
+
+But later:
+
+- You introduce online and takeaway orders.
+- You support different payment providers.
+- You introduce multiple notification channels.
+- You add different kitchen workflows.
+- You need to change billing without affecting order processing.
+
+One class becomes responsible for too many things.
+
+Design patterns help structure the application so that responsibilities, object creation and communication are easier to manage.
+
+## **2. Three GOF categories**
+
+There are 23 patterns divided into three categories.
+
+**1. Creational Patterns**
+
+5 patterns
+
+[Современный стритфуд Москвы: где попробовать самые трендовые авторские концепции](https://images.openai.com/static-rsc-4/4RhQtdqgcEs2Z26coCyLjUrApsjC_yrMsnd9xCGj-Om1aVsMfUmKbvCZX5oZNfzIVEEHg0wZgjr04QAI2DRbwfD5ipvPJ8QLASe1fUJ0Zt6etJg5KYADzLHbYQPJkpUUHUBuYrwxdHSZsUG_R1qTlE_qZNgk6otj2uYz03FBfP0?purpose=inline)
+
+[gdeleto.ru](https://gdeleto.ru/blog/sovremennyj-stritfud-moskvy-gde-poprobovat-samye-trendovye-avtorskie-kontseptsii/?utm_source=chatgpt.com)
+
+**Focus:** How objects are created.
+
+Restaurant analogy: How do we create different food orders, payment processors or kitchen equipment without tightly coupling the application to their concrete implementations?
+
+**2. Structural Patterns**
+
+7 patterns
+
+[Managers Check Out: Restaurant End of Day Checklist | Free Template](https://images.openai.com/static-rsc-4/HBjxJHoCC-_lbHTfphFgUcIVcHY7OoNn-o6KmHdV9tHR5knEvU_yKC_I-UpEDMbqg4iB6qn-wgyfi1VRj98PoBBaQ5XPuNx1MXUGMMhTHlok6pBCmfCG6AxQdqJ0d0oZf8hmSZHvGGm1n_2y79MCvFfd0p8oZC8r1Xr7AP9vy-M?purpose=inline)
+
+[safetyculture.com](https://safetyculture.com/library/hospitality/managers-check-out?utm_source=chatgpt.com)
+
+**Focus:** How objects and classes are connected.
+
+Restaurant analogy: How do we connect billing, kitchen, ordering and external delivery systems while keeping their internal implementation independent?
+
+**3. Behavioural Patterns**
+
+11 patterns
+
+[Restaurant automation: Top 4 ways to increase table turnover at a restaurant](https://images.openai.com/static-rsc-4/VHIhKUOeRAyWkX_Ve8Uatl8NRqGkY3TjkRGFGpjmb5sdaSzBtCOtDS4rNWHgd-j7cFTUY9vQuX2WkrF1RaUUA1cpCMrLDa-kwsMhESPORrug9_ew7zKPDVJZdN1ygHpbFY_4oPEDj8BqvBhvvBr5wPtKkh8D3yHBuFkTAcgvbko?purpose=inline)
+
+[globaldev.tech](https://globaldev.tech/blog/restaurant-automation-ways-to-increase-table-turnover?utm_source=chatgpt.com)
+
+**Focus:** How objects communicate and distribute responsibilities.
+
+Restaurant analogy: How do waiters, chefs, cashiers and customers communicate, make decisions and execute workflows?
+
+**Remember this simple distinction:**
+
+| Category    | Main question                              |
+| ----------- | ------------------------------------------ |
+| Creational  | How should objects be created?             |
+| Structural  | How should objects be connected?           |
+| Behavioural | How should objects communicate and behave? |
+
+# **PART A – CREATIONAL DESIGN PATTERNS**
+
+5 patterns
+
+Creational patterns deal with **object creation**.
+
+The central problem is that object creation can become complicated when an application supports multiple object types, configurations or implementations.
+
+Imagine your restaurant supports:
+
+- Dine-in orders.
+- Takeaway orders.
+- Online delivery orders.
+- Different payment methods.
+- Different types of kitchen configurations.
+
+Let's understand each pattern.
+
+## **1. Singleton Pattern**
+
+Creational
+
+**What?**
+
+Ensures that a class has only one instance throughout the application's lifetime and provides a shared access point to that instance.
+
+**Restaurant analogy**
+
+Imagine your restaurant has one central billing configuration system.
+
+Every cashier must use the same configuration:
+
+- GST configuration.
+- Restaurant address.
+- Billing rules.
+- Currency settings.
+
+You don't want every cashier creating a different billing configuration object.
+
+You want one shared instance.
+
+**Why?**
+
+Without Singleton:
+
+```
+var billing1 = new BillingConfiguration();
+var billing2 = new BillingConfiguration();
+var billing3 = new BillingConfiguration();
+```
+
+Each instance might have different configuration values.
+
+With Singleton, the application shares one instance.
+
+**How – C#**
+
+```
+public sealed class BillingConfiguration
+{
+    private static readonly Lazy<BillingConfiguration>
+        _instance = new(() => new BillingConfiguration());
+
+    public static BillingConfiguration Instance
+        => _instance.Value;
+
+    private BillingConfiguration()
+    {
+    }
+
+    public string Currency { get; set; } = "INR";
+}
+```
+
+Usage:
+
+```
+var config = BillingConfiguration.Instance;
+
+Console.WriteLine(config.Currency);
+```
+
+**When to use?**
+
+- A genuinely shared, application-wide resource.
+- A process-level configuration object.
+- A carefully controlled cache or registry.
+
+**When NOT to use?**
+
+- When dependency injection can manage the lifetime more cleanly.
+- When you need multiple instances.
+- When it introduces hidden global state or testing difficulties.
+
+**Principal Engineer perspective**
+
+In ASP.NET Core, prefer registering a service as Singleton through dependency injection:
+
+```
+builder.Services.AddSingleton<IBillingConfiguration,
+                              BillingConfiguration>();
+```
+
+Important: Singleton in .NET DI means one instance per service provider/container, not one instance across an entire distributed system.
+
+Also, singleton services must be thread-safe and must not directly capture scoped dependencies.
+
+## **2. Factory Method Pattern**
+
+Creational
+
+**What?**
+
+Defines an interface for creating an object but allows subclasses or implementations to decide which concrete object to create.
+
+**Restaurant analogy**
+
+A customer places an order.
+
+Depending on the order type, the restaurant creates a different order processor:
+
+- Dine-in → Dine-in processor.
+- Takeaway → Takeaway processor.
+- Delivery → Delivery processor.
+
+The customer doesn't need to know how the processor is created.
+
+**Why?**
+
+Without Factory Method:
+
+```
+if (orderType == "DineIn")
+{
+    processor = new DineInProcessor();
+}
+else if (orderType == "Takeaway")
+{
+    processor = new TakeawayProcessor();
+}
+else
+{
+    processor = new DeliveryProcessor();
+}
+```
+
+As new order types arrive, the creation logic keeps growing.
+
+**How – C#**
+
+```
+public interface IOrderProcessor
+{
+    void Process();
+}
+
+public class DineInProcessor : IOrderProcessor
+{
+    public void Process() => Console.WriteLine("Dine-in");
+}
+
+public class DeliveryProcessor : IOrderProcessor
+{
+    public void Process() => Console.WriteLine("Delivery");
+}
+
+public abstract class OrderFactory
+{
+    public abstract IOrderProcessor Create();
+}
+
+public class DeliveryOrderFactory : OrderFactory
+{
+    public override IOrderProcessor Create()
+        => new DeliveryProcessor();
+}
+```
+
+Usage:
+
+```
+OrderFactory factory = new DeliveryOrderFactory();
+
+IOrderProcessor processor = factory.Create();
+
+processor.Process();
+```
+
+**When to use?**
+
+- When subclasses should decide which object to create.
+- When creation logic varies by business type.
+- When you want to separate object creation from object usage.
+
+**Real-world .NET example**
+
+Different payment gateway implementations:
+
+- RazorpayPaymentProcessor.
+- StripePaymentProcessor.
+- PayPalPaymentProcessor.
+
+**Principal Engineer perspective**
+
+Factory Method is particularly useful when you want to extend object creation without changing the consumer's business logic.
+
+## **3. Abstract Factory Pattern**
+
+Creational
+
+**What?**
+
+Provides an interface for creating families of related objects without specifying their concrete classes.
+
+**Restaurant analogy**
+
+Imagine your restaurant has two different operating environments:
+
+- Standard restaurant.
+- Premium restaurant.
+
+Each environment requires a matching set of components.
+
+| Component | Standard         | Premium         |
+| --------- | ---------------- | --------------- |
+| Table     | Standard table   | Luxury table    |
+| Menu      | Standard menu    | Premium menu    |
+| Billing   | Standard billing | Premium billing |
+
+You want the correct family of objects to be created together.
+
+You don't want a premium restaurant accidentally using standard billing with a premium menu.
+
+**Why?**
+
+Creating individual objects independently can lead to incompatible combinations.
+
+Abstract Factory ensures that related objects come from the same family.
+
+**How – C#**
+
+```
+public interface ITable
+{
+    void Setup();
+}
+
+public interface IMenu
+{
+    void Display();
+}
+
+public interface IRestaurantFactory
+{
+    ITable CreateTable();
+    IMenu CreateMenu();
+}
+```
+
+Standard family:
+
+```
+public class StandardTable : ITable
+{
+    public void Setup() => Console.WriteLine("Standard table");
+}
+
+public class StandardMenu : IMenu
+{
+    public void Display() => Console.WriteLine("Standard menu");
+}
+
+public class StandardRestaurantFactory : IRestaurantFactory
+{
+    public ITable CreateTable() => new StandardTable();
+
+    public IMenu CreateMenu() => new StandardMenu();
+}
+```
+
+Premium family would provide `PremiumTable` and `PremiumMenu` through another factory.
+
+Usage:
+
+```
+IRestaurantFactory factory =
+    new StandardRestaurantFactory();
+
+ITable table = factory.CreateTable();
+IMenu menu = factory.CreateMenu();
+
+table.Setup();
+menu.Display();
+```
+
+**When to use?**
+
+- When you have families of related objects.
+- When products must remain compatible.
+- When multiple environments or configurations require different object families.
+
+**Real-world examples**
+
+- Azure storage implementation versus local storage implementation.
+- Different database provider families.
+- Different UI themes and their matching controls.
+
+**Factory Method vs Abstract Factory**
+
+| Factory Method                 | Abstract Factory                      |
+| ------------------------------ | ------------------------------------- |
+| Creates an individual product  | Creates a family of products          |
+| Usually one creation operation | Multiple related creation operations  |
+| Often uses inheritance         | Often uses composition and interfaces |
+
+## **4. Builder Pattern**
+
+Creational
+
+**What?**
+
+Separates the construction of a complex object from its representation.
+
+**Restaurant analogy**
+
+Imagine a customer wants to build a customised pizza.
+
+They select:
+
+1. Base – Thin crust.
+2. Size – Large.
+3. Cheese – Extra cheese.
+4. Toppings – Mushroom and olives.
+5. Sauce – Spicy.
+
+Instead of having a constructor with ten or twenty parameters, the pizza is built step by step.
+
+**Why?**
+
+Without Builder:
+
+```
+var pizza = new Pizza(
+    "Thin",
+    "Large",
+    true,
+    "Mushroom",
+    "Olives",
+    "Spicy",
+    true);
+```
+
+Problems:
+
+- Too many constructor parameters.
+- Difficult to understand.
+- Optional parameters become confusing.
+- Easy to pass incorrect values.
+
+**How – C#**
+
+```
+public class Pizza
+{
+    public string Base { get; set; }
+    public string Size { get; set; }
+    public string Sauce { get; set; }
+    public List<string> Toppings { get; set; } = new();
+}
+
+public class PizzaBuilder
+{
+    private readonly Pizza _pizza = new();
+
+    public PizzaBuilder WithBase(string value)
+    {
+        _pizza.Base = value;
+        return this;
+    }
+
+    public PizzaBuilder WithSize(string value)
+    {
+        _pizza.Size = value;
+        return this;
+    }
+
+    public PizzaBuilder WithSauce(string value)
+    {
+        _pizza.Sauce = value;
+        return this;
+    }
+
+    public PizzaBuilder AddTopping(string value)
+    {
+        _pizza.Toppings.Add(value);
+        return this;
+    }
+
+    public Pizza Build() => _pizza;
+}
+```
+
+Usage:
+
+```
+var pizza = new PizzaBuilder()
+    .WithBase("Thin")
+    .WithSize("Large")
+    .WithSauce("Spicy")
+    .AddTopping("Mushroom")
+    .AddTopping("Olives")
+    .Build();
+```
+
+**When to use?**
+
+- Complex objects with many optional properties.
+- Objects that require step-by-step construction.
+- When object construction needs validation.
+- When you want readable object creation.
+
+**Real-world .NET examples**
+
+```
+var client = new HttpClient();
+
+var request = new HttpRequestMessage(
+    HttpMethod.Post,
+    "api/orders");
+```
+
+More explicit builder-style APIs include:
+
+```
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices(services =>
+    {
+        services.AddScoped<IOrderService, OrderService>();
+    })
+    .Build();
+```
+
+## **5. Prototype Pattern**
+
+Creational
+
+**What?**
+
+Creates new objects by copying an existing object instead of constructing a new one from scratch.
+
+**Restaurant analogy**
+
+Your restaurant has a standard pizza configuration.
+
+A customer orders a similar pizza but wants:
+
+- Extra cheese.
+- Different toppings.
+
+Instead of creating the entire pizza configuration again, you copy the existing configuration and modify the required properties.
+
+**Why?**
+
+Sometimes object creation is expensive.
+
+For example:
+
+- Loading complex configuration.
+- Creating objects with many preconfigured properties.
+- Initialising expensive nested objects.
+
+Cloning an existing object can reduce repeated setup.
+
+**How – C#**
+
+```
+public class PizzaConfiguration
+{
+    public string Base { get; set; }
+    public string Size { get; set; }
+    public List<string> Toppings { get; set; } = new();
+
+    public PizzaConfiguration Clone()
+    {
+        return new PizzaConfiguration
+        {
+            Base = Base,
+            Size = Size,
+            Toppings = new List<string>(Toppings)
+        };
+    }
+}
+```
+
+Usage:
+
+```
+var original = new PizzaConfiguration
+{
+    Base = "Thin",
+    Size = "Large",
+    Toppings = new() { "Olives" }
+};
+
+var customised = original.Clone();
+
+customised.Toppings.Add("Mushroom");
+```
+
+**When to use?**
+
+- When object initialisation is expensive.
+- When you need many similar objects.
+- When you want to preserve an existing configuration and modify a copy.
+
+**Important:** This example performs a deep copy of the mutable `Toppings` collection, but a shallow copy of the overall object would share nested references. Choose cloning depth carefully.
+
+## **Creational patterns – Quick revision**
+
+| Pattern          | Main purpose                           | Restaurant analogy                |
+| ---------------- | -------------------------------------- | --------------------------------- |
+| Singleton        | One shared instance                    | Central configuration             |
+| Factory Method   | Delegate object creation               | Select order processor            |
+| Abstract Factory | Create related object families         | Standard/premium restaurant setup |
+| Builder          | Construct complex objects step by step | Custom pizza                      |
+| Prototype        | Clone an existing object               | Copy pizza configuration          |
+
+**Remember:** Creational patterns answer the question: *Who creates the object, and how?*
+
+# **PART B – STRUCTURAL DESIGN PATTERNS**
+
+7 patterns
+
+Structural patterns deal with how classes and objects are organised and connected.
+
+Imagine your restaurant is expanding.
+
+You now have:
+
+- Online ordering.
+- Third-party delivery.
+- Multiple payment providers.
+- Kitchen management.
+- Billing and reporting.
+
+You need these systems to work together without tightly coupling them.
+
+## **6. Adapter Pattern**
+
+Structural
+
+**What?**
+
+Allows two incompatible interfaces to work together by converting one interface into another expected interface.
+
+**Restaurant analogy**
+
+Your restaurant uses a standard order format:
+
+```
+Customer Name
+Order Items
+Total Amount
+```
+
+But a third-party delivery company sends data in a different format:
+
+```
+Client
+Products
+PayableValue
+```
+
+Your restaurant's order system doesn't understand that format.
+
+An adapter translates the external format into your internal format.
+
+**Why?**
+
+You don't control every external system.
+
+Instead of changing your internal application to accommodate every external provider, create an adapter.
+
+**How – C#**
+
+```
+public class RestaurantOrder
+{
+    public string CustomerName { get; set; }
+    public decimal Total { get; set; }
+}
+
+public interface IOrderService
+{
+    void PlaceOrder(RestaurantOrder order);
+}
+```
+
+External system:
+
+```
+public class DeliveryPartner
+{
+    public void Submit(
+        string client,
+        decimal payableValue)
+    {
+        Console.WriteLine("Order submitted");
+    }
+}
+```
+
+Adapter:
+
+```
+public class DeliveryPartnerAdapter : IOrderService
+{
+    private readonly DeliveryPartner _partner;
+
+    public DeliveryPartnerAdapter(DeliveryPartner partner)
+    {
+        _partner = partner;
+    }
+
+    public void PlaceOrder(RestaurantOrder order)
+    {
+        _partner.Submit(
+            order.CustomerName,
+            order.Total);
+    }
+}
+```
+
+**When to use?**
+
+- Integrating third-party APIs.
+- Migrating legacy systems.
+- Integrating different payment gateways.
+- Supporting different vendor interfaces.
+
+**Real-world .NET example**
+
+You have an internal `IPaymentGateway` interface, but Razorpay and Stripe expose different SDK methods.
+
+You implement an adapter for each provider.
+
+## **7. Bridge Pattern**
+
+Structural
+
+**What?**
+
+Separates an abstraction from its implementation so both can evolve independently.
+
+**Restaurant analogy**
+
+Your restaurant supports different order types:
+
+- Dine-in.
+- Takeaway.
+- Delivery.
+
+And different payment methods:
+
+- Cash.
+- Card.
+- UPI.
+
+Without Bridge, you may end up creating combinations:
+
+- DineInCashOrder.
+- DineInCardOrder.
+- DineInUPIOrder.
+- DeliveryCashOrder.
+- DeliveryCardOrder.
+- DeliveryUPIOrder.
+
+As combinations increase, the number of classes explodes.
+
+**Why?**
+
+You want to separate two independent dimensions.
+
+**How – C#**
+
+```
+public interface IPayment
+{
+    void Pay(decimal amount);
+}
+
+public class UpiPayment : IPayment
+{
+    public void Pay(decimal amount)
+        => Console.WriteLine("Paid using UPI");
+}
+
+public class CardPayment : IPayment
+{
+    public void Pay(decimal amount)
+        => Console.WriteLine("Paid using Card");
+}
+```
+
+Abstraction:
+
+```
+public abstract class Order
+{
+    protected readonly IPayment Payment;
+
+    protected Order(IPayment payment)
+    {
+        Payment = payment;
+    }
+
+    public abstract void Complete(decimal amount);
+}
+
+public class DeliveryOrder : Order
+{
+    public DeliveryOrder(IPayment payment) : base(payment)
+    {
+    }
+
+    public override void Complete(decimal amount)
+    {
+        Payment.Pay(amount);
+        Console.WriteLine("Delivery order completed");
+    }
+}
+```
+
+Usage:
+
+```
+var order = new DeliveryOrder(new UpiPayment());
+
+order.Complete(500);
+```
+
+**When to use?**
+
+- Two independent dimensions of variation.
+- Avoiding class explosion.
+- When abstraction and implementation should evolve separately.
+
+**Adapter vs Bridge**
+
+- Adapter: Makes incompatible interfaces compatible.
+- Bridge: Designs two dimensions to vary independently from the beginning.
+
+## **8. Composite Pattern**
+
+Structural
+
+**What?**
+
+Allows you to treat individual objects and groups of objects uniformly using a tree structure.
+
+**Restaurant analogy**
+
+Consider a restaurant menu:
+
+```
+Menu
+ ├── Pizza
+ │    ├── Margherita
+ │    └── Farmhouse
+ ├── Burger
+ │    ├── Veg Burger
+ │    └── Chicken Burger
+ └── Beverages
+      ├── Coffee
+      └── Juice
+```
+
+You want to calculate the price of an individual item or an entire menu section using a common interface.
+
+**Why?**
+
+Without Composite, you would need separate logic for individual items and groups.
+
+**How – C#**
+
+```
+public interface IMenuComponent
+{
+    decimal GetPrice();
+}
+
+public class MenuItem : IMenuComponent
+{
+    private readonly decimal _price;
+
+    public MenuItem(decimal price)
+    {
+        _price = price;
+    }
+
+    public decimal GetPrice() => _price;
+}
+
+public class MenuGroup : IMenuComponent
+{
+    private readonly List<IMenuComponent> _items = new();
+
+    public void Add(IMenuComponent item)
+    {
+        _items.Add(item);
+    }
+
+    public decimal GetPrice()
+    {
+        return _items.Sum(x => x.GetPrice());
+    }
+}
+```
+
+Usage:
+
+```
+var menu = new MenuGroup();
+
+menu.Add(new MenuItem(200));
+menu.Add(new MenuItem(300));
+
+Console.WriteLine(menu.GetPrice()); // 500
+```
+
+**When to use?**
+
+- Hierarchical structures.
+- File and folder systems.
+- Organisation charts.
+- Nested product categories.
+- UI component trees.
+
+## **9. Decorator Pattern**
+
+Structural
+
+**What?**
+
+Adds additional behaviour to an existing object dynamically without modifying its original class.
+
+**Restaurant analogy**
+
+You order a basic pizza.
+
+Then you add:
+
+- Extra cheese.
+- Extra toppings.
+- Special sauce.
+
+Each addition enhances the original pizza.
+
+You don't need to create a separate class for every possible combination.
+
+**Why?**
+
+Suppose you have:
+
+```
+Pizza
+PizzaWithCheese
+PizzaWithCheeseAndOlives
+PizzaWithCheeseOlivesAndSauce
+```
+
+This creates too many classes.
+
+Decorator allows you to wrap an existing object with additional functionality.
+
+**How – C#**
+
+```
+public interface IPizza
+{
+    decimal GetPrice();
+}
+
+public class BasicPizza : IPizza
+{
+    public decimal GetPrice() => 200;
+}
+
+public class CheeseDecorator : IPizza
+{
+    private readonly IPizza _pizza;
+
+    public CheeseDecorator(IPizza pizza)
+    {
+        _pizza = pizza;
+    }
+
+    public decimal GetPrice()
+    {
+        return _pizza.GetPrice() + 50;
+    }
+}
+```
+
+Usage:
+
+```
+IPizza pizza = new BasicPizza();
+
+pizza = new CheeseDecorator(pizza);
+
+Console.WriteLine(pizza.GetPrice()); // 250
+```
+
+You can add another decorator for extra toppings.
+
+**When to use?**
+
+- Adding optional behaviour dynamically.
+- Logging and caching around services.
+- Compression and encryption streams.
+- Middleware-style behaviour.
+
+**Real-world .NET example**
+
+ASP.NET Core middleware is conceptually similar to the Decorator pattern: each middleware component wraps the next component in the request pipeline.
+
+## **10. Facade Pattern**
+
+Structural
+
+**What?**
+
+Provides a simplified interface to a complex subsystem.
+
+**Restaurant analogy**
+
+A customer doesn't need to coordinate every department:
+
+1. Kitchen.
+2. Billing.
+3. Payment.
+4. Delivery.
+5. Notification.
+
+The waiter accepts one request:
+
+"Please place my order."
+
+The waiter coordinates the departments internally.
+
+The waiter acts as a facade.
+
+**Why?**
+
+Without Facade, the client needs to know about every subsystem and coordinate them individually.
+
+**How – C#**
+
+```
+public class Kitchen
+{
+    public void PrepareFood() { }
+}
+
+public class Billing
+{
+    public void GenerateBill() { }
+}
+
+public class Payment
+{
+    public void ProcessPayment() { }
+}
+
+public class RestaurantFacade
+{
+    private readonly Kitchen _kitchen = new();
+    private readonly Billing _billing = new();
+    private readonly Payment _payment = new();
+
+    public void PlaceOrder()
+    {
+        _kitchen.PrepareFood();
+        _billing.GenerateBill();
+        _payment.ProcessPayment();
+    }
+}
+```
+
+Usage:
+
+```
+var restaurant = new RestaurantFacade();
+
+restaurant.PlaceOrder();
+```
+
+**When to use?**
+
+- Simplifying complex subsystems.
+- Providing a clean application service interface.
+- Integrating legacy systems.
+- Hiding internal implementation complexity.
+
+**Important:** A Facade does not replace all the underlying services. It provides a simpler entry point to them.
+
+## **11. Flyweight Pattern**
+
+Structural
+
+**What?**
+
+Reduces memory consumption by sharing common, reusable object state across many objects.
+
+**Restaurant analogy**
+
+Imagine your restaurant has 10,000 tables.
+
+Every table uses the same:
+
+- Table design.
+- Material.
+- Standard dimensions.
+
+Instead of storing identical configuration data separately for every table, share that common data.
+
+Only store what is unique for each table, such as its table number and occupied status.
+
+**Why?**
+
+Creating thousands or millions of objects with duplicate data consumes unnecessary memory.
+
+**How – C#**
+
+```
+public class TableType
+{
+    public string Design { get; }
+
+    public TableType(string design)
+    {
+        Design = design;
+    }
+}
+
+public class TableFactory
+{
+    private readonly Dictionary<string, TableType> _types = new();
+
+    public TableType GetTableType(string design)
+    {
+        if (!_types.TryGetValue(design, out var type))
+        {
+            type = new TableType(design);
+            _types[design] = type;
+        }
+
+        return type;
+    }
+}
+```
+
+Usage:
+
+```
+var factory = new TableFactory();
+
+var first = factory.GetTableType("Wooden");
+var second = factory.GetTableType("Wooden");
+
+Console.WriteLine(ReferenceEquals(first, second)); // True
+```
+
+**When to use?**
+
+- Large numbers of similar objects.
+- Memory-intensive applications.
+- Game development.
+- Text rendering and character objects.
+- Shared immutable reference data.
+
+**Key concept**
+
+- Intrinsic state: Shared data.
+- Extrinsic state: Unique data passed from outside.
+
+## **12. Proxy Pattern**
+
+Structural
+
+**What?**
+
+Provides a substitute object that controls access to another object.
+
+**Restaurant analogy**
+
+Imagine a restaurant VIP section.
+
+Customers cannot directly enter.
+
+They must go through a receptionist who checks:
+
+- Reservation.
+- Membership.
+- Access permissions.
+
+Only authorised customers are allowed to access the VIP section.
+
+The receptionist is a proxy.
+
+**Why?**
+
+You may need to control access without changing the actual object's implementation.
+
+**How – C#**
+
+```
+public interface IVipSection
+{
+    void Enter();
+}
+
+public class VipSection : IVipSection
+{
+    public void Enter()
+    {
+        Console.WriteLine("Welcome to VIP section");
+    }
+}
+
+public class VipSectionProxy : IVipSection
+{
+    private readonly VipSection _section = new();
+
+    private readonly bool _isAuthorised;
+
+    public VipSectionProxy(bool isAuthorised)
+    {
+        _isAuthorised = isAuthorised;
+    }
+
+    public void Enter()
+    {
+        if (!_isAuthorised)
+        {
+            throw new UnauthorizedAccessException();
+        }
+
+        _section.Enter();
+    }
+}
+```
+
+**When to use?**
+
+- Access control.
+- Lazy initialisation.
+- Remote service access.
+- Caching.
+- Logging around an expensive object.
+
+**Real-world .NET examples**
+
+- Lazy loading proxies in Entity Framework Core.
+- Reverse proxy in front of an API.
+- Remote service proxy.
+
+Note: An API Gateway or reverse proxy is related conceptually, but it is not automatically the classic object-level GOF Proxy implementation.
+
+## **Structural patterns – Quick revision**
+
+| Pattern   | Main purpose                             | Restaurant analogy                 |
+| --------- | ---------------------------------------- | ---------------------------------- |
+| Adapter   | Convert incompatible interfaces          | Delivery partner format conversion |
+| Bridge    | Separate abstraction and implementation  | Order type + payment method        |
+| Composite | Treat individual/group objects uniformly | Menu hierarchy                     |
+| Decorator | Add behaviour dynamically                | Extra pizza toppings               |
+| Facade    | Simplify complex subsystems              | Waiter coordinating departments    |
+| Flyweight | Share common object state                | Reusable table configuration       |
+| Proxy     | Control access to an object              | VIP receptionist                   |
+
+**Remember:** Structural patterns answer: *How do we connect objects without creating unnecessary dependencies?*
+
+# **PART C – BEHAVIOURAL DESIGN PATTERNS**
+
+11 patterns
+
+Behavioural patterns deal with communication, responsibility and interaction between objects.
+
+Imagine your restaurant is now fully operational.
+
+- Customer places an order.
+- Waiter sends it to the kitchen.
+- Chef prepares the food.
+- Cashier processes payment.
+- Notification service informs the customer.
+- Manager handles special situations.
+
+The challenge is coordinating these responsibilities without making every class dependent on every other class.
+
+## **13. Chain of Responsibility Pattern**
+
+Behavioural
+
+**What?**
+
+Passes a request through a chain of handlers. Each handler decides whether to process the request or pass it to the next handler.
+
+**Restaurant analogy**
+
+A customer requests a refund.
+
+The request passes through:
+
+```
+Waiter
+  ↓
+Restaurant Supervisor
+  ↓
+Restaurant Manager
+  ↓
+Regional Manager
+```
+
+Each person has authority to approve refunds up to a certain amount.
+
+- Waiter: Up to ₹100.
+- Supervisor: Up to ₹500.
+- Manager: Up to ₹5,000.
+- Regional Manager: Above ₹5,000.
+
+The request travels through the chain until an appropriate handler processes it.
+
+**Why?**
+
+Without this pattern, you might write:
+
+```
+if (amount <= 100)
+{
+    // Waiter approval
+}
+else if (amount <= 500)
+{
+    // Supervisor approval
+}
+else if (amount <= 5000)
+{
+    // Manager approval
+}
+```
+
+The logic becomes tightly coupled and difficult to extend.
+
+**How – C#**
+
+```
+public abstract class RefundHandler
+{
+    protected RefundHandler? Next;
+
+    public void SetNext(RefundHandler next)
+    {
+        Next = next;
+    }
+
+    public abstract void Handle(decimal amount);
+}
+```
+
+Concrete handler:
+
+```
+public class Supervisor : RefundHandler
+{
+    public override void Handle(decimal amount)
+    {
+        if (amount <= 500)
+        {
+            Console.WriteLine("Supervisor approved");
+        }
+        else if (Next != null)
+        {
+            Next.Handle(amount);
+        }
+    }
+}
+```
+
+You can implement other handlers with different approval limits.
+
+**When to use?**
+
+- Approval workflows.
+- Validation pipelines.
+- Exception handling.
+- Request processing.
+- Escalation systems.
+
+**Real-world .NET example**
+
+ASP.NET Core middleware pipeline:
+
+```
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseMiddleware<LoggingMiddleware>();
+```
+
+Requests pass through middleware components in sequence.
+
+Middleware is a pipeline abstraction with similarities to Chain of Responsibility.
+
+## **14. Command Pattern**
+
+Behavioural
+
+**What?**
+
+Encapsulates a request as an object, allowing you to parameterise, queue, log or undo operations.
+
+**Restaurant analogy**
+
+A waiter receives a customer order.
+
+Instead of directly executing all kitchen operations, the waiter creates an order ticket.
+
+The ticket contains:
+
+- Order details.
+- Items.
+- Quantity.
+- Special instructions.
+
+The kitchen receives the ticket and executes it.
+
+The ticket represents the command.
+
+**Why?**
+
+You want to separate the person requesting an operation from the object executing it.
+
+**How – C#**
+
+```
+public interface ICommand
+{
+    void Execute();
+}
+
+public class PrepareFoodCommand : ICommand
+{
+    public void Execute()
+    {
+        Console.WriteLine("Food is being prepared");
+    }
+}
+
+public class Waiter
+{
+    public void Submit(ICommand command)
+    {
+        command.Execute();
+    }
+}
+```
+
+Usage:
+
+```
+var waiter = new Waiter();
+
+ICommand command = new PrepareFoodCommand();
+
+waiter.Submit(command);
+```
+
+**When to use?**
+
+- Background jobs.
+- Task queues.
+- Undo/redo functionality.
+- Audit logging.
+- Scheduling operations.
+- Decoupling request creation from execution.
+
+**Real-world .NET example**
+
+MediatR-style request handling:
+
+```
+public record CreateOrderCommand(
+    string CustomerName,
+    decimal Amount);
+```
+
+A handler processes the command.
+
+Note: MediatR is a library that can implement a request/handler architecture; the Command pattern is the underlying design concept, not the library itself.
+
+## **15. Interpreter Pattern**
+
+Behavioural
+
+**What?**
+
+Defines a grammar and provides an interpreter that evaluates sentences or expressions based on that grammar.
+
+**Restaurant analogy**
+
+A restaurant supports a simple discount language:
+
+```
+ORDER > 1000
+AND CUSTOMER = PREMIUM
+```
+
+The system interprets this expression and decides whether the customer qualifies for a discount.
+
+**Why?**
+
+Sometimes you need to evaluate simple business expressions dynamically without hardcoding every possible rule.
+
+**How – C#**
+
+For a simple expression:
+
+```
+public interface IExpression
+{
+    bool Interpret();
+}
+
+public class PremiumCustomerExpression : IExpression
+{
+    public bool Interpret() => true;
+}
+
+public class HighOrderExpression : IExpression
+{
+    private readonly decimal _amount;
+
+    public HighOrderExpression(decimal amount)
+    {
+        _amount = amount;
+    }
+
+    public bool Interpret() => _amount > 1000;
+}
+```
+
+Combining expressions:
+
+```
+public class AndExpression : IExpression
+{
+    private readonly IExpression _left;
+    private readonly IExpression _right;
+
+    public AndExpression(
+        IExpression left,
+        IExpression right)
+    {
+        _left = left;
+        _right = right;
+    }
+
+    public bool Interpret()
+    {
+        return _left.Interpret() && _right.Interpret();
+    }
+}
+```
+
+Usage:
+
+```
+IExpression rule = new AndExpression(
+    new PremiumCustomerExpression(),
+    new HighOrderExpression(1500));
+
+Console.WriteLine(rule.Interpret()); // True
+```
+
+**When to use?**
+
+- Small domain-specific languages.
+- Rule evaluation.
+- Expression parsing.
+- Simple mathematical expressions.
+
+**Principal Engineer perspective**
+
+For complex business rules, consider a dedicated rules engine or expression parser rather than building a large custom Interpreter hierarchy.
+
+## **16. Iterator Pattern**
+
+Behavioural
+
+**What?**
+
+Provides a way to access elements of a collection sequentially without exposing its internal representation.
+
+**Restaurant analogy**
+
+A customer asks to see the restaurant menu.
+
+The customer doesn't need to know whether the menu is stored as:
+
+- An array.
+- A list.
+- A database query.
+- A tree.
+
+They just need to browse items one by one.
+
+**Why?**
+
+It separates collection traversal from the underlying collection implementation.
+
+**How – C#**
+
+.NET already provides iterator functionality using `IEnumerable<T>` and `IEnumerator<T>`.
+
+```
+public class RestaurantMenu
+{
+    private readonly List<string> _items =
+        new() { "Pizza", "Burger", "Coffee" };
+
+    public IEnumerable<string> GetItems()
+    {
+        foreach (var item in _items)
+        {
+            yield return item;
+        }
+    }
+}
+```
+
+Usage:
+
+```
+var menu = new RestaurantMenu();
+
+foreach (var item in menu.GetItems())
+{
+    Console.WriteLine(item);
+}
+```
+
+**When to use?**
+
+- Sequential collection access.
+- Hiding internal data structures.
+- Lazy evaluation.
+- Streaming large datasets.
+
+**Real-world .NET examples**
+
+- `IEnumerable<T>`
+- `IEnumerator<T>`
+- `yield return`
+- LINQ deferred execution.
+
+## **17. Mediator Pattern**
+
+Behavioural
+
+**What?**
+
+Defines a central object that coordinates communication between multiple objects, reducing direct dependencies between them.
+
+**Restaurant analogy**
+
+Imagine these restaurant departments:
+
+- Kitchen.
+- Waiter.
+- Billing.
+- Inventory.
+- Notification.
+
+Without a mediator, every department might communicate directly with every other department.
+
+For example:
+
+```
+Kitchen ↔ Billing
+Kitchen ↔ Inventory
+Kitchen ↔ Notification
+Waiter ↔ Billing
+Waiter ↔ Kitchen
+Billing ↔ Notification
+```
+
+This creates too many dependencies.
+
+Instead, introduce a restaurant coordinator.
+
+```
+           Restaurant Mediator
+          /    |    |    \
+     Kitchen Waiter Billing Inventory
+```
+
+Each department communicates through the mediator.
+
+**Why?**
+
+To reduce direct coupling between collaborating objects.
+
+**How – C#**
+
+```
+public interface IRestaurantMediator
+{
+    void Notify(string sender, string message);
+}
+
+public class RestaurantMediator : IRestaurantMediator
+{
+    public void Notify(string sender, string message)
+    {
+        Console.WriteLine($"{sender}: {message}");
+    }
+}
+
+public class Kitchen
+{
+    private readonly IRestaurantMediator _mediator;
+
+    public Kitchen(IRestaurantMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    public void FoodReady()
+    {
+        _mediator.Notify("Kitchen", "Food is ready");
+    }
+}
+```
+
+**When to use?**
+
+- Complex object interactions.
+- UI event coordination.
+- Workflow orchestration.
+- Reducing many-to-many dependencies.
+
+**Real-world .NET example**
+
+MediatR-style application architecture:
+
+```
+API Controller
+      |
+      v
+  Mediator
+      |
+      v
+Command Handler
+      |
+      v
+Application Service
+```
+
+**Mediator vs Facade**
+
+- Facade simplifies access to a subsystem.
+- Mediator coordinates communication between collaborating objects.
+
+## **18. Memento Pattern**
+
+Behavioural
+
+**What?**
+
+Captures and stores an object's previous state so that it can be restored later without exposing its internal implementation.
+
+**Restaurant analogy**
+
+A customer customises an order:
+
+```
+Original order:
+Large pizza + Cheese
+
+Modified order:
+Large pizza + Cheese + Olives + Mushroom
+```
+
+The customer says:
+
+"Undo my last change."
+
+The system restores the earlier order state.
+
+**Why?**
+
+You need to preserve previous states without exposing the object's internal fields.
+
+**How – C#**
+
+```
+public class OrderMemento
+{
+    public string State { get; }
+
+    public OrderMemento(string state)
+    {
+        State = state;
+    }
+}
+
+public class Order
+{
+    public string State { get; set; } = "";
+
+    public OrderMemento Save()
+    {
+        return new OrderMemento(State);
+    }
+
+    public void Restore(OrderMemento memento)
+    {
+        State = memento.State;
+    }
+}
+```
+
+Usage:
+
+```
+var order = new Order();
+
+order.State = "Pizza + Cheese";
+
+var previousState = order.Save();
+
+order.State = "Pizza + Cheese + Olives";
+
+order.Restore(previousState);
+
+Console.WriteLine(order.State);
+```
+
+**When to use?**
+
+- Undo/redo functionality.
+- State restoration.
+- Draft editing.
+- Checkpoint systems.
+- Transactional state recovery.
+
+**Real-world examples**
+
+- Text editor undo.
+- Game save states.
+- Workflow checkpoints.
+
+## **19. Observer Pattern**
+
+Behavioural
+
+**What?**
+
+Defines a one-to-many dependency so that when one object changes state, all registered observers are notified automatically.
+
+**Restaurant analogy**
+
+The kitchen completes an order.
+
+Several people or systems need to know:
+
+- Waiter needs to collect the food.
+- Customer needs a notification.
+- Order tracking needs an update.
+- Reporting system needs an event.
+
+Instead of the kitchen directly calling every system, it publishes an event.
+
+All interested observers receive the notification.
+
+**Why?**
+
+To decouple the publisher from its subscribers.
+
+**How – C#**
+
+```
+public class Kitchen
+{
+    public event Action? FoodReady;
+
+    public void CompleteOrder()
+    {
+        Console.WriteLine("Food prepared");
+
+        FoodReady?.Invoke();
+    }
+}
+```
+
+Observers:
+
+```
+var kitchen = new Kitchen();
+
+kitchen.FoodReady += () =>
+    Console.WriteLine("Waiter notified");
+
+kitchen.FoodReady += () =>
+    Console.WriteLine("Customer notified");
+
+kitchen.CompleteOrder();
+```
+
+**When to use?**
+
+- Event-driven applications.
+- UI notifications.
+- Domain events.
+- State-change notifications.
+- Publish-subscribe communication.
+
+**Real-world .NET examples**
+
+- C# events and delegates.
+- `INotifyPropertyChanged`.
+- Event-driven application workflows.
+
+**Important distinction:**
+
+In-process Observer and distributed Pub/Sub are related concepts, but they are not identical.
+
+For example:
+
+```
+Kitchen Service
+      |
+      v
+    Kafka
+      |
+      +---- Notification Service
+      |
+      +---- Tracking Service
+      |
+      +---- Reporting Service
+```
+
+Kafka provides distributed event delivery, whereas the classic GOF Observer pattern usually operates between objects in one process.
+
+## **20. State Pattern**
+
+Behavioural
+
+**What?**
+
+Allows an object to change its behaviour when its internal state changes.
+
+**Restaurant analogy**
+
+An order goes through different states:
+
+```
+Created
+   |
+   v
+Confirmed
+   |
+   v
+Preparing
+   |
+   v
+Ready
+   |
+   v
+Delivered
+```
+
+The operations available depend on the current state.
+
+For example:
+
+- Created → Can confirm.
+- Confirmed → Can start preparation.
+- Preparing → Can mark ready.
+- Delivered → Cannot cancel.
+
+**Why?**
+
+Without State:
+
+```
+if (status == "Created")
+{
+    // ...
+}
+else if (status == "Preparing")
+{
+    // ...
+}
+else if (status == "Delivered")
+{
+    // ...
+}
+```
+
+As the number of states and transitions grows, conditional logic becomes difficult to maintain.
+
+**How – C#**
+
+```
+public interface IOrderState
+{
+    void Process(OrderContext order);
+}
+
+public class CreatedState : IOrderState
+{
+    public void Process(OrderContext order)
+    {
+        Console.WriteLine("Order confirmed");
+
+        order.SetState(new PreparingState());
+    }
+}
+
+public class PreparingState : IOrderState
+{
+    public void Process(OrderContext order)
+    {
+        Console.WriteLine("Food prepared");
+
+        order.SetState(new ReadyState());
+    }
+}
+
+public class ReadyState : IOrderState
+{
+    public void Process(OrderContext order)
+    {
+        Console.WriteLine("Order ready");
+    }
+}
+```
+
+Context:
+
+```
+public class OrderContext
+{
+    private IOrderState _state = new CreatedState();
+
+    public void SetState(IOrderState state)
+    {
+        _state = state;
+    }
+
+    public void Process()
+    {
+        _state.Process(this);
+    }
+}
+```
+
+**When to use?**
+
+- Complex state transitions.
+- Order lifecycle management.
+- Payment lifecycle.
+- Workflow management.
+- Device operating modes.
+
+**State vs Strategy**
+
+| State                                   | Strategy                                 |
+| --------------------------------------- | ---------------------------------------- |
+| Behaviour depends on internal state     | Behaviour depends on selected algorithm  |
+| State transitions may happen internally | Strategy is usually selected or injected |
+| Example: Order lifecycle                | Example: Payment method                  |
+
+## **21. Strategy Pattern**
+
+Behavioural
+
+**What?**
+
+Defines a family of interchangeable algorithms, encapsulates each one and makes them interchangeable at runtime.
+
+**Restaurant analogy**
+
+Your restaurant calculates delivery charges differently depending on the delivery method:
+
+- Normal delivery.
+- Express delivery.
+- Free delivery for premium customers.
+
+Instead of writing all calculation logic inside one method, create separate strategies.
+
+**Why?**
+
+You want to change the algorithm without changing the class that uses it.
+
+**How – C#**
+
+```
+public interface IDeliveryStrategy
+{
+    decimal CalculateCharge(decimal amount);
+}
+
+public class NormalDelivery : IDeliveryStrategy
+{
+    public decimal CalculateCharge(decimal amount)
+        => 50;
+}
+
+public class ExpressDelivery : IDeliveryStrategy
+{
+    public decimal CalculateCharge(decimal amount)
+        => 100;
+}
+
+public class FreeDelivery : IDeliveryStrategy
+{
+    public decimal CalculateCharge(decimal amount)
+        => 0;
+}
+```
+
+Context:
+
+```
+public class DeliveryService
+{
+    private readonly IDeliveryStrategy _strategy;
+
+    public DeliveryService(IDeliveryStrategy strategy)
+    {
+        _strategy = strategy;
+    }
+
+    public decimal GetCharge(decimal amount)
+    {
+        return _strategy.CalculateCharge(amount);
+    }
+}
+```
+
+Usage:
+
+```
+var delivery = new DeliveryService(new ExpressDelivery());
+
+Console.WriteLine(delivery.GetCharge(500));
+```
+
+**When to use?**
+
+- Multiple interchangeable algorithms.
+- Payment methods.
+- Pricing calculations.
+- Discount calculations.
+- Compression algorithms.
+- Authentication mechanisms.
+
+**Real-world .NET example**
+
+```
+services.AddScoped<IDeliveryStrategy, NormalDelivery>();
+```
+
+You can also select strategies dynamically using a factory or keyed dependency injection.
+
+## **22. Template Method Pattern**
+
+Behavioural
+
+**What?**
+
+Defines the skeleton of an algorithm in a base class while allowing subclasses to override specific steps.
+
+**Restaurant analogy**
+
+Every food order follows the same overall process:
+
+1. Accept order.
+2. Prepare ingredients.
+3. Cook food.
+4. Pack food.
+5. Serve customer.
+
+But different dishes have different cooking procedures.
+
+Pizza and burgers follow the same overall workflow but differ in how they are cooked.
+
+**Why?**
+
+You want to reuse common workflow steps while allowing specific steps to vary.
+
+**How – C#**
+
+```
+public abstract class FoodPreparation
+{
+    public void Prepare()
+    {
+        AcceptOrder();
+        PrepareIngredients();
+        Cook();
+        Serve();
+    }
+
+    private void AcceptOrder()
+    {
+        Console.WriteLine("Order accepted");
+    }
+
+    protected abstract void PrepareIngredients();
+
+    protected abstract void Cook();
+
+    private void Serve()
+    {
+        Console.WriteLine("Food served");
+    }
+}
+```
+
+Concrete implementation:
+
+```
+public class PizzaPreparation : FoodPreparation
+{
+    protected override void PrepareIngredients()
+    {
+        Console.WriteLine("Prepare pizza ingredients");
+    }
+
+    protected override void Cook()
+    {
+        Console.WriteLine("Bake pizza");
+    }
+}
+```
+
+Usage:
+
+```
+FoodPreparation food = new PizzaPreparation();
+
+food.Prepare();
+```
+
+**When to use?**
+
+- Fixed business workflows.
+- Common processing pipelines.
+- Import/export processes.
+- Report generation.
+- Framework extension points.
+
+**Strategy vs Template Method**
+
+- Strategy: Change the complete algorithm by selecting another implementation.
+- Template Method: Keep the overall algorithm fixed and override selected steps.
+
+## **23. Visitor Pattern**
+
+Behavioural
+
+**What?**
+
+Allows you to add new operations to a group of existing object types without modifying those object classes.
+
+**Restaurant analogy**
+
+Your restaurant has different menu items:
+
+- Pizza.
+- Burger.
+- Coffee.
+
+Now you want to perform different operations:
+
+- Calculate tax.
+- Calculate discounts.
+- Generate nutritional reports.
+
+You don't want to modify every menu item class whenever a new operation is introduced.
+
+Instead, create visitors that perform these operations on the different item types.
+
+**Why?**
+
+It separates operations from the objects on which those operations are performed.
+
+**How – C#**
+
+Element interface:
+
+```
+public interface IMenuItem
+{
+    void Accept(IMenuVisitor visitor);
+}
+```
+
+Concrete elements:
+
+```
+public class Pizza : IMenuItem
+{
+    public decimal Price => 300;
+
+    public void Accept(IMenuVisitor visitor)
+    {
+        visitor.Visit(this);
+    }
+}
+
+public class Burger : IMenuItem
+{
+    public decimal Price => 150;
+
+    public void Accept(IMenuVisitor visitor)
+    {
+        visitor.Visit(this);
+    }
+}
+```
+
+Visitor:
+
+```
+public interface IMenuVisitor
+{
+    void Visit(Pizza pizza);
+    void Visit(Burger burger);
+}
+```
+
+Tax visitor:
+
+```
+public class TaxVisitor : IMenuVisitor
+{
+    public void Visit(Pizza pizza)
+    {
+        Console.WriteLine(pizza.Price * 0.05m);
+    }
+
+    public void Visit(Burger burger)
+    {
+        Console.WriteLine(burger.Price * 0.05m);
+    }
+}
+```
+
+Usage:
+
+```
+var visitor = new TaxVisitor();
+
+IMenuItem pizza = new Pizza();
+IMenuItem burger = new Burger();
+
+pizza.Accept(visitor);
+burger.Accept(visitor);
+```
+
+**When to use?**
+
+- Stable object structures with frequently added operations.
+- Compilers and syntax trees.
+- Complex reporting.
+- Different calculations over a fixed object hierarchy.
+
+**Trade-off**
+
+Visitor makes adding new operations easier, but adding a new element type requires updating the visitor interface and its implementations.
+
+## **Behavioural patterns – Quick revision**
+
+| Pattern                 | Main purpose                        | Restaurant analogy        |
+| ----------------------- | ----------------------------------- | ------------------------- |
+| Chain of Responsibility | Pass request through handlers       | Refund approval hierarchy |
+| Command                 | Encapsulate request as an object    | Kitchen order ticket      |
+| Interpreter             | Evaluate expressions                | Discount rule language    |
+| Iterator                | Traverse a collection               | Browse restaurant menu    |
+| Mediator                | Coordinate object communication     | Restaurant coordinator    |
+| Memento                 | Save and restore state              | Undo order changes        |
+| Observer                | Notify interested objects           | Kitchen notifies waiter   |
+| State                   | Behaviour changes with state        | Order lifecycle           |
+| Strategy                | Interchangeable algorithms          | Delivery pricing          |
+| Template Method         | Fixed workflow with variable steps  | Food preparation          |
+| Visitor                 | Add operations to object structures | Tax and discount visitors |
+
+**Remember:** Behavioural patterns answer: *How should objects collaborate and distribute responsibilities?*
+
+# **PART D – How to identify which pattern to use?**
+
+This is the most important section for interviews and real-world architecture.
+
+In production, you rarely think:
+
+"I need to implement the Decorator pattern."
+
+Instead, you encounter a problem and identify the pattern that solves it.
+
+## **24. Problem → Design Pattern mapping**
+
+| Your problem                                    | Pattern to consider     |
+| ----------------------------------------------- | ----------------------- |
+| Only one shared instance is needed              | Singleton               |
+| Object creation varies by type                  | Factory Method          |
+| Need families of related objects                | Abstract Factory        |
+| Complex object has many configuration options   | Builder                 |
+| Need to create copies of existing objects       | Prototype               |
+| Third-party interface is incompatible           | Adapter                 |
+| Two dimensions need independent variation       | Bridge                  |
+| Need to represent a tree of objects             | Composite               |
+| Need to add behaviour dynamically               | Decorator               |
+| Complex subsystem needs a simple entry point    | Facade                  |
+| Too many similar objects consume memory         | Flyweight               |
+| Need controlled access to another object        | Proxy                   |
+| Request must pass through multiple handlers     | Chain of Responsibility |
+| Need to encapsulate an operation                | Command                 |
+| Need to evaluate a grammar or expression        | Interpreter             |
+| Need to traverse collections uniformly          | Iterator                |
+| Multiple objects need coordinated communication | Mediator                |
+| Need undo/restore functionality                 | Memento                 |
+| Need to notify multiple subscribers             | Observer                |
+| Behaviour changes based on object state         | State                   |
+| Need interchangeable algorithms                 | Strategy                |
+| Workflow is fixed but some steps vary           | Template Method         |
+| Need to add operations to existing object types | Visitor                 |
+
+## **25. Important GOF pattern comparisons**
+
+These comparisons are particularly important for Principal Engineer interviews.
+
+### **A. Factory Method vs Abstract Factory vs Builder**
+
+| Comparison        | Factory Method        | Abstract Factory          | Builder                   |
+| ----------------- | --------------------- | ------------------------- | ------------------------- |
+| Primary purpose   | Create an object      | Create related objects    | Construct complex object  |
+| Focus             | Which implementation? | Which product family?     | How to construct?         |
+| Typical mechanism | Inheritance           | Composition/interfaces    | Step-by-step construction |
+| Example           | Delivery processor    | Premium restaurant family | Custom pizza              |
+
+### **B. Adapter vs Decorator vs Proxy vs Facade**
+
+These four are frequently confused.
+
+| Pattern   | What does it do?       | Restaurant example               |
+| --------- | ---------------------- | -------------------------------- |
+| Adapter   | Converts interface     | Converts delivery partner format |
+| Decorator | Adds behaviour         | Adds extra cheese                |
+| Proxy     | Controls access        | VIP receptionist                 |
+| Facade    | Simplifies interaction | Waiter coordinates departments   |
+
+### **C. Strategy vs State vs Template Method**
+
+| Pattern         | Core idea                          | Example          |
+| --------------- | ---------------------------------- | ---------------- |
+| Strategy        | Choose an algorithm                | Delivery pricing |
+| State           | Behaviour depends on current state | Order lifecycle  |
+| Template Method | Fixed workflow, variable steps     | Food preparation |
+
+### **D. Observer vs Mediator vs Chain of Responsibility**
+
+| Pattern                 | Core idea                   | Example                           |
+| ----------------------- | --------------------------- | --------------------------------- |
+| Observer                | One-to-many notification    | Kitchen notifies multiple systems |
+| Mediator                | Central coordination        | Restaurant coordinator            |
+| Chain of Responsibility | Sequential request handling | Refund approvals                  |
+
+# **PART E – GOF patterns in real-world .NET architecture**
+
+Let's connect these patterns to technologies you encounter in enterprise .NET applications.
+
+| Technology / Framework                | Related design pattern                                 |
+| ------------------------------------- | ------------------------------------------------------ |
+| ASP.NET Core Dependency Injection     | Factory, Singleton, other lifetime management concepts |
+| `IEnumerable<T>` / `IEnumerator<T>`   | Iterator                                               |
+| C# events and delegates               | Observer                                               |
+| ASP.NET Core middleware pipeline      | Chain of Responsibility and Decorator concepts         |
+| `IHttpClientFactory`                  | Factory                                                |
+| `IOptions<T>`                         | Configuration abstraction; can be used alongside DI    |
+| Entity Framework lazy-loading proxies | Proxy                                                  |
+| LINQ expression trees                 | Interpreter-like expression evaluation concepts        |
+| `IHostedService` / background jobs    | Can use Command                                        |
+| MediatR                               | Mediator and Command-style request handling            |
+| `DbContext`                           | Unit of Work pattern (not GOF)                         |
+| Repository                            | Repository pattern (not GOF)                           |
+
+Important: Not every framework feature is a pure implementation of a GOF pattern. These are architectural relationships, not strict equivalences.
+
+## **26. How multiple patterns work together**
+
+Let's design a restaurant order-processing system.
+
+**Customer places an order**
+
+**Factory Method**
+
+Creates the appropriate order processor
+
+**Command**
+
+Encapsulates the order request
+
+**Chain of Responsibility**
+
+Validates and processes the order
+
+**Strategy**
+
+Selects payment method
+
+**State**
+
+Moves order to Confirmed / Preparing / Ready
+
+**Observer**
+
+Notifies waiter, customer and tracking system
+
+This is how design patterns complement each other.
+
+One important architectural point: in a distributed .NET microservices application, you wouldn't necessarily implement all these patterns as class-level patterns. Some responsibilities may be implemented through messaging, middleware, database transactions and service orchestration.
+
+# **PART F – Principal Engineer perspective**
+
+Knowing the names of 23 patterns is not enough.
+
+At Principal Engineer level, interviewers expect you to explain why you selected a pattern and what trade-offs it introduces.
+
+### **1. Don't force design patterns**
+
+Suppose you have only two payment methods.
+
+A simple interface and two implementations may be sufficient.
+
+You don't necessarily need:
+
+- Abstract Factory.
+- Builder.
+- Strategy.
+- Mediator.
+- Five additional abstraction layers.
+
+Use patterns when they solve an actual design problem.
+
+### **2. Design patterns should improve maintainability**
+
+Evaluate:
+
+- Does the pattern reduce coupling?
+- Does it improve testability?
+- Does it make extension easier?
+- Does it introduce unnecessary complexity?
+- Does it make the code easier for other engineers to understand?
+
+### **3. Patterns are not mutually exclusive**
+
+One application can use multiple patterns.
+
+For example:
+
+```
+PaymentService
+    |
+    v
+PaymentFactory
+    |
+    +---- RazorpayAdapter
+    |
+    +---- StripeAdapter
+    |
+    v
+PaymentStrategy
+    |
+    v
+PaymentGateway
+```
+
+Here, Factory and Strategy concepts can work together, while Adapter protects your application from provider-specific APIs.
+
+### **4. Understand the difference between patterns and principles**
+
+| Concept | Purpose                                            |
+| ------- | -------------------------------------------------- |
+| SOLID   | Principles for maintainable object-oriented design |
+| GOF     | Reusable solutions to recurring design problems    |
+| DRY     | Avoid unnecessary duplication                      |
+| KISS    | Keep solutions simple                              |
+| YAGNI   | Don't build functionality before it's needed       |
+| DDD     | Model complex business domains                     |
+| CQRS    | Separate read and write models/operations          |
+
+Patterns help implement good designs; they don't automatically guarantee good architecture.
+
+# **PART G – Interview knowledge validation**
+
+Try answering these questions without looking at the explanations.
+
+**GOF pattern assessment**
+
+8 questions
+
+0/8
+
+**1. You integrate Razorpay, Stripe and PayPal, each exposing different APIs. Which pattern helps normalise their interfaces?**
+
+Decorator
+
+Adapter
+
+Composite
+
+Flyweight
+
+**2. You want to add logging and caching around an existing service without modifying it.**
+
+Proxy
+
+Builder
+
+Decorator
+
+Visitor
+
+**3. An order's allowed operations depend on whether it is Created, Preparing or Delivered.**
+
+Strategy
+
+State
+
+Observer
+
+Command
+
+**4. You have different related database provider implementations that must be created as compatible families.**
+
+Abstract Factory
+
+Prototype
+
+Iterator
+
+Memento
+
+**5. The kitchen publishes an event and several independent subscribers need to receive notifications.**
+
+Mediator
+
+Observer
+
+Facade
+
+Bridge
+
+**6. You need a complex request to pass through authentication, validation and approval handlers.**
+
+Command
+
+Chain of Responsibility
+
+Visitor
+
+Singleton
+
+**7. You need a fixed workflow, but subclasses should implement selected steps differently.**
+
+Strategy
+
+State
+
+Template Method
+
+Adapter
+
+**8. You need to create a complex object with many optional properties through readable steps.**
+
+Builder
+
+Factory Method
+
+Proxy
+
+Interpreter
+
+Submit answers
+
+# **Final revision – All 23 GOF patterns**
+
+**Creational – 5**
+
+1. Singleton
+2. Factory Method
+3. Abstract Factory
+4. Builder
+5. Prototype
+
+   **Structural – 7**
+6. Adapter
+7. Bridge
+8. Composite
+9. Decorator
+10. Facade
+11. Flyweight
+12. Proxy
+
+    **Behavioural – 11**
+13. Chain of Responsibility
+14. Command
+15. Interpreter
+16. Iterator
+17. Mediator
+18. Memento
+19. Observer
+20. State
+21. Strategy
+22. Template Method
+23. Visitor
+
+**My recommendation for your Principal .NET Engineer interview preparation:** Prioritise Strategy, Factory, Abstract Factory, Decorator, Adapter, Proxy, Observer, Mediator, Chain of Responsibility, Command and State. Understand the remaining patterns as well, but be particularly comfortable implementing and defending the trade-offs of these frequently encountered patterns.
+
+The next valuable exercise is to implement a small .NET 8 restaurant-ordering application combining these patterns, with interfaces, DI registration, unit tests and real execution flows.
